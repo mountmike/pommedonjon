@@ -49,9 +49,10 @@ const HISTORY_MS = DAY_MS;
 const STALE_ALERT = "stale";
 
 /**
- * Decides, device by device, whether now is the moment to back up, and runs
- * the backup when it is. Devices are handled one at a time so two phones
- * never compete for the disk or the network.
+ * Decides, for each device, whether now is the moment to back up, and runs
+ * the backup when it is. Every device has its own independent cycle: two
+ * phones can back up at the same time, and one that is slow, faulty or
+ * waiting on its owner never delays another.
  */
 export class Daemon {
   /** The last thing logged per device, so the log shows changes, not polls. */
@@ -75,34 +76,40 @@ export class Daemon {
       pollIntervalSeconds: config.pollIntervalSeconds,
     });
 
-    while (!signal.aborted) {
-      await this.tick(signal);
-      await sleep(config.pollIntervalSeconds * 1000, signal);
-    }
+    await Promise.all(config.devices.map((device) => this.#cycle(device, signal)));
     log("info", "nightstand stopped");
   }
 
-  /** One pass over every configured device. */
-  async tick(signal?: AbortSignal): Promise<DeviceOutcome[]> {
-    const outcomes: DeviceOutcome[] = [];
-    for (const device of this.deps.config.devices) {
-      if (signal?.aborted) break;
-      let outcome: DeviceOutcome;
-      try {
-        outcome = await this.#consider(device, signal);
-      } catch (error) {
-        // One device's fault must not stop the others being considered.
-        const message = error instanceof Error ? error.message : String(error);
-        this.deps.log("error", "unexpected error considering a device", {
-          device: device.id,
-          error: message,
-        });
-        outcome = { deviceId: device.id, action: "waited", reason: "error" };
-      }
-      this.#logChange(outcome);
-      outcomes.push(outcome);
+  /** One device's cycle: consider it, pause, repeat, until told to stop. */
+  async #cycle(device: DeviceConfig, signal: AbortSignal): Promise<void> {
+    const { config, sleep } = this.deps;
+    while (!signal.aborted) {
+      await this.#pass(device, signal);
+      await sleep(config.pollIntervalSeconds * 1000, signal);
     }
-    return outcomes;
+  }
+
+  /** Consider every configured device once, all at the same time. */
+  tick(signal?: AbortSignal): Promise<DeviceOutcome[]> {
+    return Promise.all(this.deps.config.devices.map((device) => this.#pass(device, signal)));
+  }
+
+  /** Consider one device once. Never rejects. */
+  async #pass(device: DeviceConfig, signal?: AbortSignal): Promise<DeviceOutcome> {
+    let outcome: DeviceOutcome;
+    try {
+      outcome = await this.#consider(device, signal);
+    } catch (error) {
+      // One device's fault must not stop it, or the others, being considered.
+      const message = error instanceof Error ? error.message : String(error);
+      this.deps.log("error", "unexpected error considering a device", {
+        device: device.id,
+        error: message,
+      });
+      outcome = { deviceId: device.id, action: "waited", reason: "error" };
+    }
+    this.#logChange(outcome);
+    return outcome;
   }
 
   async #consider(device: DeviceConfig, signal?: AbortSignal): Promise<DeviceOutcome> {

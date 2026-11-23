@@ -70,6 +70,7 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
   };
 
   const sleeps: number[] = [];
+  let onSleep = (): void => undefined;
   const daemon = new Daemon({
     config,
     transport,
@@ -88,9 +89,11 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     },
     log: (level, message, fields) => logs.push({ level, message, fields }),
     clock: () => now,
-    sleep: (ms) => {
+    sleep: async (ms) => {
       sleeps.push(ms);
-      return Promise.resolve();
+      onSleep();
+      // Yield for real, so cycles that never wait on anything else take turns.
+      await settle();
     },
   });
 
@@ -106,6 +109,9 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     },
     setRun: (impl: typeof runImpl) => {
       runImpl = impl;
+    },
+    onSleep: (callback: () => void) => {
+      onSleep = callback;
     },
   };
 }
@@ -124,6 +130,35 @@ const ON_BATTERY = {
   externalPowerConnected: false,
   fullyCharged: false,
 };
+
+function sam(): DeviceConfig {
+  return deviceConfig({
+    id: "sam",
+    name: "Sam's iPhone",
+    udid: "00008150-000F0E0D0C0B002E",
+    host: "10.0.0.8",
+  });
+}
+
+/** Each device answers a probe with its own identity. */
+function probeEachAsItself(h: ReturnType<typeof harness>): FakeTransport["probe"] {
+  return (target) => {
+    h.transport.probes.push(target);
+    return Promise.resolve(fakeStatus({ udid: target.udid }));
+  };
+}
+
+/** A promise that settles only when told to, to hold a backup "in progress". */
+function gate<T>() {
+  let open!: (value: T) => void;
+  const closed = new Promise<T>((resolve) => {
+    open = resolve;
+  });
+  return { closed, open };
+}
+
+/** Let everything that is ready to run, run. */
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 describe("Daemon.tick", () => {
   it("backs up a device that is due, home and on a charger", async () => {
@@ -225,28 +260,18 @@ describe("Daemon.tick", () => {
     expect(h.ran).toEqual(["mike", "mike", "mike"]);
   });
 
-  it("handles devices one at a time, and one device's fault does not skip the next", async () => {
-    const second = deviceConfig({
-      id: "sam",
-      name: "Sam's iPhone",
-      udid: "00008150-000F0E0D0C0B002E",
-      host: "10.0.0.8",
-    });
-    const h = harness([deviceConfig(), second]);
+  it("considers every device even when one of them throws", async () => {
+    const h = harness([deviceConfig(), sam()]);
     h.setRun((device) =>
       device.id === "mike"
         ? Promise.reject(new Error("disk on fire"))
         : Promise.resolve({ runId: 1, outcome: "succeeded", durationMs: 1 }),
     );
-    // Each device is probed with its own identity.
-    h.transport.probe = (target) => {
-      h.transport.probes.push(target);
-      return Promise.resolve(fakeStatus({ udid: target.udid }));
-    };
+    h.transport.probe = probeEachAsItself(h);
 
     const outcomes = await h.daemon.tick();
 
-    expect(h.ran).toEqual(["mike", "sam"]);
+    expect(h.ran.sort()).toEqual(["mike", "sam"]);
     expect(outcomes).toMatchObject([
       { deviceId: "mike", action: "waited", reason: "error" },
       { deviceId: "sam", action: "backed-up" },
@@ -408,19 +433,97 @@ describe("Daemon stale alerts", () => {
   });
 });
 
+describe("Daemon with two phones", () => {
+  it("backs up both at the same time when both are ready", async () => {
+    const h = harness([deviceConfig(), sam()]);
+    h.transport.probe = probeEachAsItself(h);
+    const inProgress = new Set<string>();
+    let mostAtOnce = 0;
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      inProgress.add(device.id);
+      mostAtOnce = Math.max(mostAtOnce, inProgress.size);
+      await release.closed;
+      inProgress.delete(device.id);
+      return { runId: 1, outcome: "succeeded", durationMs: 1 };
+    });
+
+    const tick = h.daemon.tick();
+    await settle();
+    expect([...inProgress].sort()).toEqual(["mike", "sam"]);
+
+    release.open();
+    expect(await tick).toMatchObject([
+      { deviceId: "mike", action: "backed-up" },
+      { deviceId: "sam", action: "backed-up" },
+    ]);
+    expect(mostAtOnce).toBe(2);
+  });
+
+  it("keeps watching one phone while the other's backup is still running", async () => {
+    const h = harness([deviceConfig(), sam()]);
+    h.transport.probe = (target) => {
+      h.transport.probes.push(target);
+      // Sam is home but on battery; Mike is on a charger.
+      return Promise.resolve(
+        target.udid === FAKE_UDID
+          ? fakeStatus()
+          : fakeStatus({ udid: target.udid, battery: ON_BATTERY }),
+      );
+    };
+    const mikesBackup = gate<RunReport>();
+    h.setRun(() => mikesBackup.closed);
+    const controller = new AbortController();
+    const polls = gate<void>();
+    let samProbes = 0;
+    h.onSleep(() => {
+      samProbes = h.transport.probes.filter((probe) => probe.udid !== FAKE_UDID).length;
+      if (samProbes >= 3) polls.open();
+    });
+
+    const running = h.daemon.run(controller.signal);
+    await polls.closed;
+
+    // Mike's backup has not finished, yet Sam has been looked at three times.
+    expect(h.ran).toEqual(["mike"]);
+    expect(samProbes).toBeGreaterThanOrEqual(3);
+
+    controller.abort();
+    mikesBackup.open({ runId: 1, outcome: "succeeded", durationMs: 1 });
+    await running;
+  });
+
+  it("never starts a second backup of a phone whose first is still running", async () => {
+    const h = harness();
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+
+    const first = h.daemon.tick();
+    await settle();
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "already-running" },
+    ]);
+    expect(h.ran).toEqual(["mike"]);
+
+    release.open();
+    await first;
+  });
+});
+
 describe("Daemon.run", () => {
   it("closes off interrupted runs, polls at the configured interval, and stops on abort", async () => {
     const h = harness();
     const orphan = state.startRun("mike", at(18, 0, -1));
     const controller = new AbortController();
     h.transport.probeResult = new DeviceError("no answer", "unreachable");
-    let ticks = 0;
-    const originalTick = h.daemon.tick.bind(h.daemon);
-    h.daemon.tick = async (signal) => {
-      ticks += 1;
-      if (ticks === 3) controller.abort();
-      return originalTick(signal);
-    };
+    h.onSleep(() => {
+      if (h.sleeps.length === 3) controller.abort();
+    });
 
     await h.daemon.run(controller.signal);
 
@@ -428,7 +531,7 @@ describe("Daemon.run", () => {
       outcome: "failed",
       failureReason: "interrupted",
     });
-    expect(ticks).toBe(3);
+    expect(h.transport.probes).toHaveLength(3);
     expect(h.sleeps).toEqual([120_000, 120_000, 120_000]);
     expect(h.logs.at(-1)?.message).toBe("nightstand stopped");
   });
