@@ -52,8 +52,11 @@ time comes; it is not part of the design or the build plan.
 1. **First build:** discovery, the charger trigger, phones in parallel,
    runtime-validated data, pair-record handling, published image and Compose
    example.
-2. **Notifications:** its own phase, not designed yet (O1).
-3. **Later, once the first build is done:** O8 to O15.
+2. **Field trial:** run it on the owner's phone for a week or two and watch
+   how the schedule and the process behave in ordinary use. Added by the
+   owner, 2026-11-24. See O16 for what it has to settle.
+3. **Notifications:** its own phase, not designed yet (O1).
+4. **Later:** O8 to O15.
 
 ## Decided
 
@@ -161,13 +164,15 @@ the right phone. Discovery only has to produce candidates.
 
 Which discovery mechanism is not decided. See O7. **To build.**
 
-### D7. Back up when the phone is on a charger and the last good backup is over 24 hours old
+### D7. Back up when the phone is on a charger and a backup is due
 
 *Decided by the owner, 2026-11-24.* This replaces the time window
-(07:00 to 22:00, due after 20 hours).
+(07:00 to 22:00).
 
 - The trigger is the phone being on external power with no verified backup
-  in the previous 24 hours.
+  in roughly the previous day.
+- "Due" means 20 hours since the last good backup, not 24. With exactly 24,
+  plugging in ten minutes earlier than yesterday would skip a day.
 - No time-of-day window by default. It stays available as an option.
 - Charger-only also sidesteps what was seen on battery: slow connections and
   a session dropped mid-prompt (FINDINGS.md, attempts 10 to 12).
@@ -176,7 +181,9 @@ Still fixed by evidence: every backup shows a passcode prompt that must be
 answered within 60 seconds, and there is no bypass. So the owner must be
 near the phone when it starts.
 
-Two details that need the owner's call. See O16. **To build.**
+Whether "on a charger" means the moment of plugging in or the whole time on
+power is left to the field trial. See O16. **To build**, with both
+behaviours available so the trial can compare them.
 
 ### D8. Keep asking after a timeout; treat a cancel differently
 
@@ -205,9 +212,8 @@ on an unlocked phone, and a keypad with a message on a locked one (attempt
 - Notifications are their own later phase (O1), so the first build starts
   backups without a heads-up reaching the phone.
 - The runner keeps its notification hook, which writes to the service log.
-- The owner's rule for what comes next: if it turns out a locked phone
-  never shows a message, nightstand only ever prompts on unlock (O2).
-  Every test from here on records what the prompt showed.
+- Prompting a locked phone is acceptable to the owner, now that a locked
+  prompt has been seen with a message (O2).
 
 ### D10. Encrypted backups only
 
@@ -348,14 +354,13 @@ once.
 
 ### O2. Prompt on unlock
 
-*Rule set by the owner, 2026-11-24:* if a locked phone turns out never to
-show a message with its passcode prompt, nightstand only ever prompts just
-after an unlock.
+*Closed by the owner, 2026-11-24.* The owner's rule was: if a locked phone
+never shows a message with its passcode prompt, only ever prompt just after
+an unlock. A locked phone has since shown a keypad with a message, so
+prompting while locked is acceptable and unlock-triggering is not needed.
 
-- Evidence so far does not meet that bar: a locked phone showed a bare
-  keypad once and a keypad with a message once.
-- Prompting on unlock also needs a test that has not been run: whether lock
-  and unlock can be observed over WiFi.
+Kept as a note: a locked phone showed a bare keypad once (attempt 8) and a
+keypad with a message once (attempt 12). What decides which is not known.
 
 ### O3. Preserving earlier backups
 
@@ -382,6 +387,10 @@ it could change what the Compose example has to look like:
 - If the report is true, a firewall rule alone will not be enough. The
   container would need an address on the phones' network, or the router
   would have to rewrite the source address.
+- Related evidence, 2026-11-24: over Tailscale the phone accepts the
+  connection and then drops the session (O8). That is a different interface
+  on the phone, not a different subnet on WiFi, so it does not settle this,
+  but it shows the phone does discriminate by where a connection comes from.
 
 ### O6. Where pair records live
 
@@ -402,6 +411,15 @@ shape. The candidates:
 - **The phone announces itself** (the app or Shortcut idea in O1). Exact and
   cheap, but belongs to the notifications phase.
 
+The owner's requirement, 2026-11-24: something more stable than a local IP
+address.
+
+Ruled out on evidence: **the phone's Tailscale address.** It never changes
+and would have worked from anywhere. Tested 2026-11-24 from the Mac: the
+lockdown port accepts a connection on the Tailscale address, then the phone
+drops the session (two probes, both failed after 13 seconds, while the same
+probe to the WiFi address succeeded).
+
 Recommendation: scan first, because it works in the owner's own network
 layout and keeps the container unprivileged. Add mDNS as an option for
 setups where server and phones share a network.
@@ -411,8 +429,10 @@ RemotePairing identifier it advertises rotates about hourly.
 
 ### O8. Remote backups over the tailnet
 
-*Later.* Untested. See also O5: the same subnet question decides whether the
-direct path can work at all.
+*Later.* First evidence, 2026-11-24: the direct path does not work over the
+tailnet. The phone accepts a connection to port 62078 on its Tailscale
+address and then drops the lockdown session. Remote backups would need the
+RemotePairing tunnel or a relay on the home network.
 
 ### O9. Proving a backup restores
 
@@ -460,29 +480,28 @@ owner knows.
   whether that counts as an unanswered prompt, is not decided.
 - Open: the later connections a backup opens still have a one-second limit.
 
-### O16. Details of the charger trigger
+### O16. Plugged in, or on a charger? To be settled by the field trial
 
-Two points D7 leaves open.
-
-**Plugged in, or on a charger?**
+*The owner's call, 2026-11-24: test it for a week or two and watch.*
 
 - *On a charger* (a state): start whenever the phone is on power and a
-  backup is due. A phone left charging overnight becomes due at 24 hours
-  exactly, which can be while its owner is asleep.
+  backup is due. A phone left charging overnight can become due while its
+  owner is asleep, and with retries after every timeout (D8) it would light
+  up repeatedly until morning.
 - *Plugged in* (an event): start only in the minutes after the phone goes
-  onto power. The prompt arrives while the owner is still holding the phone.
+  onto power, while the owner is still holding it.
 
-Recommendation: the event.
+My recommendation is the event, but this is a question about habits, not
+about the protocol, so it gets measured. What the trial has to record for
+each day: when the phone went onto and off power, when a backup became due,
+when each prompt was shown and whether it was answered, timed out or
+cancelled, and how long the backup took. What it has to answer:
 
-**Exactly 24 hours?**
+- How often does a prompt arrive when nobody is there to answer it?
+- Does a backup happen every day the phone is charged at home?
+- How many prompts does a normal day produce?
 
-With a 24-hour rule and a daily habit, plugging in ten minutes earlier than
-yesterday means no backup that day. Recommendation: treat a backup as due
-after about 20 hours, so a once-a-day plug-in always qualifies.
-
-Together with D8 this matters at night: retrying after every timeout, on a
-phone that sits on a charger until morning, would light it up repeatedly.
-The event trigger avoids that; so would an optional quiet period.
+Settled already: due after 20 hours, not 24 (D7).
 
 ### O17. Telling a cancel from a timeout
 
