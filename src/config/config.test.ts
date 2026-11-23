@@ -27,7 +27,6 @@ describe("parseConfig", () => {
       stateDir: "/var/lib/nightstand",
       pollIntervalSeconds: 120,
       headsUpLeadSeconds: 5,
-      snapshots: { strategy: "none", keep: 7 },
       sidecar: { pythonPath: undefined, scriptPath: undefined },
       devices: [
         {
@@ -144,7 +143,7 @@ describe("parseConfig", () => {
     [{ devices: [] }, /at least one device/],
     [{ backupRoot: "" }, /backupRoot must be a non-empty string/],
     [{ pollIntervalSeconds: 1 }, /pollIntervalSeconds must be at least 10/],
-    [{ snapshots: { strategy: "zfs" } }, /snapshots.strategy/],
+    [{ snapshots: { strategy: "copy" } }, /snapshots is not a recognised setting/],
     [{ pollIntervalSecond: 60 }, /pollIntervalSecond is not a recognised setting/],
     [{ defaultPolicy: { window: { start: "25:00", end: "01:00" } } }, /window.start/],
     [{ defaultPolicy: { window: { start: "09:00", end: "09:00" } } }, /must differ/],

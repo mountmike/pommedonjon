@@ -28,7 +28,6 @@ describe("StateStore runs", () => {
     store.finishRun(id, t("2026-11-24T08:06:00Z"), {
       outcome: "succeeded",
       durationMs: 355_000,
-      snapshotPath: "/backups/mike/snapshots/2026-11-24T08-06-00Z",
     });
 
     expect(store.getRun(id)).toEqual({
@@ -40,7 +39,6 @@ describe("StateStore runs", () => {
       failureReason: undefined,
       message: undefined,
       prompted: false,
-      snapshotPath: "/backups/mike/snapshots/2026-11-24T08-06-00Z",
       durationMs: 355_000,
     });
   });
@@ -56,7 +54,6 @@ describe("StateStore runs", () => {
       outcome: "failed",
       failureReason: "device-locked",
       message: "Device locked (MBErrorDomain/208)",
-      snapshotPath: undefined,
     });
   });
 
@@ -100,7 +97,6 @@ describe("StateStore history for the policy", () => {
     store.finishRun(ok, t("2026-11-23T20:06:00Z"), {
       outcome: "succeeded",
       durationMs: 1,
-      snapshotPath: undefined,
     });
     const bad = store.startRun("mike", t("2026-11-24T20:00:00Z"));
     store.finishRun(bad, t("2026-11-24T20:01:00Z"), {
@@ -183,7 +179,6 @@ describe("StateStore on disk", () => {
     first.finishRun(id, t("2026-11-24T08:06:00Z"), {
       outcome: "succeeded",
       durationMs: 1,
-      snapshotPath: undefined,
     });
     first.close();
 
@@ -199,6 +194,62 @@ describe("StateStore on disk", () => {
     raw.exec("PRAGMA user_version = 99");
     raw.close();
     expect(() => new StateStore(file)).toThrow(/newer nightstand/);
+  });
+
+  it("upgrades a database from before snapshots were removed, keeping its history", () => {
+    const file = path.join(dir, "state.sqlite");
+    const raw = new DatabaseSync(file);
+    raw.exec(`
+      CREATE TABLE runs (
+        id             INTEGER PRIMARY KEY,
+        device_id      TEXT    NOT NULL,
+        started_at     INTEGER NOT NULL,
+        finished_at    INTEGER,
+        outcome        TEXT    NOT NULL CHECK (outcome IN ('running', 'succeeded', 'failed')),
+        failure_reason TEXT,
+        message        TEXT,
+        prompted       INTEGER NOT NULL DEFAULT 0,
+        snapshot_path  TEXT,
+        duration_ms    INTEGER
+      ) STRICT;
+      CREATE INDEX runs_by_device ON runs (device_id, started_at);
+      CREATE TABLE run_events (
+        id INTEGER PRIMARY KEY,
+        run_id INTEGER NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+        at INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE alerts (
+        device_id TEXT NOT NULL, kind TEXT NOT NULL, sent_at INTEGER NOT NULL,
+        PRIMARY KEY (device_id, kind)
+      ) STRICT;
+      INSERT INTO runs (device_id, started_at, finished_at, outcome, prompted, snapshot_path, duration_ms)
+        VALUES ('mike', 1000, 289000, 'succeeded', 1, '/backups/mike/snapshots/x', 288340);
+      PRAGMA user_version = 1;
+    `);
+    raw.close();
+
+    const upgraded = new StateStore(file);
+    expect(upgraded.lastSuccessAt("mike")).toEqual(new Date(289000));
+    expect(upgraded.recentRuns("mike", 5)).toEqual([
+      {
+        id: 1,
+        deviceId: "mike",
+        startedAt: new Date(1000),
+        finishedAt: new Date(289000),
+        outcome: "succeeded",
+        failureReason: undefined,
+        message: undefined,
+        prompted: true,
+        durationMs: 288340,
+      },
+    ]);
+    // And it can be written to in its new shape.
+    const id = upgraded.startRun("mike", t("2026-11-24T08:00:00Z"));
+    upgraded.finishRun(id, t("2026-11-24T08:06:00Z"), { outcome: "succeeded", durationMs: 1 });
+    upgraded.close();
+
+    // Opening it again does not try to upgrade twice.
+    new StateStore(file).close();
   });
 
   it("fails loudly on a row it cannot read, naming what is wrong with it", () => {

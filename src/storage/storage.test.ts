@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fakeSidecar } from "../testing/fakeSidecar.js";
-import { BackupStore, CopySnapshots, NoSnapshots, snapshotName } from "./BackupStore.js";
+import { BackupStore } from "./BackupStore.js";
 import { SidecarBackupVerifier } from "./BackupVerifier.js";
 
 const UDID = "00008140-000A1B2C3D4E001C";
@@ -16,100 +16,84 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function writeWorkingCopy(store: BackupStore, content: string) {
-  const dir = store.workingDir("mike", UDID);
-  await mkdir(path.join(dir, "ab"), { recursive: true });
-  await writeFile(path.join(dir, "Manifest.db"), content);
-  await writeFile(path.join(dir, "ab", "abcdef"), `payload ${content}`);
-}
-
 describe("BackupStore layout", () => {
-  it("keeps each device's working copy and snapshots under its own directory", () => {
-    const store = new BackupStore("/backups", new NoSnapshots());
-    expect(store.workingRoot("mike")).toBe("/backups/mike/working");
-    expect(store.workingDir("mike", UDID)).toBe(`/backups/mike/working/${UDID}`);
-  });
-
-  it("names snapshots so they sort by time and are safe as directory names", () => {
-    expect(snapshotName(new Date("2026-11-24T00:38:50.123Z"))).toBe("2026-11-24T00-38-50Z");
+  it("gives each phone one directory holding its backup in the standard layout", () => {
+    const store = new BackupStore("/backups");
+    expect(store.deviceDir("mike")).toBe("/backups/mike");
+    expect(store.backupDir("mike", UDID)).toBe(`/backups/mike/${UDID}`);
+    expect(store.markerPath("mike")).toBe("/backups/mike/verified.json");
   });
 });
 
-describe("CopySnapshots", () => {
-  it("copies the working copy to a timestamped snapshot", async () => {
-    const store = new BackupStore(root, new CopySnapshots(3));
-    await writeWorkingCopy(store, "v1");
-
-    const kept = await store.snapshot("mike", new Date("2026-11-24T00:38:50Z"));
-
-    expect(kept).toBe(path.join(root, "mike", "snapshots", "2026-11-24T00-38-50Z"));
-    expect(await readFile(path.join(kept as string, UDID, "Manifest.db"), "utf8")).toBe("v1");
-    expect(await readFile(path.join(kept as string, UDID, "ab", "abcdef"), "utf8")).toBe(
-      "payload v1",
-    );
+describe("BackupStore verified marker", () => {
+  it("says nothing is verified before any run", async () => {
+    expect(await new BackupStore(root).verified("mike")).toBeUndefined();
   });
 
-  it("leaves earlier snapshots intact when the working copy is later overwritten", async () => {
-    const store = new BackupStore(root, new CopySnapshots(3));
-    await writeWorkingCopy(store, "v1");
-    const first = (await store.snapshot("mike", new Date("2026-11-24T00:00:00Z"))) as string;
+  it("records whose backup verified and when", async () => {
+    const store = new BackupStore(root);
+    await store.beginRun("mike");
+    await store.markVerified("mike", UDID, new Date("2026-11-24T08:05:45.059Z"));
 
-    // A later run rewrites the working copy, as a failed backup would.
-    await writeWorkingCopy(store, "corrupt");
-
-    expect(await readFile(path.join(first, UDID, "Manifest.db"), "utf8")).toBe("v1");
+    expect(await store.verified("mike")).toEqual({
+      udid: UDID,
+      verifiedAt: "2026-11-24T08:05:45.059Z",
+    });
+    // Plain JSON an outside script can read without nightstand.
+    expect(JSON.parse(await readFile(path.join(root, "mike", "verified.json"), "utf8"))).toEqual({
+      udid: UDID,
+      verifiedAt: "2026-11-24T08:05:45.059Z",
+    });
   });
 
-  it("keeps only the newest snapshots", async () => {
-    const store = new BackupStore(root, new CopySnapshots(2));
-    await writeWorkingCopy(store, "v");
-    for (const day of ["21", "22", "23", "24"]) {
-      await store.snapshot("mike", new Date(`2026-11-${day}T20:00:00Z`));
-    }
-    expect((await readdir(path.join(root, "mike", "snapshots"))).sort()).toEqual([
-      "2026-11-23T20-00-00Z",
-      "2026-11-24T20-00-00Z",
-    ]);
+  it("withdraws the claim as soon as the next run begins", async () => {
+    const store = new BackupStore(root);
+    await store.beginRun("mike");
+    await store.markVerified("mike", UDID, new Date("2026-11-24T08:05:45Z"));
+
+    await store.beginRun("mike");
+
+    expect(await store.verified("mike")).toBeUndefined();
+    expect(await readdir(path.join(root, "mike"))).toEqual([]);
   });
 
-  it("clears an interrupted copy and never mistakes it for a snapshot", async () => {
-    const store = new BackupStore(root, new CopySnapshots(1));
-    await writeWorkingCopy(store, "v1");
-    const snapshots = path.join(root, "mike", "snapshots");
-    await mkdir(path.join(snapshots, "2026-11-20T20-00-00Z.partial"), { recursive: true });
+  it("leaves the backup itself alone when a run begins", async () => {
+    const store = new BackupStore(root);
+    const dir = store.backupDir("mike", UDID);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "Manifest.db"), "v1");
 
-    await store.snapshot("mike", new Date("2026-11-24T20:00:00Z"));
+    await store.beginRun("mike");
 
-    expect(await readdir(snapshots)).toEqual(["2026-11-24T20-00-00Z"]);
+    expect(await readFile(path.join(dir, "Manifest.db"), "utf8")).toBe("v1");
   });
 
-  it("does not delete directories it did not create when pruning", async () => {
-    const store = new BackupStore(root, new CopySnapshots(1));
-    await writeWorkingCopy(store, "v1");
-    const snapshots = path.join(root, "mike", "snapshots");
-    await mkdir(path.join(snapshots, "keep-this-by-hand"), { recursive: true });
+  it("keeps each phone's marker separate", async () => {
+    const store = new BackupStore(root);
+    await store.beginRun("mike");
+    await store.beginRun("lolo");
+    await store.markVerified("mike", UDID, new Date("2026-11-24T08:05:45Z"));
 
-    await store.snapshot("mike", new Date("2026-11-23T20:00:00Z"));
-    await store.snapshot("mike", new Date("2026-11-24T20:00:00Z"));
-
-    expect((await readdir(snapshots)).sort()).toEqual([
-      "2026-11-24T20-00-00Z",
-      "keep-this-by-hand",
-    ]);
+    expect(await store.verified("mike")).toBeDefined();
+    expect(await store.verified("lolo")).toBeUndefined();
   });
 
-  it("refuses a keep count that would delete every snapshot", () => {
-    expect(() => new CopySnapshots(0)).toThrow(RangeError);
+  it("leaves no partial file behind after writing the marker", async () => {
+    const store = new BackupStore(root);
+    await store.beginRun("mike");
+    await store.markVerified("mike", UDID, new Date("2026-11-24T08:05:45Z"));
+    expect(await readdir(path.join(root, "mike"))).toEqual(["verified.json"]);
   });
-});
 
-describe("NoSnapshots", () => {
-  it("keeps nothing and says so", async () => {
-    const store = new BackupStore(root, new NoSnapshots());
-    await writeWorkingCopy(store, "v1");
-    expect(await store.snapshot("mike", new Date())).toBeUndefined();
-    expect(await readdir(path.join(root, "mike"))).toEqual(["working"]);
-  });
+  it.each(["", "not json", '{"udid":7}', "[]"])(
+    "treats a marker it cannot read as not verified: %j",
+    async (content) => {
+      const store = new BackupStore(root);
+      await store.beginRun("mike");
+      await writeFile(store.markerPath("mike"), content);
+      expect(await store.verified("mike")).toBeUndefined();
+    },
+  );
 });
 
 describe("SidecarBackupVerifier", () => {
@@ -117,13 +101,13 @@ describe("SidecarBackupVerifier", () => {
     const { sidecar, children } = fakeSidecar((child) =>
       child.respond({ ok: true, problems: [], udid: UDID, isEncrypted: true }),
     );
-    const result = await new SidecarBackupVerifier(sidecar).verify("/b/working/x");
+    const result = await new SidecarBackupVerifier(sidecar).verify("/b/mike/x");
     expect(result).toEqual({ ok: true, problems: [], udid: UDID, isEncrypted: true });
     expect(children[0]?.args).toEqual([
       "/app/sidecar.py",
       "verify",
       "--backup-dir",
-      "/b/working/x",
+      "/b/mike/x",
     ]);
   });
 

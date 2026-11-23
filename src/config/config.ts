@@ -111,7 +111,11 @@ const DeviceEntrySchema = z.strictObject(
 
 const ConfigFileSchema = z.strictObject(
   {
-    /** Where backups live: one directory per device id underneath. */
+    /**
+     * Where backups live: one directory per device id underneath. Which disk
+     * or share is behind it, and keeping history of it, are up to whoever
+     * runs nightstand.
+     */
     backupRoot: text,
     /** Where the daemon keeps its SQLite database. */
     stateDir: text,
@@ -119,16 +123,6 @@ const ConfigFileSchema = z.strictObject(
     pollIntervalSeconds: number({ min: 10 }).default(120),
     /** Gap between the heads-up notification and the backup starting. */
     headsUpLeadSeconds: number({ min: 0, max: 300 }).default(5),
-    snapshots: z
-      .strictObject(
-        {
-          strategy: z.enum(["none", "copy"]).default("none"),
-          /** How many snapshots to keep per device (strategy "copy"). */
-          keep: number({ min: 1 }).default(7),
-        },
-        { error: "must be an object" },
-      )
-      .prefault({}),
     sidecar: z
       .strictObject(
         { pythonPath: text.optional(), scriptPath: text.optional() },
@@ -151,8 +145,6 @@ export type DeviceConfig = Readonly<
     policy: DevicePolicy;
   }
 >;
-
-export type SnapshotStrategyName = ConfigFile["snapshots"]["strategy"];
 
 /** The config as the rest of the program sees it: defaults filled in, paths absolute. */
 export type NightstandConfig = Readonly<

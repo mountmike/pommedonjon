@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_POLICY, type DeviceConfig } from "../config/config.js";
 import type { Notification, Notifier } from "../notify/Notifier.js";
 import { StateStore } from "../state/StateStore.js";
-import { BackupStore, type SnapshotStrategy } from "../storage/BackupStore.js";
+import { BackupStore } from "../storage/BackupStore.js";
 import type { BackupVerification, BackupVerifier } from "../storage/BackupVerifier.js";
 import { FAKE_UDID, FakeTransport } from "../testing/fakeTransport.js";
 import { BackupError } from "../transport/DeviceTransport.js";
@@ -42,14 +42,12 @@ afterEach(async () => {
 function harness(
   options: {
     verification?: BackupVerification;
-    snapshot?: SnapshotStrategy["snapshot"];
     notify?: (n: Notification) => Promise<void>;
   } = {},
 ) {
   const transport = new FakeTransport();
   const sent: Notification[] = [];
   const order: string[] = [];
-  const snapshots: string[] = [];
   const verified: string[] = [];
 
   const notifier: Notifier = {
@@ -66,16 +64,7 @@ function harness(
       return Promise.resolve(options.verification ?? GOOD);
     },
   };
-  const strategy: SnapshotStrategy = {
-    snapshot:
-      options.snapshot ??
-      ((request) => {
-        order.push("snapshot");
-        const kept = `${request.deviceDir}/snapshots/kept`;
-        snapshots.push(kept);
-        return Promise.resolve(kept);
-      }),
-  };
+  const store = new BackupStore(root);
   const originalStart = transport.startBackup.bind(transport);
   transport.startBackup = (backupOptions) => {
     order.push("backup");
@@ -86,7 +75,7 @@ function harness(
   const logs: { level: string; message: string; fields: unknown }[] = [];
   const runner = new BackupRunner({
     transport,
-    store: new BackupStore(root, strategy),
+    store,
     verifier,
     state,
     notifier,
@@ -101,11 +90,11 @@ function harness(
     },
     headsUpLeadSeconds: 5,
   });
-  return { runner, transport, sent, order, sleeps, snapshots, verified, logs };
+  return { runner, transport, store, sent, order, sleeps, verified, logs };
 }
 
 describe("BackupRunner", () => {
-  it("warns the owner, waits, backs up, verifies, then preserves, in that order", async () => {
+  it("warns the owner, waits, backs up, then verifies, in that order", async () => {
     const h = harness();
     h.transport.onBackup = (run) => run.succeed(355_000);
 
@@ -116,7 +105,6 @@ describe("BackupRunner", () => {
       "sleep",
       "backup",
       "verify",
-      "snapshot",
       "notify:backup-succeeded",
     ]);
     expect(h.sleeps).toEqual([5000]);
@@ -124,21 +112,20 @@ describe("BackupRunner", () => {
       runId: report.runId,
       outcome: "succeeded",
       durationMs: 355_000,
-      snapshotPath: `${root}/mike/snapshots/kept`,
     });
   });
 
-  it("backs up over TCP into the device's working copy and verifies that directory", async () => {
+  it("backs up over TCP into the device's directory and verifies the backup inside it", async () => {
     const h = harness();
     await h.runner.run(device);
 
     expect(h.transport.backups[0]?.options).toMatchObject({
       udid: FAKE_UDID,
       endpoint: { kind: "tcp", host: "10.0.0.7", pairRecordPath: "/secrets/mike.plist" },
-      backupRoot: `${root}/mike/working`,
+      backupRoot: `${root}/mike`,
     });
     expect(h.transport.backups[0]?.options.full).toBeUndefined();
-    expect(h.verified).toEqual([`${root}/mike/working/${FAKE_UDID}`]);
+    expect(h.verified).toEqual([`${root}/mike/${FAKE_UDID}`]);
   });
 
   it("records the run and its events, thinning progress to ten-percent steps", async () => {
@@ -164,7 +151,6 @@ describe("BackupRunner", () => {
       outcome: "succeeded",
       prompted: true,
       durationMs: 1234,
-      snapshotPath: `${root}/mike/snapshots/kept`,
     });
     expect(
       state.eventsFor(report.runId).map((e) => [e.type, e.detail["percent"]]),
@@ -234,7 +220,7 @@ describe("BackupRunner", () => {
       message: "Device locked (MBErrorDomain/208)",
     });
     expect(h.order).not.toContain("verify");
-    expect(h.order).not.toContain("snapshot");
+    expect(await h.store.verified("mike")).toBeUndefined();
     expect(state.getRun(report.runId)).toMatchObject({
       outcome: "failed",
       failureReason: "device-locked",
@@ -261,35 +247,87 @@ describe("BackupRunner", () => {
       message:
         "the backup did not verify: Manifest.plist is empty; Manifest.db is missing",
     });
-    expect(h.snapshots).toEqual([]);
+    expect(await h.store.verified("mike")).toBeUndefined();
     expect(state.lastSuccessAt("mike")).toBeUndefined();
   });
 
-  it("does not preserve a backup that belongs to a different phone", async () => {
+  it("does not count a backup that belongs to a different phone", async () => {
     const h = harness({
       verification: { ...GOOD, udid: "00008150-000F0E0D0C0B002E" },
     });
     const report = await h.runner.run(device);
     expect(report).toMatchObject({ outcome: "failed", reason: "verification-failed" });
-    expect(h.snapshots).toEqual([]);
+    expect(await h.store.verified("mike")).toBeUndefined();
   });
 
-  it("does not preserve an unencrypted backup", async () => {
+  it("does not count an unencrypted backup", async () => {
     const h = harness({ verification: { ...GOOD, isEncrypted: false } });
     const report = await h.runner.run(device);
     expect(report).toMatchObject({ outcome: "failed", reason: "verification-failed" });
     expect((report as { message: string }).message).toContain("not encrypted");
-    expect(h.snapshots).toEqual([]);
+    expect(await h.store.verified("mike")).toBeUndefined();
   });
 
-  it("reports a verified backup that could not be preserved as a failure", async () => {
-    const h = harness({
-      snapshot: () => Promise.reject(new Error("ENOSPC: no space left on device")),
+  it("marks the backup verified only after it verifies", async () => {
+    const h = harness();
+    let duringBackup: unknown = "unset";
+    h.transport.onBackup = async (run) => {
+      duringBackup = await h.store.verified("mike");
+      run.succeed(1000);
+    };
+
+    await h.runner.run(device);
+
+    expect(duringBackup).toBeUndefined();
+    expect(await h.store.verified("mike")).toEqual({
+      udid: FAKE_UDID,
+      verifiedAt: "2026-11-24T20:00:00.000Z",
     });
+  });
+
+  it("withdraws an earlier verified mark while a new run is changing the backup", async () => {
+    const h = harness();
+    await h.runner.run(device);
+    expect(await h.store.verified("mike")).toBeDefined();
+
+    h.transport.onBackup = (run) => {
+      run.emit({ type: "passcode-required" }, { type: "passcode-dismissed" });
+      run.fail(new BackupError("Device locked (MBErrorDomain/208)", "device-locked"));
+    };
+    await h.runner.run(device);
+
+    // The failed run may have left the backup half-updated, so the claim
+    // that it is verified must not survive it.
+    expect(await h.store.verified("mike")).toBeUndefined();
+  });
+
+  it("keeps an earlier verified mark when a run never reaches the phone", async () => {
+    const h = harness({
+      notify: (n) =>
+        n.kind === "backup-starting" && h.transport.backups.length > 0
+          ? Promise.reject(new Error("push service unreachable"))
+          : Promise.resolve(),
+    });
+    await h.runner.run(device);
+    const before = await h.store.verified("mike");
+
     const report = await h.runner.run(device);
-    expect(report).toMatchObject({ outcome: "failed", reason: "snapshot-failed" });
-    expect((report as { message: string }).message).toContain("ENOSPC");
-    expect(state.lastSuccessAt("mike")).toBeUndefined();
+
+    expect(report).toMatchObject({ outcome: "failed", reason: "heads-up-failed" });
+    expect(await h.store.verified("mike")).toEqual(before);
+  });
+
+  it("still counts the backup when only the marker cannot be written", async () => {
+    const h = harness();
+    h.store.markVerified = () => Promise.reject(new Error("EROFS: read-only file system"));
+
+    const report = await h.runner.run(device);
+
+    expect(report.outcome).toBe("succeeded");
+    expect(state.lastSuccessAt("mike")).toBeDefined();
+    expect(h.logs.some((entry) => entry.message === "could not write the verified marker")).toBe(
+      true,
+    );
   });
 
   it("never starts a backup if the heads-up could not be sent", async () => {

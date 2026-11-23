@@ -15,15 +15,13 @@ export type RunReport =
       readonly runId: number;
       readonly outcome: "succeeded";
       readonly durationMs: number;
-      readonly snapshotPath: string | undefined;
     }
   | {
       readonly runId: number;
       readonly outcome: "failed";
       /**
        * A transport failure reason ("device-locked", "unreachable", ...) or
-       * one of this runner's own: "heads-up-failed", "verification-failed",
-       * "snapshot-failed".
+       * one of this runner's own: "heads-up-failed", "verification-failed".
        */
       readonly reason: string;
       readonly message: string;
@@ -72,10 +70,10 @@ function describe(error: unknown): string {
 }
 
 /**
- * Carries one backup from start to finish: warn the owner, back up into the
- * working copy, verify it, preserve it, and record what happened. Whatever
- * goes wrong, the run is recorded as finished and earlier snapshots are not
- * touched.
+ * Carries one backup from start to finish: warn the owner, back up, verify
+ * the result, and record what happened. Whatever goes wrong, the run is
+ * recorded as finished, and the backup is only marked as verified when it
+ * is.
  */
 export class BackupRunner {
   constructor(private readonly deps: BackupRunnerDeps) {}
@@ -87,10 +85,10 @@ export class BackupRunner {
 
     let report: RunReport;
     try {
-      const { durationMs, snapshotPath } = await this.#attempt(device, runId, signal);
-      state.finishRun(runId, clock(), { outcome: "succeeded", durationMs, snapshotPath });
-      report = { runId, outcome: "succeeded", durationMs, snapshotPath };
-      log("info", "backup succeeded", { device: device.id, runId, durationMs, snapshotPath });
+      const { durationMs } = await this.#attempt(device, runId, signal);
+      state.finishRun(runId, clock(), { outcome: "succeeded", durationMs });
+      report = { runId, outcome: "succeeded", durationMs };
+      log("info", "backup succeeded", { device: device.id, runId, durationMs });
     } catch (error) {
       const reason =
         error instanceof RunFailure || error instanceof BackupError
@@ -134,10 +132,8 @@ export class BackupRunner {
     device: DeviceConfig,
     runId: number,
     signal: AbortSignal | undefined,
-  ): Promise<{ durationMs: number; snapshotPath: string | undefined }> {
-    const { transport, store, verifier, state, notifier, clock, sleep } = this.deps;
-
-    await store.prepare(device.id);
+  ): Promise<{ durationMs: number }> {
+    const { transport, store, verifier, state, notifier, clock, sleep, log } = this.deps;
 
     // The passcode prompt explains nothing, so an unannounced one is
     // indistinguishable from something to distrust. No heads-up, no backup.
@@ -156,9 +152,13 @@ export class BackupRunner {
     await sleep(this.deps.headsUpLeadSeconds * 1000, signal);
     if (signal?.aborted) throw new BackupError("backup cancelled", "cancelled");
 
+    // From here the backup on disk is being changed, so it stops counting as
+    // verified until this run proves it again.
+    await store.beginRun(device.id);
+
     const run = transport.startBackup({
       ...targetFor(device),
-      backupRoot: store.workingRoot(device.id),
+      backupRoot: store.deviceDir(device.id),
       ...(signal && { signal }),
     });
     let lastStep = -1;
@@ -185,8 +185,7 @@ export class BackupRunner {
     });
     const result = await run.done;
 
-    const workingDir = store.workingDir(device.id, device.udid);
-    const verification = await verifier.verify(workingDir);
+    const verification = await verifier.verify(store.backupDir(device.id, device.udid));
     if (!verification.ok) {
       throw new RunFailure(
         "verification-failed",
@@ -202,19 +201,21 @@ export class BackupRunner {
     if (verification.isEncrypted === false) {
       throw new RunFailure(
         "verification-failed",
-        "the backup is not encrypted; it has been left in the working copy and not preserved",
+        "the backup is not encrypted, so it does not count as a good backup",
       );
     }
 
-    let snapshotPath: string | undefined;
     try {
-      snapshotPath = await store.snapshot(device.id, clock());
+      await store.markVerified(device.id, device.udid, clock());
     } catch (error) {
-      throw new RunFailure(
-        "snapshot-failed",
-        `the backup verified but could not be preserved: ${describe(error)}`,
-      );
+      // The backup is good; only the signal to outside tools is missing, and
+      // a missing marker errs on the safe side for them.
+      log("error", "could not write the verified marker", {
+        device: device.id,
+        runId,
+        error: describe(error),
+      });
     }
-    return { durationMs: result.durationMs, snapshotPath };
+    return { durationMs: result.durationMs };
   }
 }

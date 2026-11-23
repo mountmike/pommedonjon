@@ -71,8 +71,7 @@ async function backup(app: App, deviceId: string | undefined, signal: AbortSigna
   if (!device) return 2;
   const report = await app.runner.run(device, signal);
   if (report.outcome === "succeeded") {
-    const kept = report.snapshotPath ? `, preserved at ${report.snapshotPath}` : "";
-    print(`${device.id}: backed up in ${Math.round(report.durationMs / 1000)} s${kept}`);
+    print(`${device.id}: backed up in ${Math.round(report.durationMs / 1000)} s`);
     return 0;
   }
   print(`${device.id}: backup failed (${report.reason}). ${report.message}`);

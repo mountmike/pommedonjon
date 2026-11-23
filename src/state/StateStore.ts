@@ -17,8 +17,6 @@ export interface RunRecord {
   readonly message: string | undefined;
   /** Whether the phone showed its passcode prompt during this run. */
   readonly prompted: boolean;
-  /** Where the verified backup was preserved, if a snapshot was taken. */
-  readonly snapshotPath: string | undefined;
   /** How long the transfer itself took, for successful runs. */
   readonly durationMs: number | undefined;
 }
@@ -34,7 +32,6 @@ export type RunResult =
   | {
       readonly outcome: "succeeded";
       readonly durationMs: number;
-      readonly snapshotPath: string | undefined;
     }
   | {
       readonly outcome: "failed";
@@ -42,7 +39,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -54,7 +51,6 @@ const SCHEMA = `
     failure_reason TEXT,
     message        TEXT,
     prompted       INTEGER NOT NULL DEFAULT 0,
-    snapshot_path  TEXT,
     duration_ms    INTEGER
   ) STRICT;
   CREATE INDEX runs_by_device ON runs (device_id, started_at);
@@ -101,7 +97,6 @@ const RunRowSchema = z
     failure_reason: optionalText,
     message: optionalText,
     prompted: z.number(),
-    snapshot_path: optionalText,
     duration_ms: z
       .number()
       .nullable()
@@ -117,7 +112,6 @@ const RunRowSchema = z
       failureReason: row.failure_reason,
       message: row.message,
       prompted: row.prompted === 1,
-      snapshotPath: row.snapshot_path,
       durationMs: row.duration_ms,
     }),
   );
@@ -200,6 +194,14 @@ export class StateStore {
     }
     if (version === 0) {
       this.#db.exec(`BEGIN; ${SCHEMA} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`);
+      return;
+    }
+    if (version < 2) {
+      // Built-in snapshots were removed, and with them the record of where
+      // each one was kept.
+      this.#db.exec(
+        "BEGIN; ALTER TABLE runs DROP COLUMN snapshot_path; PRAGMA user_version = 2; COMMIT;",
+      );
     }
   }
 
@@ -233,10 +235,10 @@ export class StateStore {
       result.outcome === "succeeded"
         ? this.#db
             .prepare(
-              `UPDATE runs SET outcome = 'succeeded', finished_at = ?, duration_ms = ?,
-                 snapshot_path = ? WHERE id = ? AND outcome = 'running'`,
+              `UPDATE runs SET outcome = 'succeeded', finished_at = ?, duration_ms = ?
+                 WHERE id = ? AND outcome = 'running'`,
             )
-            .run(at.getTime(), result.durationMs, result.snapshotPath ?? null, runId)
+            .run(at.getTime(), result.durationMs, runId)
         : this.#db
             .prepare(
               `UPDATE runs SET outcome = 'failed', finished_at = ?, failure_reason = ?,

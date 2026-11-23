@@ -6,7 +6,7 @@ import { LogNotifier, type Logger, type Notifier } from "./notify/Notifier.js";
 import { BackupRunner } from "./runner/BackupRunner.js";
 import { Sidecar } from "./sidecar/Sidecar.js";
 import { StateStore } from "./state/StateStore.js";
-import { BackupStore, CopySnapshots, NoSnapshots } from "./storage/BackupStore.js";
+import { BackupStore } from "./storage/BackupStore.js";
 import { SidecarBackupVerifier } from "./storage/BackupVerifier.js";
 import type { DeviceTransport } from "./transport/DeviceTransport.js";
 import { Pymobiledevice3Transport } from "./transport/pymobiledevice3/Pymobiledevice3Transport.js";
@@ -56,12 +56,7 @@ export function createApp(
   mkdirSync(config.stateDir, { recursive: true });
   const state = new StateStore(path.join(config.stateDir, "nightstand.sqlite"));
 
-  const store = new BackupStore(
-    config.backupRoot,
-    config.snapshots.strategy === "copy"
-      ? new CopySnapshots(config.snapshots.keep)
-      : new NoSnapshots(),
-  );
+  const store = new BackupStore(config.backupRoot);
   // No delivery channel has been chosen yet, so notifications only reach the
   // service log.
   const notifier = new LogNotifier(log);

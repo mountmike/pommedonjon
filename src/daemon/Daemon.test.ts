@@ -52,7 +52,6 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     stateDir: "/state",
     pollIntervalSeconds: 120,
     headsUpLeadSeconds: 5,
-    snapshots: { strategy: "none", keep: 7 },
     sidecar: { pythonPath: undefined, scriptPath: undefined },
     devices,
   };
@@ -63,13 +62,11 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     state.finishRun(runId, now, {
       outcome: "succeeded",
       durationMs: 1,
-      snapshotPath: undefined,
     });
     return Promise.resolve({
       runId,
       outcome: "succeeded",
       durationMs: 1,
-      snapshotPath: undefined,
     });
   };
 
@@ -226,7 +223,7 @@ describe("Daemon.tick", () => {
     h.setRun((device) =>
       device.id === "mike"
         ? Promise.reject(new Error("disk on fire"))
-        : Promise.resolve({ runId: 1, outcome: "succeeded", durationMs: 1, snapshotPath: undefined }),
+        : Promise.resolve({ runId: 1, outcome: "succeeded", durationMs: 1 }),
     );
     // Each device is probed with its own identity.
     h.transport.probe = (target) => {
@@ -266,7 +263,6 @@ describe("Daemon stale alerts", () => {
     state.finishRun(runId, at(19, 6, -4), {
       outcome: "succeeded",
       durationMs: 1,
-      snapshotPath: undefined,
     });
     h.transport.probeResult = new DeviceError("no answer", "unreachable");
 
