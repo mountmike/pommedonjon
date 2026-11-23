@@ -36,11 +36,15 @@ are in the git-ignored `local/` folder.
   the main constraint on the whole design: backups need the owner for a few
   seconds at the start, so a 3 a.m. unattended backup will not work, but an
   evening run that the owner answers from the lock screen will.
-- Connecting straight to the phone's address is more dependable than going
-  through a usbmuxd: minutes after the phone was put down, the Mac's usbmuxd
-  dropped the phone's network entry, but direct TCP lockdown queries with the
-  pair record kept working. Port 62078 was found closed on one probe, so some
-  flapping is possible; the overnight monitor is collecting more.
+- **The phone stayed reachable all night while charging.** Over 7 h 24 min
+  (83 checks, five minutes apart), a lockdown query from the container to the
+  phone's address succeeded on every one of the 82 checks where the address
+  was known. The Mac's usbmuxd was less dependable: it did not list the
+  phone's network entry for the first two hours. A bare port probe found
+  62078 not accepting on 14 checks, each time followed seconds later by a
+  successful query, so one refused connection means "try again", not "away".
+  The phone was on a charger throughout; a sleeping phone on battery is still
+  untested.
 - Recommended shape: TypeScript daemon and UI, with pymobiledevice3 driven
   through a small Python sidecar that emits JSON events.
 
@@ -160,9 +164,9 @@ which may explain it; the cause was not isolated.
   visible nudge the owner can answer from the lock screen.
 - **The phone's `.local` name does not resolve reliably.** One lookup returned
   only link-local IPv6 addresses and no IPv4 address, seconds before the phone
-  answered ping on its usual address. The daemon needs a configured or
-  last-known address to fall back on, and must treat a failed lookup as
-  "unknown", not "absent".
+  answered ping on its usual address, and one of the 83 overnight lookups
+  failed outright. The daemon needs a configured or last-known address to
+  fall back on, and must treat a failed lookup as "unknown", not "absent".
 - **`Status.plist` is not proof of a good backup.** After attempt 3 failed at
   the passcode stage, `Status.plist` read `SnapshotState: finished`,
   `IsFullBackup: true`, while `Manifest.plist` was 0 bytes and there was no
@@ -188,9 +192,11 @@ which may explain it; the cause was not isolated.
   lockdown service is on 62078. Do not use the advertised port.
 - `_remotepairing._tcp` is on port 49152, open, with TXT keys `identifier`,
   `authTag`, `ver=24`, `minVer=8`.
-- The mobdev2 instance name contains a private (randomised) MAC, and the
-  RemotePairing instance identifier changed after a USB replug. Neither is a
-  stable identity; matching has to go through `authTag`.
+- The mobdev2 instance name contains a private (randomised) MAC, which stayed
+  the same all night. The RemotePairing instance identifier rotates about
+  once an hour: eight different values overnight, changing at roughly half
+  past each hour. Neither is a stable identity; matching has to go through
+  `authTag`.
 - The Mac's `ideviceinfo -n` answered in 0.2 s over WiFi with the phone awake.
 - A few minutes after the phone was put down for the night (still on USB to
   the Mac): the Mac's usbmuxd stopped listing the phone's network entry, so
@@ -198,6 +204,50 @@ which may explain it; the cause was not isolated.
   query to port 62078 with the pair record still succeeded from both the Mac
   and the container. Ping and Bonjour also still worked. One port probe in
   that period found 62078 closed; the next, 50 seconds later, found it open.
+
+### Overnight reachability (night of 2026-11-23)
+
+`scripts/presence-monitor.sh` checked the phone every five minutes from 23:46
+to 07:10: 83 checks. The phone was on the Mac's USB the whole time, so it was
+charging (74% at the start, 100% from 01:05). Its owner went to bed at about
+01:05; that the phone then sat locked and untouched is assumed, not observed.
+
+| Check | Result |
+|---|---|
+| Lockdown query from the container, direct to TCP 62078 with the pair record | 82 of 82 where the address was known |
+| Bonjour adverts on WiFi (`_apple-mobdev2._tcp`, `_remotepairing._tcp`) | 83 of 83 |
+| `.local` name resolves | 82 of 83 |
+| Bare port probe of 62078 (`nc`, 3 s limit) | open 68, not accepting 14, not tried 1 |
+| Mac's usbmuxd lists the network entry | 64 of 83 |
+| Mac's usbmuxd lists the USB entry | 74 of 83 |
+
+- **Direct lockdown never failed.** The single miss was the check where the
+  name did not resolve, so nothing was tried. That includes all 14 checks
+  where the port probe had just reported the port as not accepting.
+- **The port stops accepting briefly and often.** The 14 misses were 21 to 47
+  minutes apart, lasted one check each except for one pair, and happened both
+  before and after the owner went to bed. The probe cannot tell a refusal
+  from a 3-second timeout. A plausible reading is that the phone's WiFi dozes
+  and the first connection wakes it, but that was not tested.
+- **usbmuxd's network entry came and went on a long cycle.** Missing for the
+  first 19 checks (23:46 to 01:36), then present for the remaining 64. The
+  cause is unknown. A mux daemon in the path would have reported the phone as
+  absent for two hours while it was answering directly.
+- **The USB entry dropped for single checks nine times** with the cable in.
+  The USB network interfaces vanished from Bonjour on the same checks.
+
+What this does not show: a phone asleep on battery, a phone on a different
+subnet from the server, or behaviour over more than one night. Samples are
+five minutes apart, so shorter gaps are invisible.
+
+Consequences for the daemon:
+
+- Probing a configured address directly (D2, D6) is the dependable path.
+- A refused or timed-out connection is not evidence that the phone is away.
+  The daemon already treats a failed probe as "wait and ask again at the next
+  poll", which fits. A backup that fails to connect at its very start is
+  different: today it counts as a failed run and waits out the 60-minute
+  back-off. See DECISIONS.md O15.
 
 ### Pair record portability
 
@@ -303,10 +353,11 @@ Things the build turned up:
 1. **Passcode prompt on every backup.** No bypass is known. Fully unattended
    backups are not achievable; the realistic target is "one passcode entry,
    at a moment the owner is already holding the phone".
-2. **WiFi lockdown availability while the phone sleeps is not characterised
-   yet.** One closed-port probe was seen. If the overnight data shows long
-   gaps, the backup window is "shortly after unlock", not "any time on
-   charge".
+2. **WiFi lockdown availability is only characterised for a charging phone.**
+   One night on a charger showed no gaps longer than a single five-minute
+   check, and every direct query succeeded. A sleeping phone on battery may
+   behave differently; the charger requirement in the default policy avoids
+   depending on that.
 3. **Apple can change this again.** 26.4 already changed discovery. Classic
    lockdown over WiFi could be withdrawn in a later release.
 4. **Tailnet path is unproven** and may need the RemotePairing tunnel plus
@@ -406,8 +457,8 @@ Needs the phone and its owner (each backup start needs the passcode):
 
 Needs no one:
 
-7. Overnight reachability log (`local/logs/presence-overnight.ndjson`),
-   running the night of 2026-11-23; results to be folded in here.
+7. ~~Overnight reachability log.~~ Done; see "Overnight reachability". The
+   raw data is `local/logs/presence-overnight.ndjson`.
 8. Confirm a completed backup decrypts and is structurally sound.
 
 ## Sources

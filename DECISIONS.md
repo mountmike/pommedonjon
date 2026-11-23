@@ -38,9 +38,9 @@ Rejected:
 
 - **RemotePairing tunnel**: needs root or a userspace network stack, and is
   not needed on the LAN. It stays a candidate for the tailnet only.
-- **usbmuxd or netmuxd in the container**: an extra daemon. The Mac's own
-  usbmuxd dropped the phone's network entry within minutes while direct
-  connections kept working.
+- **usbmuxd or netmuxd in the container**: an extra daemon. Overnight, the
+  Mac's own usbmuxd did not list the phone's network entry for two hours
+  while direct connections succeeded on every check (82 of 82).
 
 Consequence: the container needs outbound TCP to each phone and nothing
 else. No USB, no host networking, no privileges.
@@ -84,10 +84,10 @@ stored on the server. See O6.
 *By judgement, for now.* Each phone has an address in the config and the
 daemon probes it only when a backup is otherwise due.
 
-Why not mDNS yet: the phone's `.local` name failed to resolve once in
-testing, mDNS will not cross VLANs without help, and iOS 26.4 made matching
-adverts to devices harder. Polling a known address has none of those
-problems. See O7.
+Why not mDNS yet: the phone's `.local` name failed to resolve twice in
+testing, the RemotePairing identifier it advertises rotates about hourly,
+mDNS will not cross VLANs without help, and iOS 26.4 made matching adverts to
+devices harder. Polling a known address has none of those problems. See O7.
 
 ### D7. Backups happen when the owner is there, never at night
 
@@ -287,3 +287,21 @@ or the source.
 
 Not started. It needs pairing on a Mac, backup encryption with a password
 its owner knows, and O1 in place so its prompts are explained.
+
+### O15. A connection refused at the very start of a backup
+
+Overnight, a bare probe found the lockdown port not accepting on 14 of 82
+checks, each time for a moment only; full lockdown queries never failed.
+Today a backup that cannot connect at its start is recorded as a failed run
+and the phone is left alone for 60 minutes (D8).
+
+- **Keep as is:** simple, and it has not been seen to happen on a real
+  connection.
+- **Retry the connection** a few times over a minute before giving up.
+- **No back-off** for a run that failed before the passcode prompt appeared,
+  since the owner saw nothing.
+
+Recommendation: the third, as it follows the same reasoning as the prompt
+budget, which already ignores failures that never reached the prompt. Note
+that the heads-up notification has already gone out by then, so a run that
+dies before the prompt should also say so.
