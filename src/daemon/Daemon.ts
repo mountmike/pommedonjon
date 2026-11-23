@@ -40,6 +40,8 @@ export interface DaemonDeps {
   readonly notifier: Notifier;
   readonly log: Logger;
   readonly clock: () => Date;
+  /** Which build this is, for the start-up log line. */
+  readonly version?: string;
   /** Resolves after the delay, or early if the signal aborts. */
   readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
@@ -73,6 +75,7 @@ export class Daemon {
       });
     }
     log("info", "nightstand started", {
+      ...(this.deps.version !== undefined && { version: this.deps.version }),
       devices: config.devices.map((device) => device.id),
       pollIntervalSeconds: config.pollIntervalSeconds,
     });

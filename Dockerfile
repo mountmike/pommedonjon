@@ -28,6 +28,10 @@ COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./
 COPY sidecar ./sidecar
 
+# The commit this image was built from, shown by --version and in the
+# start-up log. Set by the build pipeline; "dev" for a local build.
+ARG NIGHTSTAND_BUILD=dev
+
 # pymobiledevice3 insists on creating a data folder under $HOME at start-up.
 # Point it at /tmp so the container can run with a read-only root filesystem
 # (mount /tmp as tmpfs). Nothing nightstand needs to keep is written there.
@@ -35,6 +39,7 @@ ENV HOME=/tmp \
     NODE_ENV=production \
     NIGHTSTAND_PYTHON=/opt/sidecar/bin/python \
     NIGHTSTAND_CONFIG=/config/nightstand.json \
+    NIGHTSTAND_BUILD=${NIGHTSTAND_BUILD} \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 

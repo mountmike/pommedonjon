@@ -601,4 +601,36 @@ describe("Daemon.run", () => {
     expect(h.sleeps).toEqual([120_000, 120_000, 120_000]);
     expect(h.logs.at(-1)?.message).toBe("nightstand stopped");
   });
+
+  it("says which build it is when it starts, if told", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const logs: { message: string; fields: unknown }[] = [];
+    const daemon = new Daemon({
+      config: {
+        backupRoot: "/backups",
+        stateDir: "/state",
+        pollIntervalSeconds: 120,
+        headsUpLeadSeconds: 5,
+        sidecar: {},
+        discovery: { ranges: [], scanIntervalSeconds: 300 },
+        devices: [],
+      },
+      locator: { locate: () => Promise.reject(new Error("unused")) },
+      runner: { run: () => Promise.reject(new Error("unused")) },
+      state,
+      notifier: { notify: () => Promise.resolve() },
+      log: (_level, message, fields) => logs.push({ message, fields }),
+      clock: () => at(19),
+      version: "0.3.1 (build 3f2a9c1)",
+      sleep: () => Promise.resolve(),
+    });
+
+    await daemon.run(controller.signal);
+
+    expect(logs[0]).toEqual({
+      message: "nightstand started",
+      fields: { version: "0.3.1 (build 3f2a9c1)", devices: [], pollIntervalSeconds: 120 },
+    });
+  });
 });

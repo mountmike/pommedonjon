@@ -6,6 +6,7 @@ import { jsonLogger } from "./notify/Notifier.js";
 import { buildReport, formatReport } from "./report/report.js";
 import { inspectPairRecord } from "./credentials/pairRecord.js";
 import { DeviceError } from "./transport/DeviceTransport.js";
+import { describeBuild, readBuildInfo } from "./version.js";
 
 const USAGE = `nightstand: self-hosted iPhone backups
 
@@ -27,6 +28,9 @@ Usage:
       Day by day, what happened to each phone over the last N days (default
       14): when it was plugged in, each prompt and its outcome, and why no
       backup started when none did.
+
+  nightstand --version
+      Show which build this is.
 
 The config file path can also come from the NIGHTSTAND_CONFIG environment
 variable.
@@ -142,8 +146,13 @@ async function main(argv: readonly string[]): Promise<number> {
       days: { type: "string" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
+      version: { type: "boolean" },
     },
   });
+  if (values.version) {
+    print(`nightstand ${describeBuild(readBuildInfo())}`);
+    return 0;
+  }
   const [command, ...extra] = positionals;
   if (values.help || command === undefined) {
     print(USAGE);

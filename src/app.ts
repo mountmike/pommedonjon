@@ -12,6 +12,7 @@ import { BackupStore } from "./storage/BackupStore.js";
 import { SidecarBackupVerifier } from "./storage/BackupVerifier.js";
 import type { DeviceTransport } from "./transport/DeviceTransport.js";
 import { Pymobiledevice3Transport } from "./transport/pymobiledevice3/Pymobiledevice3Transport.js";
+import { describeBuild, readBuildInfo } from "./version.js";
 
 /** The lockdown service's port on every iOS device. */
 const LOCKDOWN_PORT = 62078;
@@ -100,6 +101,7 @@ export function createApp(
     notifier,
     log,
     clock,
+    version: describeBuild(readBuildInfo(env)),
     sleep,
   });
 
