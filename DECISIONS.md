@@ -400,6 +400,44 @@ At start-up nightstand logs an error for a pair record that is missing or
 unreadable and a warning for one that anyone but its owner can read, and
 carries on, so one phone's mistake does not stop another's backups.
 
+### D20. Three environments, fed by commits
+
+*Decided by the owner, 2026-11-24:* development on the Mac, a test stack on
+the server, possibly a production stack too; versions driven by commits;
+Changesets for versioning. Also from the owner: tests live in `test/`, and
+the project runs on Node 26.
+
+How that is built, by judgement:
+
+- **Every commit on `main` becomes an image** tagged `edge` and
+  `sha-<commit>`. The test stack follows `edge`, so merging is deploying to
+  test.
+- **A release is the merge of the "Version Packages" pull request** that
+  Changesets maintains. The pipeline then tags `v<version>` and pushes the
+  image as `<version>`, `<major>.<minor>` and `latest`. Production follows a
+  version.
+- **One workflow does all of it.** A tag pushed by a workflow's own token
+  does not start another workflow, so a separate tag-triggered image build
+  would never run. The release image is built in the same run that tags.
+- **Tests run inside the Node image the product ships on**, not on the
+  runner's own Node.
+- **amd64 only** for now. Checked locally: the image builds for amd64 and
+  both the app and the Python sidecar start in it.
+- **The image carries its commit**, shown by `--version` and in the
+  start-up log, since every build between two releases has the same version.
+
+Not yet done, and waiting on the owner:
+
+- The repository has no GitHub remote, so **the workflow has never run**.
+- Which image registry account, and whether the repository is public (O13).
+- The stacks themselves live in the owner's stacks repository and Komodo.
+  Komodo is reachable only on the tailnet, so GitHub cannot notify it;
+  redeploys come from Komodo polling for a newer image, or by hand.
+
+One constraint the environments must respect: **a phone may be watched by
+only one daemon.** Two would each prompt it. So test and production cannot
+both be given the same phone. See O18.
+
 ## Open
 
 ### O1. Notification channel
@@ -594,3 +632,22 @@ that error, as cancelled.
 
 Limits: one observation, on an unlocked phone. Not seen yet: a prompt
 cancelled from the lock screen, or a wrong passcode, which may look the same.
+
+### O18. Which phone goes to which environment
+
+A phone can only be given to one running daemon (D20). With two phones and
+two server environments, the options:
+
+- **Test has the owner's phone, production has the second phone.** New
+  builds reach the owner first; the other person only ever gets a released
+  version. Recommended.
+- **One environment at a time.** Test has both phones during the trial;
+  production replaces it afterwards.
+- **Test has no phone of its own** and is only for one-off commands.
+
+### O19. The name
+
+The owner wants a better name than "nightstand" for the app and repository.
+It appears in the package, the command, the image, environment variables
+and file names, so it is cheapest to settle before the repository and image
+are first published.

@@ -1,0 +1,42 @@
+# Development on your own machine: builds the image from this checkout and
+# keeps everything it reads and writes under local/, which git ignores.
+#
+#   local/dev/config/nightstand.json   settings
+#   local/dev/secrets/                 pair records, mode 600
+#   local/dev/state/                   run history
+#   local/dev/backups/                 backups
+#
+# Use it through pnpm, which rebuilds the image when the source has changed:
+#
+#   pnpm dev probe
+#   pnpm dev backup --device <id>
+#   pnpm dev report
+#   pnpm dev daemon
+#
+# A phone should only ever be watched by one running daemon. If a server is
+# already backing a phone up, leave that phone out of local/dev's config, or
+# stick to one-off commands here.
+services:
+  nightstand:
+    build:
+      context: .
+      args:
+        NIGHTSTAND_BUILD: dev
+    image: nightstand:dev
+    environment:
+      # So `report` shows days and hours as you see them on the wall.
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - ./local/dev/config:/config:ro
+      # A whole directory, where a deployment would use one secret per phone:
+      # simpler on a development machine, and still read-only.
+      - ./local/dev/secrets:/run/secrets:ro
+      - ./local/dev/state:/state
+      - ./local/dev/backups:/backups
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

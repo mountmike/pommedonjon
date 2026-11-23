@@ -18,7 +18,8 @@
     "start": "node dist/cli.js",
     "changeset": "changeset",
     "release:version": "changeset version",
-    "release:tag": "changeset git-tag"
+    "release:tag": "changeset git-tag",
+    "dev": "docker compose -f compose.dev.yaml run --rm --build nightstand"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",

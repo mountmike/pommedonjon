@@ -393,8 +393,8 @@ without paying for it.
 ## What exists in the repo
 
 First built the night of 2026-11-23/24, then reworked on 2026-11-24 to the
-design in [DECISIONS.md](DECISIONS.md). 259 unit tests pass; all use fakes
-for the phone and the sidecar.
+design in [DECISIONS.md](DECISIONS.md). 268 unit tests pass under Node 26;
+all use fakes for the phone and the sidecar.
 
 | Part | Where | Tried against the real phone? |
 |---|---|---|

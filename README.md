@@ -206,6 +206,8 @@ does not prove the backup decrypts or restores.
 
 ## Development
 
+Needs Node 26, pnpm and Docker.
+
 ```bash
 pnpm install
 ```
@@ -218,5 +220,65 @@ pnpm test
 pnpm typecheck
 ```
 
-The tests use fakes for the phone and the sidecar; none of them touch a real
-device.
+Source is under `src/` and tests under `test/`, in the same folder layout.
+The tests use fakes for the phone and the sidecar (`test/support/`); none of
+them touch a real device.
+
+### Running it on your own machine
+
+[compose.dev.yaml](compose.dev.yaml) builds the image from your checkout and
+keeps everything under `local/dev/`, which git ignores:
+
+```
+local/dev/config/nightstand.json   settings
+local/dev/secrets/                 pair records, mode 600
+local/dev/state/                   run history
+local/dev/backups/                 backups
+```
+
+`pnpm dev` runs any command in that container, rebuilding first if the
+source changed:
+
+```bash
+pnpm dev probe
+```
+
+```bash
+pnpm dev backup --device phone-one
+```
+
+**One daemon per phone.** Two daemons watching the same phone would each
+prompt it. If a server already backs a phone up, leave that phone out of
+`local/dev`'s config or stick to one-off commands.
+
+### Environments
+
+| Environment | Runs | Follows |
+|---|---|---|
+| Development | Your machine, built from the checkout | Whatever is on disk |
+| Test | A server, from the published image | `edge`: every commit on `main` |
+| Production | A server, from the published image | A released version |
+
+`nightstand --version` and the first line of the daemon's log say which
+build is running, including the commit.
+
+### Releasing
+
+Versions are managed with [Changesets](https://github.com/changesets/changesets).
+
+1. With any change that someone running the app would notice, add a
+   changeset and commit it alongside:
+
+   ```bash
+   pnpm changeset
+   ```
+
+2. Every commit on `main` is tested and published as the `edge` image, plus
+   one tagged with its commit (`sha-3f2a9c1`).
+3. While changesets are waiting, the pipeline keeps a "Version Packages" pull
+   request up to date. It bumps the version and writes `CHANGELOG.md`.
+4. Merging that pull request is the release: the pipeline tags `v<version>`,
+   publishes the release notes, and pushes the image as `<version>`,
+   `<major>.<minor>` and `latest`.
+
+The pipeline is [.github/workflows/pipeline.yml](.github/workflows/pipeline.yml).
