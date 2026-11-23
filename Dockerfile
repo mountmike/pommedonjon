@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Build the TypeScript daemon -------------------------------------------
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 RUN npm install --global pnpm@12
 COPY package.json pnpm-lock.yaml ./
@@ -13,7 +13,7 @@ RUN pnpm build
 RUN pnpm prune --prod
 
 # --- Runtime: Node for the daemon, Python for the device sidecar -----------
-FROM node:24-alpine
+FROM node:26-alpine
 
 # pymobiledevice3 lives in its own virtualenv so Alpine's system Python stays
 # untouched. Pinned: device-protocol behaviour should only change on purpose.
