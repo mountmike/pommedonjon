@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, DEFAULT_POLICY, parseConfig } from "./config.js";
+import { ConfigError, DEFAULT_POLICY, loadConfig, parseConfig } from "./config.js";
 
 const UDID = "00008140-000A1B2C3D4E001C";
 
@@ -18,6 +18,18 @@ function minimal(overrides: object = {}) {
     ...overrides,
   };
 }
+
+describe("the example config in the repo", () => {
+  it("is valid, so copying it is a working starting point", async () => {
+    const config = await loadConfig(new URL("../../nightstand.example.json", import.meta.url).pathname);
+    expect(config.devices.map((device) => device.id)).toEqual(["phone-one", "phone-two"]);
+    expect(config.devices[0]?.policy).toEqual(DEFAULT_POLICY);
+    expect(config.devices[1]?.policy).toMatchObject({
+      trigger: "on-charger",
+      window: { startMinutes: 420, endMinutes: 1320 },
+    });
+  });
+});
 
 describe("parseConfig", () => {
   it("fills in defaults and resolves relative paths against the config's directory", () => {
@@ -42,21 +54,26 @@ describe("parseConfig", () => {
     });
   });
 
-  it("defaults to waking hours so a prompt never lights the phone at night", () => {
-    expect(DEFAULT_POLICY.window).toEqual({ startMinutes: 420, endMinutes: 1320 });
+  it("by default backs up shortly after plug-in, once a backup is 20 hours old, at any hour", () => {
+    expect(DEFAULT_POLICY).toMatchObject({
+      dueAfterHours: 20,
+      trigger: "plugged-in",
+      pluggedInWindowMinutes: 30,
+      window: null,
+    });
   });
 
   it("layers a device's policy over defaultPolicy over the built-in defaults", () => {
     const config = parseConfig(
       minimal({
-        defaultPolicy: { minIntervalHours: 12, window: { start: "18:00", end: "23:30" } },
+        defaultPolicy: { dueAfterHours: 12, window: { start: "18:00", end: "23:30" } },
         devices: [
           {
             id: "mike",
             udid: UDID,
             host: "h",
             pairRecordPath: "/p",
-            policy: { requireExternalPower: false, minBatteryPercent: 30 },
+            policy: { trigger: "on-charger", retryAfterTimeoutMinutes: 3 },
           },
         ],
       }),
@@ -64,10 +81,10 @@ describe("parseConfig", () => {
     );
     expect(config.devices[0]?.policy).toEqual({
       ...DEFAULT_POLICY,
-      minIntervalHours: 12,
+      dueAfterHours: 12,
       window: { startMinutes: 18 * 60, endMinutes: 23 * 60 + 30 },
-      requireExternalPower: false,
-      minBatteryPercent: 30,
+      trigger: "on-charger",
+      retryAfterTimeoutMinutes: 3,
     });
   });
 
@@ -106,7 +123,7 @@ describe("parseConfig", () => {
     const bad = minimal({
       backupRoot: "",
       pollIntervalSeconds: 1,
-      defaultPolicy: { minBatteryPercent: 140 },
+      defaultPolicy: { pluggedInWindowMinutes: 0 },
       devices: [{ id: "mike", udid: UDID, host: "h", pairRecordPath: "/p", polcy: {} }],
     });
     let message = "";
@@ -117,7 +134,7 @@ describe("parseConfig", () => {
     }
     expect(message.split("\n").sort()).toEqual([
       "backupRoot must be a non-empty string",
-      "defaultPolicy.minBatteryPercent must be between 0 and 100",
+      "defaultPolicy.pluggedInWindowMinutes must be at least 1",
       "devices[0].polcy is not a recognised setting",
       "pollIntervalSeconds must be at least 10",
     ]);
@@ -147,8 +164,10 @@ describe("parseConfig", () => {
     [{ pollIntervalSecond: 60 }, /pollIntervalSecond is not a recognised setting/],
     [{ defaultPolicy: { window: { start: "25:00", end: "01:00" } } }, /window.start/],
     [{ defaultPolicy: { window: { start: "09:00", end: "09:00" } } }, /must differ/],
-    [{ defaultPolicy: { minBatteryPercent: 140 } }, /between 0 and 100/],
-    [{ defaultPolicy: { requireExternalPower: "yes" } }, /true or false/],
+    [{ headsUpLeadSeconds: 900 }, /between 0 and 300/],
+    [{ defaultPolicy: { trigger: "on-unlock" } }, /trigger must be "plugged-in" or "on-charger"/],
+    [{ defaultPolicy: { dueAfterHours: 0 } }, /dueAfterHours must be at least 1/],
+    [{ defaultPolicy: { minIntervalHours: 20 } }, /minIntervalHours is not a recognised setting/],
   ])("rejects %j", (overrides, message) => {
     expect(() => parseConfig(minimal(overrides), "/")).toThrow(message);
   });

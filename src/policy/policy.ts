@@ -1,5 +1,5 @@
 import type { DevicePolicy, TimeWindow } from "../config/config.js";
-import type { DeviceStatus } from "../transport/DeviceTransport.js";
+import type { PowerState } from "./power.js";
 
 /** What the policy needs to know about one earlier attempt. */
 export interface AttemptSummary {
@@ -14,31 +14,48 @@ export interface AttemptSummary {
 export type WaitReason =
   /** The last good backup is recent enough. */
   | "not-due"
-  /** Outside the hours when prompting the owner is acceptable. */
+  /** Outside the hours when starting a backup is allowed. */
   | "outside-window"
   /** A recent attempt failed; leave the phone alone for a while. */
   | "backing-off"
-  /** Too many passcode prompts went unanswered in the last 24 hours. */
-  | "prompt-budget-spent"
   /** Another attempt for this device has not finished. */
   | "already-running";
 
-export type AttemptDecision =
-  | { readonly attempt: true }
-  | {
-      readonly attempt: false;
-      readonly reason: WaitReason;
-      /** When the answer could change, where that is knowable. */
-      readonly until?: Date;
-    };
+export interface Schedule {
+  /**
+   * Whether to probe the phone now. True from shortly before a backup is due,
+   * so that by the time one is due it is known whether the phone has just
+   * been plugged in or has been charging for hours.
+   */
+  readonly observe: boolean;
+  readonly start:
+    | { readonly allowed: true }
+    | {
+        readonly allowed: false;
+        readonly reason: WaitReason;
+        /** When the answer could change, where that is knowable. */
+        readonly until?: Date;
+      };
+}
 
 export type ReadinessDecision =
   | { readonly ready: true }
-  | { readonly ready: false; readonly reason: "on-battery" | "battery-low" };
+  | {
+      readonly ready: false;
+      readonly reason:
+        /** Not on a charger. */
+        | "on-battery"
+        /** On a charger, but nobody saw it go on, so the owner may be away. */
+        | "waiting-for-plug-in"
+        /** Plugged in too long ago; wait for the next time. */
+        | "plug-in-window-passed";
+    };
 
 const HOUR_MS = 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
+
+/** How long before a backup is due the phone starts being watched. */
+export const WATCH_LEAD_MS = 30 * MINUTE_MS;
 
 /** Whether a local time of day falls inside a window (which may wrap midnight). */
 export function inWindow(window: TimeWindow, now: Date): boolean {
@@ -57,86 +74,84 @@ function nextWindowStart(window: TimeWindow, now: Date): Date {
 }
 
 /**
- * Decide, from the clock and history alone, whether to try a backup now.
- * Nothing here contacts the phone, so the daemon can call it freely and only
- * probe the device when the answer is yes.
+ * Decide, from the clock and history alone, whether to look at the phone and
+ * whether a backup may start. Nothing here contacts the phone.
  */
-export function shouldAttempt(input: {
+export function schedule(input: {
   readonly now: Date;
   readonly policy: DevicePolicy;
   /** When the last verified backup finished, if there has ever been one. */
   readonly lastSuccessAt: Date | undefined;
-  /** Attempts from at least the last 24 hours, in any order. */
+  /** Recent attempts, in any order. */
   readonly recentAttempts: readonly AttemptSummary[];
-}): AttemptDecision {
+}): Schedule {
   const { now, policy, lastSuccessAt, recentAttempts } = input;
   const nowMs = now.getTime();
 
   if (recentAttempts.some((attempt) => attempt.outcome === "running")) {
-    return { attempt: false, reason: "already-running" };
+    return { observe: false, start: { allowed: false, reason: "already-running" } };
   }
 
   if (lastSuccessAt) {
-    const dueAt = lastSuccessAt.getTime() + policy.minIntervalHours * HOUR_MS;
+    const dueAt = lastSuccessAt.getTime() + policy.dueAfterHours * HOUR_MS;
     if (nowMs < dueAt) {
-      return { attempt: false, reason: "not-due", until: new Date(dueAt) };
+      return {
+        observe: nowMs >= dueAt - WATCH_LEAD_MS,
+        start: { allowed: false, reason: "not-due", until: new Date(dueAt) },
+      };
     }
   }
 
   if (policy.window && !inWindow(policy.window, now)) {
     return {
-      attempt: false,
-      reason: "outside-window",
-      until: nextWindowStart(policy.window, now),
+      observe: true,
+      start: {
+        allowed: false,
+        reason: "outside-window",
+        until: nextWindowStart(policy.window, now),
+      },
     };
   }
 
-  // Each unanswered prompt lit up someone's phone for a minute. Ration them.
-  const unanswered = recentAttempts
-    .filter(
-      (attempt) =>
-        attempt.failureReason === "device-locked" &&
-        attempt.startedAt.getTime() > nowMs - DAY_MS,
-    )
-    .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
-  if (unanswered.length >= policy.maxUnansweredPromptsPerDay) {
-    // The budget frees up when the oldest counted prompt ages out.
-    const oldestCounted = unanswered[unanswered.length - policy.maxUnansweredPromptsPerDay];
-    return {
-      attempt: false,
-      reason: "prompt-budget-spent",
-      ...(oldestCounted && {
-        until: new Date(oldestCounted.startedAt.getTime() + DAY_MS),
-      }),
-    };
+  // An unanswered prompt may be asked again soon: the owner was simply not
+  // there. Anything else gets its own, separately set, pause.
+  let lastFailure: AttemptSummary | undefined;
+  for (const attempt of recentAttempts) {
+    if (attempt.outcome !== "failed" || !attempt.finishedAt) continue;
+    if (!lastFailure?.finishedAt || attempt.finishedAt > lastFailure.finishedAt) {
+      lastFailure = attempt;
+    }
   }
-
-  const lastFailure = recentAttempts
-    .filter((attempt) => attempt.outcome === "failed" && attempt.finishedAt)
-    .map((attempt) => (attempt.finishedAt as Date).getTime())
-    .reduce<number | undefined>(
-      (latest, at) => (latest === undefined || at > latest ? at : latest),
-      undefined,
-    );
-  if (lastFailure !== undefined) {
-    const retryAt = lastFailure + policy.retryAfterMinutes * MINUTE_MS;
+  if (lastFailure?.finishedAt) {
+    const pauseMinutes =
+      lastFailure.failureReason === "device-locked"
+        ? policy.retryAfterTimeoutMinutes
+        : policy.retryAfterFailureMinutes;
+    const retryAt = lastFailure.finishedAt.getTime() + pauseMinutes * MINUTE_MS;
     if (nowMs < retryAt) {
-      return { attempt: false, reason: "backing-off", until: new Date(retryAt) };
+      return {
+        observe: true,
+        start: { allowed: false, reason: "backing-off", until: new Date(retryAt) },
+      };
     }
   }
 
-  return { attempt: true };
+  return { observe: true, start: { allowed: true } };
 }
 
-/** Decide whether a reachable device is in a fit state to back up. */
-export function deviceReady(
-  policy: DevicePolicy,
-  status: Pick<DeviceStatus, "battery">,
+/** Decide whether what is known about the phone's power means "start now". */
+export function readyToStart(
+  policy: Pick<DevicePolicy, "trigger" | "pluggedInWindowMinutes">,
+  power: PowerState,
+  now: Date,
 ): ReadinessDecision {
-  if (status.battery.externalPowerConnected) return { ready: true };
-  if (policy.requireExternalPower) return { ready: false, reason: "on-battery" };
-  if (status.battery.levelPercent < policy.minBatteryPercent) {
-    return { ready: false, reason: "battery-low" };
+  if (power.kind !== "on-power") return { ready: false, reason: "on-battery" };
+  if (policy.trigger === "on-charger") return { ready: true };
+
+  if (!power.pluggedIn) return { ready: false, reason: "waiting-for-plug-in" };
+  const sincePlugIn = now.getTime() - power.since.getTime();
+  if (sincePlugIn > policy.pluggedInWindowMinutes * MINUTE_MS) {
+    return { ready: false, reason: "plug-in-window-passed" };
   }
   return { ready: true };
 }

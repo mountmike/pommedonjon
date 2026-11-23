@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_POLICY, type DevicePolicy } from "../config/config.js";
 import {
-  deviceReady,
   inWindow,
   isStale,
-  shouldAttempt,
+  readyToStart,
+  schedule,
   type AttemptSummary,
 } from "./policy.js";
+import type { PowerState } from "./power.js";
 
 /** Local time on a fixed day, so windows behave the same in any timezone. */
 function at(hours: number, minutes = 0, dayOffset = 0): Date {
@@ -15,10 +16,10 @@ function at(hours: number, minutes = 0, dayOffset = 0): Date {
 
 const policy: DevicePolicy = {
   ...DEFAULT_POLICY,
-  minIntervalHours: 20,
-  window: { startMinutes: 18 * 60, endMinutes: 22 * 60 },
-  maxUnansweredPromptsPerDay: 2,
-  retryAfterMinutes: 60,
+  dueAfterHours: 20,
+  window: null,
+  retryAfterTimeoutMinutes: 10,
+  retryAfterFailureMinutes: 30,
 };
 
 function failed(startedAt: Date, failureReason: string, minutesLong = 1): AttemptSummary {
@@ -30,105 +31,113 @@ function failed(startedAt: Date, failureReason: string, minutesLong = 1): Attemp
   };
 }
 
-describe("shouldAttempt", () => {
-  it("attempts a first backup inside the window", () => {
+const GO = { observe: true, start: { allowed: true } };
+
+describe("schedule", () => {
+  it("allows a first backup straight away", () => {
     expect(
-      shouldAttempt({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts: [] }),
-    ).toEqual({ attempt: true });
+      schedule({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts: [] }),
+    ).toEqual(GO);
   });
 
-  it("waits until the last good backup is old enough, and says when", () => {
-    const decision = shouldAttempt({
-      now: at(19),
-      policy,
-      lastSuccessAt: at(18, 30),
-      recentAttempts: [],
-    });
-    expect(decision).toEqual({
-      attempt: false,
-      reason: "not-due",
-      until: at(14, 30, 1),
-    });
-  });
-
-  it("attempts again once the interval has passed", () => {
+  it("leaves the phone alone while the last good backup is recent, and says when it is due", () => {
     expect(
-      shouldAttempt({
-        now: at(19),
-        policy,
-        lastSuccessAt: at(21, 0, -1),
-        recentAttempts: [],
-      }),
-    ).toEqual({ attempt: true });
-  });
-
-  it("never starts outside the window, and reports when it next opens", () => {
-    expect(
-      shouldAttempt({ now: at(3), policy, lastSuccessAt: undefined, recentAttempts: [] }),
-    ).toEqual({ attempt: false, reason: "outside-window", until: at(18) });
-    expect(
-      shouldAttempt({ now: at(22), policy, lastSuccessAt: undefined, recentAttempts: [] }),
-    ).toEqual({ attempt: false, reason: "outside-window", until: at(18, 0, 1) });
-  });
-
-  it("has no window restriction when the policy has none", () => {
-    expect(
-      shouldAttempt({
-        now: at(3),
-        policy: { ...policy, window: null },
-        lastSuccessAt: undefined,
-        recentAttempts: [],
-      }),
-    ).toEqual({ attempt: true });
-  });
-
-  it("backs off after a failure, then retries", () => {
-    const recentAttempts = [failed(at(18, 30), "unreachable")];
-    expect(
-      shouldAttempt({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts }),
-    ).toEqual({ attempt: false, reason: "backing-off", until: at(19, 31) });
-    expect(
-      shouldAttempt({ now: at(19, 31), policy, lastSuccessAt: undefined, recentAttempts }),
-    ).toEqual({ attempt: true });
-  });
-
-  it("stops prompting once the daily budget of unanswered prompts is spent", () => {
-    const recentAttempts = [
-      failed(at(18, 5), "device-locked"),
-      failed(at(19, 10), "device-locked"),
-    ];
-    expect(
-      shouldAttempt({ now: at(21), policy, lastSuccessAt: undefined, recentAttempts }),
+      schedule({ now: at(19), policy, lastSuccessAt: at(18, 30), recentAttempts: [] }),
     ).toEqual({
-      attempt: false,
-      reason: "prompt-budget-spent",
-      until: at(18, 5, 1),
+      observe: false,
+      start: { allowed: false, reason: "not-due", until: at(14, 30, 1) },
     });
   });
 
-  it("frees the prompt budget as old prompts age past 24 hours", () => {
-    const recentAttempts = [
-      failed(at(18, 5, -1), "device-locked"),
-      failed(at(19, 10, -1), "device-locked"),
-    ];
-    // 18:06 the next day: the 18:05 prompt has aged out, leaving one counted.
-    expect(
-      shouldAttempt({ now: at(18, 6), policy, lastSuccessAt: undefined, recentAttempts }),
-    ).toEqual({ attempt: true });
+  it("starts watching the phone half an hour before a backup is due", () => {
+    const lastSuccessAt = at(21, 0, -1); // due at 17:00 today
+    const before = schedule({ now: at(16, 29), policy, lastSuccessAt, recentAttempts: [] });
+    const watching = schedule({ now: at(16, 30), policy, lastSuccessAt, recentAttempts: [] });
+
+    expect(before.observe).toBe(false);
+    expect(watching).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "not-due", until: at(17) },
+    });
   });
 
-  it("does not count failures that never prompted against the prompt budget", () => {
-    const recentAttempts = [
-      failed(at(18, 0), "unreachable"),
-      failed(at(18, 10), "unreachable"),
-      failed(at(18, 20), "failed"),
-    ];
-    expect(
-      shouldAttempt({ now: at(20), policy, lastSuccessAt: undefined, recentAttempts }),
-    ).toEqual({ attempt: true });
+  it("is due after 20 hours, so plugging in a little earlier than yesterday still counts", () => {
+    const lastSuccessAt = at(22, 0, -1);
+    expect(schedule({ now: at(21, 50), policy, lastSuccessAt, recentAttempts: [] })).toEqual(GO);
   });
 
-  it("will not start a second attempt while one is running", () => {
+  it("has no hours restriction by default", () => {
+    expect(DEFAULT_POLICY.window).toBeNull();
+    expect(
+      schedule({ now: at(3), policy, lastSuccessAt: undefined, recentAttempts: [] }),
+    ).toEqual(GO);
+  });
+
+  it("with a window set, keeps watching outside it but will not start, and says when it opens", () => {
+    const windowed = { ...policy, window: { startMinutes: 18 * 60, endMinutes: 22 * 60 } };
+    expect(
+      schedule({ now: at(3), policy: windowed, lastSuccessAt: undefined, recentAttempts: [] }),
+    ).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "outside-window", until: at(18) },
+    });
+    expect(
+      schedule({ now: at(22), policy: windowed, lastSuccessAt: undefined, recentAttempts: [] }),
+    ).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "outside-window", until: at(18, 0, 1) },
+    });
+    expect(
+      schedule({ now: at(19), policy: windowed, lastSuccessAt: undefined, recentAttempts: [] }),
+    ).toEqual(GO);
+  });
+
+  it("asks again soon after an unanswered prompt", () => {
+    const recentAttempts = [failed(at(19), "device-locked")];
+    expect(
+      schedule({ now: at(19, 5), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "backing-off", until: at(19, 11) },
+    });
+    expect(
+      schedule({ now: at(19, 11), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual(GO);
+  });
+
+  it("sets no limit on how many prompts may go unanswered", () => {
+    const recentAttempts = [
+      failed(at(18, 0), "device-locked"),
+      failed(at(18, 15), "device-locked"),
+      failed(at(18, 30), "device-locked"),
+      failed(at(18, 45), "device-locked"),
+    ];
+    expect(schedule({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts })).toEqual(
+      GO,
+    );
+  });
+
+  it("waits the longer, separate pause after any other failure", () => {
+    const recentAttempts = [failed(at(19), "unreachable")];
+    expect(
+      schedule({ now: at(19, 20), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "backing-off", until: at(19, 31) },
+    });
+  });
+
+  it("paces itself by the most recent failure, not an earlier one", () => {
+    const recentAttempts = [
+      failed(at(19, 10), "device-locked"),
+      failed(at(18), "unreachable"),
+    ];
+    expect(
+      schedule({ now: at(19, 15), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toMatchObject({ start: { reason: "backing-off", until: at(19, 21) } });
+  });
+
+  it("will not look at or start on a phone that is already being backed up", () => {
     const running: AttemptSummary = {
       startedAt: at(18, 59),
       finishedAt: undefined,
@@ -136,13 +145,75 @@ describe("shouldAttempt", () => {
       failureReason: undefined,
     };
     expect(
-      shouldAttempt({
-        now: at(19),
+      schedule({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts: [running] }),
+    ).toEqual({ observe: false, start: { allowed: false, reason: "already-running" } });
+  });
+});
+
+describe("readyToStart", () => {
+  const pluggedIn = (since: Date): PowerState => ({ kind: "on-power", since, pluggedIn: true });
+  const alreadyCharging = (since: Date): PowerState => ({
+    kind: "on-power",
+    since,
+    pluggedIn: false,
+  });
+
+  it("never starts on battery, whichever trigger is set", () => {
+    for (const trigger of ["plugged-in", "on-charger"] as const) {
+      expect(readyToStart({ ...policy, trigger }, { kind: "on-battery" }, at(19))).toEqual({
+        ready: false,
+        reason: "on-battery",
+      });
+    }
+  });
+
+  describe('trigger "plugged-in"', () => {
+    const plugged = { ...policy, trigger: "plugged-in" as const, pluggedInWindowMinutes: 30 };
+
+    it("starts in the minutes after the phone goes onto power", () => {
+      expect(readyToStart(plugged, pluggedIn(at(19)), at(19, 0))).toEqual({ ready: true });
+      expect(readyToStart(plugged, pluggedIn(at(19)), at(19, 30))).toEqual({ ready: true });
+    });
+
+    it("does not start once the phone has been on power longer than the window", () => {
+      expect(readyToStart(plugged, pluggedIn(at(19)), at(19, 31))).toEqual({
+        ready: false,
+        reason: "plug-in-window-passed",
+      });
+      // So a phone left charging overnight is not prompted at 3 a.m. when its
+      // backup falls due.
+      expect(readyToStart(plugged, pluggedIn(at(22, 0, -1)), at(3))).toEqual({
+        ready: false,
+        reason: "plug-in-window-passed",
+      });
+    });
+
+    it("does not start on a phone that was already charging when first seen", () => {
+      expect(readyToStart(plugged, alreadyCharging(at(19)), at(19))).toEqual({
+        ready: false,
+        reason: "waiting-for-plug-in",
+      });
+    });
+  });
+
+  describe('trigger "on-charger"', () => {
+    const charger = { ...policy, trigger: "on-charger" as const };
+
+    it("starts whenever the phone is on power, however long it has been", () => {
+      expect(readyToStart(charger, pluggedIn(at(22, 0, -1)), at(3))).toEqual({ ready: true });
+      expect(readyToStart(charger, alreadyCharging(at(19)), at(19))).toEqual({ ready: true });
+    });
+  });
+
+  it("does not start when the phone's state is unknown or it is not answering", () => {
+    expect(readyToStart(policy, { kind: "unknown" }, at(19)).ready).toBe(false);
+    expect(
+      readyToStart(
         policy,
-        lastSuccessAt: undefined,
-        recentAttempts: [running],
-      }),
-    ).toEqual({ attempt: false, reason: "already-running" });
+        { kind: "unreachable", since: at(19), before: { kind: "on-battery" } },
+        at(19),
+      ).ready,
+    ).toBe(false);
   });
 });
 
@@ -161,37 +232,6 @@ describe("inWindow", () => {
     expect(inWindow(window, at(23, 30))).toBe(true);
     expect(inWindow(window, at(0, 30))).toBe(true);
     expect(inWindow(window, at(1, 0))).toBe(false);
-  });
-});
-
-describe("deviceReady", () => {
-  const battery = (levelPercent: number, externalPowerConnected: boolean) => ({
-    battery: {
-      levelPercent,
-      externalPowerConnected,
-      isCharging: externalPowerConnected,
-      fullyCharged: false,
-    },
-  });
-
-  it("is ready on a charger whatever the level", () => {
-    expect(deviceReady(policy, battery(3, true))).toEqual({ ready: true });
-  });
-
-  it("waits for a charger when the policy requires one", () => {
-    expect(deviceReady({ ...policy, requireExternalPower: true }, battery(90, false))).toEqual({
-      ready: false,
-      reason: "on-battery",
-    });
-  });
-
-  it("allows battery above the floor when a charger is not required", () => {
-    const relaxed = { ...policy, requireExternalPower: false, minBatteryPercent: 50 };
-    expect(deviceReady(relaxed, battery(50, false))).toEqual({ ready: true });
-    expect(deviceReady(relaxed, battery(49, false))).toEqual({
-      ready: false,
-      reason: "battery-low",
-    });
   });
 });
 

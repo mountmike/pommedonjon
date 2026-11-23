@@ -48,24 +48,28 @@ export type TimeWindow = Readonly<z.infer<typeof TimeWindowSchema>>;
 const DevicePolicySchema = z.strictObject(
   {
     /** A backup is due once the last good one is older than this. */
-    minIntervalHours: number({ min: 1 }),
+    dueAfterHours: number({ min: 1 }),
     /**
-     * Only start backups inside this window; null means any time of day.
-     * Starting a backup wakes the phone and shows a passcode prompt, so this
-     * should be when its owner is awake.
+     * What "on a charger" has to mean before a due backup starts.
+     *
+     * - "plugged-in": only in the minutes after the phone goes onto power,
+     *   while its owner is likely still holding it.
+     * - "on-charger": any time the phone is on power.
+     */
+    trigger: z.enum(["plugged-in", "on-charger"], {
+      error: 'must be "plugged-in" or "on-charger"',
+    }),
+    /** With "plugged-in": how long after going onto power a backup may start. */
+    pluggedInWindowMinutes: number({ min: 1 }),
+    /**
+     * Only start backups inside these hours; null means any time of day.
+     * Starting a backup wakes the phone and shows a passcode prompt.
      */
     window: TimeWindowSchema.nullable(),
-    /** Only start when the phone is on a charger. */
-    requireExternalPower: flag,
-    /** When on battery (and that is allowed), the level needed to start. */
-    minBatteryPercent: number({ min: 0, max: 100 }),
-    /**
-     * How many passcode prompts may go unanswered in 24 hours before the
-     * service stops asking until the next day.
-     */
-    maxUnansweredPromptsPerDay: number({ min: 1 }),
-    /** How long to leave the phone alone after any failed attempt. */
-    retryAfterMinutes: number({ min: 1 }),
+    /** How soon to ask again after a passcode prompt went unanswered. */
+    retryAfterTimeoutMinutes: number({ min: 1 }),
+    /** How soon to try again after a run failed for any other reason. */
+    retryAfterFailureMinutes: number({ min: 1 }),
     /** Raise a stale-backup alert once the last good backup is older than this. */
     staleAfterHours: number({ min: 1 }),
   },
@@ -78,13 +82,14 @@ const PolicyOverridesSchema = DevicePolicySchema.partial();
 type PolicyOverrides = z.infer<typeof PolicyOverridesSchema>;
 
 export const DEFAULT_POLICY: DevicePolicy = {
-  minIntervalHours: 20,
-  // Waking hours: a prompt outside these would light the phone up at night.
-  window: { startMinutes: 7 * 60, endMinutes: 22 * 60 },
-  requireExternalPower: true,
-  minBatteryPercent: 50,
-  maxUnansweredPromptsPerDay: 2,
-  retryAfterMinutes: 60,
+  // Not 24: with a daily habit, plugging in ten minutes earlier than
+  // yesterday would otherwise skip a day.
+  dueAfterHours: 20,
+  trigger: "plugged-in",
+  pluggedInWindowMinutes: 30,
+  window: null,
+  retryAfterTimeoutMinutes: 10,
+  retryAfterFailureMinutes: 10,
   staleAfterHours: 72,
 };
 

@@ -24,10 +24,9 @@ function deviceConfig(overrides: Partial<DeviceConfig> = {}): DeviceConfig {
     host: "10.0.0.7",
     port: undefined,
     pairRecordPath: "/secrets/mike.plist",
-    policy: {
-      ...DEFAULT_POLICY,
-      window: { startMinutes: 18 * 60, endMinutes: 22 * 60 },
-    },
+    // Most tests are about something other than the trigger, so they use the
+    // simpler one: any time on a charger.
+    policy: { ...DEFAULT_POLICY, trigger: "on-charger" },
     ...overrides,
   };
 }
@@ -119,8 +118,15 @@ function failRun(reason: string, when: Date) {
   };
 }
 
+const ON_BATTERY = {
+  levelPercent: 90,
+  isCharging: false,
+  externalPowerConnected: false,
+  fullyCharged: false,
+};
+
 describe("Daemon.tick", () => {
-  it("backs up a device that is due, home, charging and inside its window", async () => {
+  it("backs up a device that is due, home and on a charger", async () => {
     const h = harness();
     const outcomes = await h.daemon.tick();
     expect(h.ran).toEqual(["mike"]);
@@ -140,13 +146,27 @@ describe("Daemon.tick", () => {
     expect(outcomes).toMatchObject([{ action: "waited", reason: "not-due" }]);
   });
 
-  it("does not contact the phone at all when a backup is not due or it is night", async () => {
+  it("does not contact the phone at all while a backup is far from due", async () => {
     const h = harness();
-    h.setNow(at(3));
-    const outcomes = await h.daemon.tick();
-    expect(outcomes).toMatchObject([{ action: "waited", reason: "outside-window" }]);
-    expect(h.transport.probes).toEqual([]);
-    expect(h.ran).toEqual([]);
+    await h.daemon.tick();
+    const probesSoFar = h.transport.probes.length;
+
+    h.setNow(at(8, 0, 1)); // 13 hours later; due at 15:00
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "not-due", until: at(15, 0, 1) },
+    ]);
+    expect(h.transport.probes).toHaveLength(probesSoFar);
+  });
+
+  it("watches the phone from half an hour before a backup is due, without starting one", async () => {
+    const h = harness();
+    await h.daemon.tick();
+    const probesSoFar = h.transport.probes.length;
+
+    h.setNow(at(14, 40, 1));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "not-due" }]);
+    expect(h.transport.probes).toHaveLength(probesSoFar + 1);
+    expect(h.ran).toEqual(["mike"]);
   });
 
   it("treats a phone that is away as normal: no attempt recorded, no back-off", async () => {
@@ -163,16 +183,9 @@ describe("Daemon.tick", () => {
     expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
   });
 
-  it("waits for a charger when the policy requires one", async () => {
+  it("never backs up a phone that is on battery", async () => {
     const h = harness();
-    h.transport.probeResult = fakeStatus({
-      battery: {
-        levelPercent: 90,
-        isCharging: false,
-        externalPowerConnected: false,
-        fullyCharged: false,
-      },
-    });
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
     expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "on-battery" }]);
     expect(h.ran).toEqual([]);
   });
@@ -192,24 +205,24 @@ describe("Daemon.tick", () => {
     expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "not-paired" }]);
   });
 
-  it("backs off after a failed run and stops prompting once the budget is spent", async () => {
+  it("keeps asking after unanswered prompts, pausing between each", async () => {
     const h = harness();
-    h.setRun(failRun("device-locked", at(19)));
-    await h.daemon.tick();
+    for (const [hour, minute] of [
+      [19, 0],
+      [19, 10],
+      [19, 20],
+    ] as const) {
+      h.setNow(at(hour, minute));
+      h.setRun(failRun("device-locked", at(hour, minute)));
+      expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
 
-    h.setNow(at(19, 30));
-    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "backing-off" }]);
-
-    h.setNow(at(20, 5));
-    h.setRun(failRun("device-locked", at(20, 5)));
-    expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
-
-    // Two unanswered prompts today: no third, even after the back-off ends.
-    h.setNow(at(21, 30));
-    expect(await h.daemon.tick()).toMatchObject([
-      { action: "waited", reason: "prompt-budget-spent" },
-    ]);
-    expect(h.ran).toEqual(["mike", "mike"]);
+      h.setNow(at(hour, minute + 5));
+      expect(await h.daemon.tick()).toMatchObject([
+        { action: "waited", reason: "backing-off", until: at(hour, minute + 10) },
+      ]);
+    }
+    // Three prompts in half an hour, and it would ask a fourth time.
+    expect(h.ran).toEqual(["mike", "mike", "mike"]);
   });
 
   it("handles devices one at a time, and one device's fault does not skip the next", async () => {
@@ -243,16 +256,119 @@ describe("Daemon.tick", () => {
 
   it("logs a waiting reason once, not on every poll", async () => {
     const h = harness();
-    h.setNow(at(3));
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
     await h.daemon.tick();
     await h.daemon.tick();
     await h.daemon.tick();
     expect(h.logs.filter((l) => l.message === "waiting")).toHaveLength(1);
 
-    h.setNow(at(19));
     h.transport.probeResult = new DeviceError("no answer", "unreachable");
     await h.daemon.tick();
     expect(h.logs.filter((l) => l.message === "waiting")).toHaveLength(2);
+  });
+});
+
+describe('Daemon with the "plugged-in" trigger', () => {
+  const pluggedIn = () =>
+    deviceConfig({
+      policy: { ...DEFAULT_POLICY, trigger: "plugged-in", pluggedInWindowMinutes: 30 },
+    });
+
+  it("starts a backup when it sees the phone go onto power", async () => {
+    const h = harness([pluggedIn()]);
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "on-battery" }]);
+
+    h.transport.probeResult = fakeStatus();
+    h.setNow(at(19, 2));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
+  });
+
+  it("does not start on a phone that was already charging when the service started", async () => {
+    const h = harness([pluggedIn()]);
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "waiting-for-plug-in" },
+    ]);
+    expect(h.ran).toEqual([]);
+  });
+
+  it("does not prompt a phone left charging overnight when its backup falls due", async () => {
+    const h = harness([pluggedIn()]);
+    // Yesterday's backup finished at 07:00, so the next is due at 03:00.
+    const runId = state.startRun("mike", at(6, 55));
+    state.finishRun(runId, at(7), { outcome: "succeeded", durationMs: 1 });
+
+    // Plugged in at 22:00, seen by the daemon only once it starts watching.
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    h.setNow(at(2, 30, 1));
+    await h.daemon.tick();
+    h.transport.probeResult = fakeStatus();
+    h.setNow(at(2, 32, 1));
+    await h.daemon.tick(); // goes onto power at 02:32, not yet due
+
+    h.setNow(at(3, 10, 1)); // due, 38 minutes after the plug-in
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "plug-in-window-passed" },
+    ]);
+    expect(h.ran).toEqual([]);
+
+    // Unplugged in the morning and plugged in again that evening: now it runs.
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    h.setNow(at(7, 0, 1));
+    await h.daemon.tick();
+    h.transport.probeResult = fakeStatus();
+    h.setNow(at(18, 0, 1));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
+  });
+
+  it("retries an unanswered prompt only while still inside the plug-in window", async () => {
+    const h = harness([
+      deviceConfig({
+        policy: {
+          ...DEFAULT_POLICY,
+          trigger: "plugged-in",
+          pluggedInWindowMinutes: 30,
+          retryAfterTimeoutMinutes: 10,
+        },
+      }),
+    ]);
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    await h.daemon.tick();
+    h.transport.probeResult = fakeStatus();
+
+    const prompts: string[] = [];
+    for (let minute = 2; minute <= 58; minute += 2) {
+      h.setNow(at(19, minute));
+      h.setRun(failRun("device-locked", at(19, minute)));
+      const [outcome] = await h.daemon.tick();
+      if (outcome?.action === "backed-up") prompts.push(`19:${String(minute).padStart(2, "0")}`);
+    }
+
+    // Plugged in at 19:02: asked then and every ten minutes up to half an
+    // hour later, and not again after that although it is still on power.
+    expect(prompts).toEqual(["19:02", "19:12", "19:22", "19:32"]);
+  });
+
+  it("logs the phone going onto and off power", async () => {
+    const h = harness([pluggedIn()]);
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    await h.daemon.tick();
+    h.transport.probeResult = fakeStatus();
+    await h.daemon.tick();
+    await h.daemon.tick();
+
+    expect(h.logs.filter((l) => l.message === "phone power state changed")).toEqual([
+      {
+        level: "info",
+        message: "phone power state changed",
+        fields: { device: "mike", from: "unknown", to: "on-battery" },
+      },
+      {
+        level: "info",
+        message: "phone power state changed",
+        fields: { device: "mike", from: "on-battery", to: "on-power", sawPlugIn: true },
+      },
+    ]);
   });
 });
 
@@ -286,7 +402,7 @@ describe("Daemon stale alerts", () => {
 
   it("does not alert about a device that has never been backed up", async () => {
     const h = harness();
-    h.setNow(at(3));
+    h.transport.probeResult = new DeviceError("no answer", "unreachable");
     await h.daemon.tick();
     expect(h.sent).toEqual([]);
   });
@@ -297,7 +413,7 @@ describe("Daemon.run", () => {
     const h = harness();
     const orphan = state.startRun("mike", at(18, 0, -1));
     const controller = new AbortController();
-    h.setNow(at(3));
+    h.transport.probeResult = new DeviceError("no answer", "unreachable");
     let ticks = 0;
     const originalTick = h.daemon.tick.bind(h.daemon);
     h.daemon.tick = async (signal) => {

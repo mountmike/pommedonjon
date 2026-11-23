@@ -4,12 +4,12 @@
   "pollIntervalSeconds": 120,
   "headsUpLeadSeconds": 5,
   "defaultPolicy": {
-    "minIntervalHours": 20,
-    "window": { "start": "18:00", "end": "22:30" },
-    "requireExternalPower": true,
-    "minBatteryPercent": 50,
-    "maxUnansweredPromptsPerDay": 2,
-    "retryAfterMinutes": 60,
+    "dueAfterHours": 20,
+    "trigger": "plugged-in",
+    "pluggedInWindowMinutes": 30,
+    "window": null,
+    "retryAfterTimeoutMinutes": 10,
+    "retryAfterFailureMinutes": 10,
     "staleAfterHours": 72
   },
   "devices": [
@@ -26,7 +26,7 @@
       "udid": "00000000-0000000000000001",
       "host": "192.0.2.11",
       "pairRecordPath": "pair-records/00000000-0000000000000001.plist",
-      "policy": { "window": { "start": "19:00", "end": "21:30" } }
+      "policy": { "trigger": "on-charger", "window": { "start": "07:00", "end": "22:00" } }
     }
   ]
 }
