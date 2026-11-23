@@ -26,6 +26,10 @@ are in the git-ignored `local/` folder.
   record exported from the Mac. Done twice: 5 min 38 s with the phone also on
   the Mac's USB, and 6 min 17 s with it unplugged from the Mac entirely. This
   is the path dockyard would use.
+- **The service's own code has backed the phone up.** `nightstand backup`,
+  run from the read-only container with the phone on battery, completed an
+  incremental in 4 min 48 s, verified it and recorded it. The daemon loop
+  deciding by itself when to start has still not been run for real.
 - The phone was already paired with the Mac, with backup encryption on and
   WiFi connections enabled, so no phone settings were changed.
 - Classic lockdown over WiFi (TCP 62078) carries the whole backup protocol on
@@ -75,7 +79,7 @@ built for arm64 here.
 
 ## What was measured
 
-### Backup attempts (encryption on; 1 to 5 over USB, 6 to 8 over WiFi)
+### Backup attempts (encryption on; 1 to 5 over USB, 6 to 9 over WiFi)
 
 | # | Tool | Passcode prompt | Outcome |
 |---|---|---|---|
@@ -91,6 +95,28 @@ built for arm64 here.
 | 7 | As 6, with the phone unplugged from the Mac (on another charger) | Appeared at +4 s, typed at +7 s | **Completed** in 6 min 17 s (377 s), sidecar exit 0 |
 
 | 8 | As 6, started while the phone was **locked** | Appeared at +6 s; the phone woke by itself and showed the prompt on the lock screen; typed at +18 s | **Completed** in 5 min 55 s (355 s), sidecar exit 0 |
+
+| 9 | **`nightstand backup`** from the read-only, unprivileged container: runner, transport and sidecar together. Phone **on battery** (97%), incremental onto a clone of attempt 8 | Appeared at +3 s after the backup started, closed at +8 s | **Completed** in 4 min 48 s (288 s) including the 5-second heads-up wait; verified, recorded as succeeded, exit 0 |
+
+Attempt 9 is the first run driven by the service's own code and not by the
+sidecar alone (morning of 2026-11-24). The run history recorded the whole
+sequence: started, passcode required, passcode dismissed, then progress from
+0% to 100%. The runner's verification passed (complete, the right phone,
+encrypted) and `nightstand status` afterwards reported the last good backup.
+Snapshots were off, so nothing was preserved beyond the working copy.
+
+Three things it turned up:
+
+- **On battery, the first probe timed out.** A `probe` a minute or two before
+  the run got no answer; a bare connection to port 62078 then succeeded, and
+  two more probes answered at once. It fits the overnight pattern of the
+  phone needing one contact before it answers. Seen once.
+- **The command said nothing while it ran.** It logged the heads-up and then
+  nothing until the result, so there was no cue to pick up the phone. The
+  runner now logs the passcode stage and progress.
+- **Progress sat at 0% for two and a half minutes**, then went to 100% in
+  the next 80 seconds. Presumably an incremental spends that first stretch
+  working out what changed. A progress bar will need to allow for it.
 
 Attempt 8 answers the locked-phone question (owner's observation plus the
 event log): a locked phone lights its screen and shows the backup passcode
@@ -311,27 +337,29 @@ without paying for it.
 ## What exists in the repo
 
 Built the night of 2026-11-23/24, at the owner's request, ahead of the Phase 0
-review. 113 unit tests pass; all use fakes for the phone and the sidecar.
+review. 115 unit tests pass; all use fakes for the phone and the sidecar.
 
 | Part | Where | Tried against the real phone? |
 |---|---|---|
 | Sidecar: `probe`, `backup`, `verify` | `sidecar/nightstand_sidecar.py` | `backup`: yes, by its earlier version (attempts 5 to 8). `probe` and `verify`: yes, read-only |
-| Transport interface and implementation | `src/transport/` | `probe`: yes. `startBackup` with the new argument layout: no |
+| Transport interface and implementation | `src/transport/` | `probe` and `startBackup`: yes (attempt 9) |
 | Config loading and validation | `src/config/` | n/a |
 | Due-policy: interval, window, back-off, prompt budget | `src/policy/` | n/a |
 | Storage: working copy, verification, snapshots | `src/storage/` | Verification: yes. Snapshot copy: yes, on a clone of the real backup |
 | Run history in SQLite | `src/state/` | n/a |
-| Runner: heads-up, back up, verify, snapshot, record | `src/runner/` | **No** |
+| Runner: heads-up, back up, verify, snapshot, record | `src/runner/` | Yes (attempt 9), with snapshots off. The failure paths: no |
 | Daemon loop and stale alerts | `src/daemon/` | Idle only: started outside the window for 3 seconds |
-| CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe` and `status`: yes. `backup` and a working `daemon`: **no** |
-| Container image | `Dockerfile` | `probe` from a read-only, unprivileged container: yes |
+| CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe`, `backup` and `status`: yes. A working `daemon`: **no** |
+| Container image | `Dockerfile` | `probe` and `backup` from a read-only, unprivileged container: yes |
 
 Not built: mDNS discovery (devices are found by configured address), any
 notification channel (notifications go to the service log only), email
 alerts, ZFS snapshot integration, the web UI.
 
-**The first real test owed** is `nightstand backup --device <id>` from the
-container, which needs one passcode entry.
+**The next real test owed** is the daemon starting a backup by its own
+decision: phone home, on a charger, inside the window, a backup due. It
+needs one passcode entry at a moment the daemon picks, and it is only a fair
+test once a heads-up can reach the phone (DECISIONS.md O1).
 
 Things the build turned up:
 
@@ -450,8 +478,9 @@ Needs the phone and its owner (each backup start needs the passcode):
    lockdown works on the LAN; it matters for the tailnet.
 4. Resume after an interrupted run, and an incremental after a normal day's
    use rather than 13 minutes.
-5. ~~Locked vs unlocked.~~ Done (attempt 8). Still to do: on battery, screen
-   off 30+ minutes, and whether lock/unlock events are observable over WiFi.
+5. ~~Locked vs unlocked.~~ Done (attempt 8). On battery: one backup done
+   (attempt 9), with the owner at the phone. Still to do: on battery with the screen off for
+   30+ minutes, and whether lock/unlock events are observable over WiFi.
 6. Tailnet: phone off home WiFi, direct by Tailscale address on both paths,
    then spoof and relay.
 
