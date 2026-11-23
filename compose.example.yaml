@@ -17,8 +17,9 @@ services:
     # defaults to 1000:1000.
     user: "1000:1000"
     environment:
-      # Only matters if the config sets a time-of-day window: it is read in
-      # this timezone. Set it to where the phones live, e.g. Europe/London.
+      # Where the phones live, e.g. Europe/London. The report command shows
+      # days and hours in this timezone, and a time-of-day window in the
+      # config, if one is set, is read in it.
       TZ: Etc/UTC
     volumes:
       - ./config:/config:ro

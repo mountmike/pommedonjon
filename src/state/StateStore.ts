@@ -28,6 +28,14 @@ export interface RunEvent {
   readonly detail: Readonly<Record<string, unknown>>;
 }
 
+/** Something the daemon noticed about a phone outside a backup run. */
+export interface DeviceEvent {
+  readonly at: Date;
+  /** "power": its power state changed. "waiting": why no backup is starting changed. */
+  readonly kind: string;
+  readonly detail: Readonly<Record<string, unknown>>;
+}
+
 export type RunResult =
   | {
       readonly outcome: "succeeded";
@@ -39,7 +47,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -70,6 +78,22 @@ const SCHEMA = `
     sent_at   INTEGER NOT NULL,
     PRIMARY KEY (device_id, kind)
   ) STRICT;
+`;
+
+/**
+ * Added in schema 4: what the daemon noticed about a phone between backups.
+ * This is the record a trial of the schedule is judged from, so it is kept
+ * here and not only in the service log, which a container restart loses.
+ */
+const DEVICE_EVENTS = `
+  CREATE TABLE device_events (
+    id        INTEGER PRIMARY KEY,
+    device_id TEXT    NOT NULL,
+    at        INTEGER NOT NULL,
+    kind      TEXT    NOT NULL,
+    detail    TEXT    NOT NULL
+  ) STRICT;
+  CREATE INDEX device_events_by_device ON device_events (device_id, at);
 `;
 
 /** Added in schema 3: where each phone was last reached. */
@@ -141,24 +165,26 @@ const AttemptRowSchema = z
     }),
   );
 
+const jsonObject = z.string().transform((text, ctx): Record<string, unknown> => {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  } catch {
+    // Reported below.
+  }
+  ctx.issues.push({ code: "custom", message: "is not a JSON object", input: text });
+  return z.NEVER;
+});
+
 const EventRowSchema = z
-  .object({
-    at: timestamp,
-    type: z.string(),
-    detail: z.string().transform((text, ctx): Record<string, unknown> => {
-      try {
-        const value: unknown = JSON.parse(text);
-        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-          return value as Record<string, unknown>;
-        }
-      } catch {
-        // Reported below.
-      }
-      ctx.issues.push({ code: "custom", message: "is not a JSON object", input: text });
-      return z.NEVER;
-    }),
-  })
+  .object({ at: timestamp, type: z.string(), detail: jsonObject })
   .transform((row): RunEvent => row);
+
+const DeviceEventRowSchema = z
+  .object({ at: timestamp, kind: z.string(), detail: jsonObject })
+  .transform((row): DeviceEvent => row);
 
 const whenRow = (column: string) =>
   z
@@ -203,7 +229,7 @@ export class StateStore {
     }
     if (version === 0) {
       this.#db.exec(
-        `BEGIN; ${SCHEMA} ${ADDRESSES} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`,
+        `BEGIN; ${SCHEMA} ${ADDRESSES} ${DEVICE_EVENTS} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`,
       );
       return;
     }
@@ -216,6 +242,9 @@ export class StateStore {
     }
     if (version < 3) {
       this.#db.exec(`BEGIN; ${ADDRESSES} PRAGMA user_version = 3; COMMIT;`);
+    }
+    if (version < 4) {
+      this.#db.exec(`BEGIN; ${DEVICE_EVENTS} PRAGMA user_version = 4; COMMIT;`);
     }
   }
 
@@ -297,6 +326,35 @@ export class StateStore {
       .prepare("SELECT at, type, detail FROM run_events WHERE run_id = ? ORDER BY id")
       .all(runId)
       .map((row) => read(EventRowSchema, "a run event", row));
+  }
+
+  /** Runs started at or after `since`, oldest first. */
+  runsSince(deviceId: string, since: Date): RunRecord[] {
+    return this.#db
+      .prepare("SELECT * FROM runs WHERE device_id = ? AND started_at >= ? ORDER BY started_at, id")
+      .all(deviceId, since.getTime())
+      .map((row) => read(RunRowSchema, "a run", row));
+  }
+
+  recordDeviceEvent(
+    deviceId: string,
+    at: Date,
+    kind: string,
+    detail: Readonly<Record<string, unknown>> = {},
+  ): void {
+    this.#db
+      .prepare("INSERT INTO device_events (device_id, at, kind, detail) VALUES (?, ?, ?, ?)")
+      .run(deviceId, at.getTime(), kind, JSON.stringify(detail));
+  }
+
+  /** What the daemon noticed about this device at or after `since`, oldest first. */
+  deviceEventsSince(deviceId: string, since: Date): DeviceEvent[] {
+    return this.#db
+      .prepare(
+        "SELECT at, kind, detail FROM device_events WHERE device_id = ? AND at >= ? ORDER BY at, id",
+      )
+      .all(deviceId, since.getTime())
+      .map((row) => read(DeviceEventRowSchema, "a device event", row));
   }
 
   /** When the last verified backup of this device finished. */

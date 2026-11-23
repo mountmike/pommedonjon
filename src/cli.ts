@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { createApp, type App } from "./app.js";
 import { ConfigError, loadConfig, type DeviceConfig } from "./config/config.js";
 import { jsonLogger } from "./notify/Notifier.js";
+import { buildReport, formatReport } from "./report/report.js";
 import { inspectPairRecord } from "./credentials/pairRecord.js";
 import { DeviceError } from "./transport/DeviceTransport.js";
 
@@ -21,6 +22,11 @@ Usage:
 
   nightstand status --config FILE
       Show each phone's last good backup and recent attempts.
+
+  nightstand report --config FILE [--device ID] [--days N] [--json]
+      Day by day, what happened to each phone over the last N days (default
+      14): when it was plugged in, each prompt and its outcome, and why no
+      backup started when none did.
 
 The config file path can also come from the NIGHTSTAND_CONFIG environment
 variable.
@@ -99,6 +105,33 @@ function status(app: App): number {
   return 0;
 }
 
+function report(
+  app: App,
+  deviceId: string | undefined,
+  daysOption: string | undefined,
+  asJson: boolean,
+): number {
+  const days = daysOption === undefined ? 14 : Number(daysOption);
+  if (!Number.isInteger(days) || days < 1 || days > 366) {
+    throw new UsageError("--days must be a whole number from 1 to 366");
+  }
+  const now = new Date();
+  // The first of the N days starts at local midnight.
+  const since = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
+  const reports = pickDevices(app, deviceId).map((device) =>
+    buildReport({
+      deviceId: device.id,
+      since,
+      now,
+      runs: app.state.runsSince(device.id, since),
+      eventsFor: (runId) => app.state.eventsFor(runId),
+      deviceEvents: app.state.deviceEventsSince(device.id, since),
+    }),
+  );
+  print(asJson ? JSON.stringify(reports, null, 2) : reports.map(formatReport).join("\n\n"));
+  return 0;
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: [...argv],
@@ -106,6 +139,8 @@ async function main(argv: readonly string[]): Promise<number> {
     options: {
       config: { type: "string" },
       device: { type: "string" },
+      days: { type: "string" },
+      json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -117,7 +152,7 @@ async function main(argv: readonly string[]): Promise<number> {
   if (extra.length > 0) {
     throw new UsageError(`unexpected argument "${extra[0]}"`);
   }
-  if (!["daemon", "probe", "backup", "status"].includes(command)) {
+  if (!["daemon", "probe", "backup", "status", "report"].includes(command)) {
     throw new UsageError(`unknown command "${command}"`);
   }
 
@@ -133,7 +168,7 @@ async function main(argv: readonly string[]): Promise<number> {
   process.once("SIGTERM", stop);
 
   try {
-    if (command !== "status") {
+    if (command !== "status" && command !== "report") {
       // Said once at start-up, before anything depends on it.
       for (const device of app.config.devices) {
         const finding = await inspectPairRecord(device.pairRecordPath);
@@ -148,6 +183,8 @@ async function main(argv: readonly string[]): Promise<number> {
         return await probe(app, values.device);
       case "backup":
         return await backup(app, values.device, controller.signal);
+      case "report":
+        return report(app, values.device, values.days, values.json === true);
       default:
         return status(app);
     }

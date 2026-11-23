@@ -393,7 +393,7 @@ without paying for it.
 ## What exists in the repo
 
 First built the night of 2026-11-23/24, then reworked on 2026-11-24 to the
-design in [DECISIONS.md](DECISIONS.md). 242 unit tests pass; all use fakes
+design in [DECISIONS.md](DECISIONS.md). 259 unit tests pass; all use fakes
 for the phone and the sidecar.
 
 | Part | Where | Tried against the real phone? |
@@ -407,8 +407,9 @@ for the phone and the sidecar.
 | Run history in SQLite | `src/state/` | Yes: recorded attempts 9 to 12, then upgraded in place to the current schema |
 | Runner: back up, verify, record | `src/runner/` | Yes (attempts 13 and 14) |
 | Daemon: one cycle per phone, stale alerts | `src/daemon/` | Started and stopped cleanly in the container with a backup not due. A backup it started itself: **no** |
+| Trial record and `report` command | `src/report/`, `src/state/` | The report: yes, on the morning's real history. Power and waiting records: **no**, nothing has been recorded by a running daemon yet |
 | Pair record permission check | `src/credentials/` | Yes: warned on a 644 file mounted as a Compose secret, silent on 600 |
-| CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe`, `backup` and `status`: yes |
+| CLI: `daemon`, `probe`, `backup`, `status`, `report` | `src/cli.ts` | All but a working `daemon`: yes |
 | Container image and Compose example | `Dockerfile`, `compose.example.yaml` | `probe` through Compose with secrets, read-only and unprivileged: yes |
 
 Not built: notifications (they go to the service log only), mDNS discovery,

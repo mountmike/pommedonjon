@@ -183,12 +183,13 @@ export class Daemon {
     const after = observe(before, reading, at);
     this.#power.set(device.id, after);
     if (after.kind !== before.kind) {
-      this.deps.log("info", "phone power state changed", {
-        device: device.id,
+      const change = {
         from: before.kind,
         to: after.kind,
         ...(after.kind === "on-power" && { sawPlugIn: after.pluggedIn }),
-      });
+      };
+      this.deps.log("info", "phone power state changed", { device: device.id, ...change });
+      this.deps.state.recordDeviceEvent(device.id, at, "power", change);
     }
     return after;
   }
@@ -226,10 +227,13 @@ export class Daemon {
     }
     if (this.#lastLogged.get(outcome.deviceId) === outcome.reason) return;
     this.#lastLogged.set(outcome.deviceId, outcome.reason);
-    this.deps.log("info", "waiting", {
-      device: outcome.deviceId,
+    const detail = {
       reason: outcome.reason,
       ...(outcome.until && { until: outcome.until.toISOString() }),
-    });
+    };
+    this.deps.log("info", "waiting", { device: outcome.deviceId, ...detail });
+    // Kept as well as logged: "why did no backup start?" is the question a
+    // trial of the schedule most often has to answer.
+    this.deps.state.recordDeviceEvent(outcome.deviceId, this.deps.clock(), "waiting", detail);
   }
 }

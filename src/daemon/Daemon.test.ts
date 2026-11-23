@@ -387,6 +387,32 @@ describe('Daemon with the "plugged-in" trigger', () => {
     expect(prompts).toEqual(["19:02", "19:12", "19:22", "19:32"]);
   });
 
+  it("keeps a record of power changes and of why it is waiting, for a trial to be judged from", async () => {
+    const h = harness([pluggedIn()]);
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    await h.daemon.tick();
+    h.transport.probeResult = fakeStatus();
+    h.setNow(at(19, 2));
+    await h.daemon.tick(); // plugged in: backs up
+    h.setNow(at(19, 4));
+    await h.daemon.tick(); // nothing new
+
+    expect(state.deviceEventsSince("mike", new Date(0))).toEqual([
+      { at: at(19), kind: "power", detail: { from: "unknown", to: "on-battery" } },
+      { at: at(19), kind: "waiting", detail: { reason: "on-battery" } },
+      {
+        at: at(19, 2),
+        kind: "power",
+        detail: { from: "on-battery", to: "on-power", sawPlugIn: true },
+      },
+      {
+        at: at(19, 4),
+        kind: "waiting",
+        detail: { reason: "not-due", until: at(15, 2, 1).toISOString() },
+      },
+    ]);
+  });
+
   it("logs the phone going onto and off power", async () => {
     const h = harness([pluggedIn()]);
     h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });

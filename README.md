@@ -154,10 +154,32 @@ Commands (`docker compose run --rm nightstand <command>`, or
 | `probe` | Find each phone and ask it about itself. Read-only, never prompts. |
 | `backup --device ID` | Back one phone up now, ignoring the schedule. The phone will prompt. |
 | `status` | Last good backup and recent attempts per phone. |
+| `report [--days N] [--json]` | Day by day: plug-ins, prompts and their outcomes, and why no backup started. |
 | `daemon` | Run the service. This is the default. |
 
 The log is one JSON object per line. During a backup it says when the phone
 is waiting for its passcode and how far the transfer has got.
+
+### Checking how the schedule is working
+
+`report` reads the run history, which survives restarts, and lays out the
+last 14 days per phone:
+
+```
+phone-one: 2026-11-24 to 2026-11-26 (3 days)
+  backed up on 1 of 3 days; seen plugged in on 2
+  prompts: 3 shown, 1 answered (median 4 s), 2 unanswered, 0 cancelled
+  unanswered prompts by hour: 23:00 x2
+  plugged in but not backed up: 2026-11-25
+
+2026-11-24
+  18:02  plugged in
+  18:02  backed up in 4 min 11 s (prompt at 18:02, open 4 s)
+  ...
+```
+
+Days and hours are in the container's timezone, so set `TZ` in the Compose
+file to read them as local time.
 
 ## Storage
 

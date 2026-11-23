@@ -572,6 +572,13 @@ cancelled, and how long the backup took. What it has to answer:
 
 Settled already: due after 20 hours, not 24 (D7).
 
+**Built for the trial:** the daemon stores every change in a phone's power
+state and every change in why it is waiting, alongside the run history, and
+`nightstand report` lays them out day by day with totals that answer the
+three questions above, including the hour at which unanswered prompts
+arrived. `--json` gives the same for analysis. A record in the database was
+chosen over the log because a container restart loses the log.
+
 ### O17. Telling a cancel from a timeout
 
 *Settled on evidence, 2026-11-24.* The owner tapped Cancel on the prompt

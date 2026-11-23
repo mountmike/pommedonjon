@@ -250,6 +250,8 @@ describe("StateStore on disk", () => {
     // The upgrade also brought the tables added since.
     upgraded.rememberAddress("mike", "192.168.1.50", t("2026-11-24T08:00:00Z"));
     expect(upgraded.lastAddress("mike")).toBe("192.168.1.50");
+    upgraded.recordDeviceEvent("mike", t("2026-11-24T08:00:00Z"), "power", { to: "on-power" });
+    expect(upgraded.deviceEventsSince("mike", new Date(0))).toHaveLength(1);
     upgraded.close();
 
     // Opening it again does not try to upgrade twice.
@@ -269,6 +271,45 @@ describe("StateStore on disk", () => {
     expect(second.lastAddress("mike")).toBe("192.168.1.77");
     expect(second.lastAddress("lolo")).toBe("192.168.1.40");
     second.close();
+  });
+
+  it("keeps what the daemon noticed about each phone, in order, across restarts", () => {
+    const file = path.join(dir, "state.sqlite");
+    const first = new StateStore(file);
+    first.recordDeviceEvent("mike", t("2026-11-24T08:00:00Z"), "power", { to: "on-battery" });
+    first.recordDeviceEvent("mike", t("2026-11-24T18:02:00Z"), "power", {
+      from: "on-battery",
+      to: "on-power",
+      sawPlugIn: true,
+    });
+    first.recordDeviceEvent("lolo", t("2026-11-24T18:05:00Z"), "waiting", { reason: "on-battery" });
+    first.recordDeviceEvent("mike", t("2026-11-24T18:02:00Z"), "waiting");
+    first.close();
+
+    const second = new StateStore(file);
+    expect(second.deviceEventsSince("mike", t("2026-11-24T12:00:00Z"))).toEqual([
+      {
+        at: t("2026-11-24T18:02:00Z"),
+        kind: "power",
+        detail: { from: "on-battery", to: "on-power", sawPlugIn: true },
+      },
+      { at: t("2026-11-24T18:02:00Z"), kind: "waiting", detail: {} },
+    ]);
+    expect(second.deviceEventsSince("lolo", new Date(0))).toHaveLength(1);
+    second.close();
+  });
+
+  it("lists runs from a given time on, oldest first", () => {
+    const early = store.startRun("mike", t("2026-11-23T08:00:00Z"));
+    store.finishRun(early, t("2026-11-23T08:05:00Z"), { outcome: "succeeded", durationMs: 1 });
+    const late = store.startRun("mike", t("2026-11-24T18:02:00Z"));
+    store.startRun("lolo", t("2026-11-24T18:03:00Z"));
+
+    expect(store.runsSince("mike", t("2026-11-23T00:00:00Z")).map((run) => run.id)).toEqual([
+      early,
+      late,
+    ]);
+    expect(store.runsSince("mike", t("2026-11-24T00:00:00Z")).map((run) => run.id)).toEqual([late]);
   });
 
   it("fails loudly on a row it cannot read, naming what is wrong with it", () => {
