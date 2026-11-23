@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { Sidecar, type SidecarChild } from "../sidecar/Sidecar.js";
+import { Sidecar, type SidecarChild } from "../../src/sidecar/Sidecar.js";
 
 /** Stands in for a sidecar process: tests write its output and end it. */
 export class FakeChild extends EventEmitter {

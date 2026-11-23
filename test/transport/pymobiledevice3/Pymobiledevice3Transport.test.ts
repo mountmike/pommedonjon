@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { fakeSidecar, type FakeChild } from "../../testing/fakeSidecar.js";
+import { fakeSidecar, type FakeChild } from "../../support/fakeSidecar.js";
 import {
   BackupError,
   DeviceError,
   type BackupEvent,
   type DeviceTarget,
-} from "../DeviceTransport.js";
-import { Pymobiledevice3Transport } from "./Pymobiledevice3Transport.js";
+} from "../../../src/transport/DeviceTransport.js";
+import { Pymobiledevice3Transport } from "../../../src/transport/pymobiledevice3/Pymobiledevice3Transport.js";
 
 const UDID = "00008140-000A1B2C3D4E001C";
 

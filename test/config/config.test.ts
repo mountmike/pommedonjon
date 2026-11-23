@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, DEFAULT_POLICY, loadConfig, parseConfig } from "./config.js";
+import { ConfigError, DEFAULT_POLICY, loadConfig, parseConfig } from "../../src/config/config.js";
 
 const UDID = "00008140-000A1B2C3D4E001C";
 

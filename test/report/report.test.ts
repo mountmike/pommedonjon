@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceEvent, RunEvent, RunRecord } from "../state/StateStore.js";
-import { buildReport, formatReport, localDate } from "./report.js";
+import type { DeviceEvent, RunEvent, RunRecord } from "../../src/state/StateStore.js";
+import { buildReport, formatReport, localDate } from "../../src/report/report.js";
 
 /** Local time, so days and hours behave the same in any timezone. */
 function at(day: number, hours: number, minutes = 0, seconds = 0): Date {

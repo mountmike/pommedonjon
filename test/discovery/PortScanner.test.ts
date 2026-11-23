@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PortScanner, type ConnectFn } from "./PortScanner.js";
+import { PortScanner, type ConnectFn } from "../../src/discovery/PortScanner.js";
 
 function scanner(options: {
   open?: (host: string, attempt: number) => boolean;

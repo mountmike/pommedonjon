@@ -5,7 +5,7 @@ import {
   observe,
   type PowerReading,
   type PowerState,
-} from "./power.js";
+} from "../../src/policy/power.js";
 
 const t0 = new Date("2026-11-24T19:00:00Z").getTime();
 const minute = (n: number) => new Date(t0 + n * 60_000);

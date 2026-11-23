@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DeviceError } from "../DeviceTransport.js";
-import { parseProbeResult, parseSidecarLine } from "./sidecarProtocol.js";
+import { DeviceError } from "../../../src/transport/DeviceTransport.js";
+import { parseProbeResult, parseSidecarLine } from "../../../src/transport/pymobiledevice3/sidecarProtocol.js";
 
 const goodProbe = {
   ok: true,

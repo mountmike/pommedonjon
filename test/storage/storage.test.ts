@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { fakeSidecar } from "../testing/fakeSidecar.js";
-import { BackupStore } from "./BackupStore.js";
-import { SidecarBackupVerifier } from "./BackupVerifier.js";
+import { fakeSidecar } from "../support/fakeSidecar.js";
+import { BackupStore } from "../../src/storage/BackupStore.js";
+import { SidecarBackupVerifier } from "../../src/storage/BackupVerifier.js";
 
 const UDID = "00008140-000A1B2C3D4E001C";
 

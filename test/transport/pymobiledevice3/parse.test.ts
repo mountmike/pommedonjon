@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { UnexpectedOutputError, parseUsbmuxList } from "./parse.js";
+import { UnexpectedOutputError, parseUsbmuxList } from "../../../src/transport/pymobiledevice3/parse.js";
 
 // Shapes captured from pymobiledevice3 11.63.1 against iOS 26.6.1, with the
 // real identifiers replaced.

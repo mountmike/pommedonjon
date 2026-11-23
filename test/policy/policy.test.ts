@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_POLICY, type DevicePolicy } from "../config/config.js";
+import { DEFAULT_POLICY, type DevicePolicy } from "../../src/config/config.js";
 import {
   inWindow,
   isStale,
   readyToStart,
   schedule,
   type AttemptSummary,
-} from "./policy.js";
-import type { PowerState } from "./power.js";
+} from "../../src/policy/policy.js";
+import type { PowerState } from "../../src/policy/power.js";
 
 /** Local time on a fixed day, so windows behave the same in any timezone. */
 function at(hours: number, minutes = 0, dayOffset = 0): Date {

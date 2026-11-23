@@ -10,7 +10,7 @@ import {
   type DeviceStatus,
   type DeviceTarget,
   type DeviceTransport,
-} from "../transport/DeviceTransport.js";
+} from "../../src/transport/DeviceTransport.js";
 
 export class FakeBackupRun implements BackupRun {
   readonly done: Promise<BackupResult>;

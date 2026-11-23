@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLogLine, LogNotifier, type LogLevel } from "./Notifier.js";
+import { formatLogLine, LogNotifier, type LogLevel } from "../../src/notify/Notifier.js";
 
 const NOW = new Date("2026-11-24T08:35:09.432Z");
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressesIn, rangeProblem } from "./ranges.js";
+import { addressesIn, rangeProblem } from "../../src/discovery/ranges.js";
 
 describe("addressesIn", () => {
   it("lists every usable address in a /24, leaving out network and broadcast", () => {

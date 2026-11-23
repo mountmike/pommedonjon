@@ -2,14 +2,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_POLICY, type DeviceConfig } from "../config/config.js";
-import type { Notification, Notifier } from "../notify/Notifier.js";
-import { StateStore } from "../state/StateStore.js";
-import { BackupStore } from "../storage/BackupStore.js";
-import type { BackupVerification, BackupVerifier } from "../storage/BackupVerifier.js";
-import { FAKE_UDID, FakeTransport } from "../testing/fakeTransport.js";
-import { BackupError } from "../transport/DeviceTransport.js";
-import { BackupRunner } from "./BackupRunner.js";
+import { DEFAULT_POLICY, type DeviceConfig } from "../../src/config/config.js";
+import type { Notification, Notifier } from "../../src/notify/Notifier.js";
+import { StateStore } from "../../src/state/StateStore.js";
+import { BackupStore } from "../../src/storage/BackupStore.js";
+import type { BackupVerification, BackupVerifier } from "../../src/storage/BackupVerifier.js";
+import { FAKE_UDID, FakeTransport } from "../support/fakeTransport.js";
+import { BackupError } from "../../src/transport/DeviceTransport.js";
+import { BackupRunner } from "../../src/runner/BackupRunner.js";
 
 const device: DeviceConfig = {
   id: "mike",

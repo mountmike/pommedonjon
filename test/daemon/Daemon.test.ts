@@ -3,14 +3,14 @@ import {
   DEFAULT_POLICY,
   type DeviceConfig,
   type NightstandConfig,
-} from "../config/config.js";
-import type { LogLevel, Notification } from "../notify/Notifier.js";
-import type { RunReport } from "../runner/BackupRunner.js";
-import { DeviceLocator } from "../discovery/DeviceLocator.js";
-import { StateStore } from "../state/StateStore.js";
-import { FAKE_UDID, FakeTransport, fakeStatus } from "../testing/fakeTransport.js";
-import { DeviceError } from "../transport/DeviceTransport.js";
-import { Daemon } from "./Daemon.js";
+} from "../../src/config/config.js";
+import type { LogLevel, Notification } from "../../src/notify/Notifier.js";
+import type { RunReport } from "../../src/runner/BackupRunner.js";
+import { DeviceLocator } from "../../src/discovery/DeviceLocator.js";
+import { StateStore } from "../../src/state/StateStore.js";
+import { FAKE_UDID, FakeTransport, fakeStatus } from "../support/fakeTransport.js";
+import { DeviceError } from "../../src/transport/DeviceTransport.js";
+import { Daemon } from "../../src/daemon/Daemon.js";
 
 /** Local time on a fixed day, so windows behave the same in any timezone. */
 function at(hours: number, minutes = 0, dayOffset = 0): Date {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_POLICY, type DeviceConfig } from "../config/config.js";
-import { FAKE_UDID, fakeStatus } from "../testing/fakeTransport.js";
-import { DeviceError, type DeviceStatus, type DeviceTarget } from "../transport/DeviceTransport.js";
-import { DeviceLocator } from "./DeviceLocator.js";
+import { DEFAULT_POLICY, type DeviceConfig } from "../../src/config/config.js";
+import { FAKE_UDID, fakeStatus } from "../support/fakeTransport.js";
+import { DeviceError, type DeviceStatus, type DeviceTarget } from "../../src/transport/DeviceTransport.js";
+import { DeviceLocator } from "../../src/discovery/DeviceLocator.js";
 
 const device: DeviceConfig = {
   id: "mike",
