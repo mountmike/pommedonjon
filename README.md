@@ -9,6 +9,12 @@ and no Mac or PC in the loop once a phone has been paired.
 yet run a scheduled backup against a real phone, and there is no notification
 channel yet.
 
+**This page describes the code as it is.** The design was revised on
+2026-11-24 and the code has not caught up: the trigger, snapshots, config
+parsing and one-phone-at-a-time behaviour described below are all changing.
+[DECISIONS.md](DECISIONS.md) says what is decided; entries marked "To build"
+are where it differs from this page.
+
 ## What to know first
 
 - **Every backup needs the phone's passcode typed on the phone**, within 60
