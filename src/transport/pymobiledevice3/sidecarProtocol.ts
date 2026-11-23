@@ -1,8 +1,10 @@
+import { z } from "zod";
+import { describeIssues } from "../../schema/issues.js";
 import {
   DeviceError,
+  DeviceStatusSchema,
   type BackupEvent,
   type BackupFailureReason,
-  type DeviceErrorReason,
   type DeviceStatus,
   type DeviceTarget,
 } from "../DeviceTransport.js";
@@ -27,17 +29,40 @@ export type SidecarMessage =
 /** MobileBackup's "Device locked" error code (MBErrorDomain/208). */
 const MB_ERROR_DEVICE_LOCKED = 208;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+/**
+ * What the sidecar prints, as it prints it. Unknown extra fields are ignored
+ * so the sidecar can add to a message without breaking an older daemon;
+ * a field of the wrong type makes the whole line unrecognised.
+ */
+const category = z.enum(["unreachable", "not-paired", "failed"]).catch("failed");
 
-function logLevel(raw: unknown): "info" | "warning" | "error" {
-  return raw === "warning" || raw === "error" ? raw : "info";
-}
+const BackupLineSchema = z.discriminatedUnion("event", [
+  z.object({ event: z.literal("started") }),
+  z.object({ event: z.literal("passcode-required") }),
+  z.object({ event: z.literal("passcode-dismissed") }),
+  z.object({ event: z.literal("progress"), percent: z.number() }),
+  z.object({
+    event: z.literal("log"),
+    level: z.enum(["info", "warning", "error"]).catch("info"),
+    message: z.string(),
+  }),
+  z.object({ event: z.literal("finished"), backupDir: z.string(), durationMs: z.number() }),
+  z.object({
+    event: z.literal("error"),
+    message: z.string().catch("unknown error"),
+    code: z.number().nullable().catch(null),
+    category,
+  }),
+]);
 
-function categoryReason(raw: unknown): DeviceErrorReason {
-  return raw === "unreachable" || raw === "not-paired" ? raw : "failed";
-}
+const ProbeReplySchema = z.discriminatedUnion("ok", [
+  DeviceStatusSchema.extend({ ok: z.literal(true) }),
+  z.object({
+    ok: z.literal(false),
+    message: z.string().catch("probe failed"),
+    category,
+  }),
+]);
 
 /** The sidecar's arguments for reaching a device. */
 export function endpointArgs(target: DeviceTarget): string[] {
@@ -70,61 +95,39 @@ export function parseSidecarLine(line: string): SidecarMessage | undefined {
     },
   });
 
-  let parsed: unknown;
+  let json: unknown;
   try {
-    parsed = JSON.parse(trimmed);
+    json = JSON.parse(trimmed);
   } catch {
     return unrecognised();
   }
-  if (!isRecord(parsed)) return unrecognised();
+  const parsed = BackupLineSchema.safeParse(json);
+  if (!parsed.success) return unrecognised();
+  const message = parsed.data;
 
-  switch (parsed["event"]) {
+  switch (message.event) {
     case "started":
-      return { kind: "event", event: { type: "started" } };
     case "passcode-required":
-      return { kind: "event", event: { type: "passcode-required" } };
     case "passcode-dismissed":
-      return { kind: "event", event: { type: "passcode-dismissed" } };
-    case "progress": {
-      const percent = parsed["percent"];
-      if (typeof percent !== "number" || !Number.isFinite(percent)) {
-        return unrecognised();
-      }
+      return { kind: "event", event: { type: message.event } };
+    case "progress":
       return {
         kind: "event",
-        event: { type: "progress", percent: Math.min(100, Math.max(0, percent)) },
+        event: { type: "progress", percent: Math.min(100, Math.max(0, message.percent)) },
       };
-    }
-    case "log": {
-      const message = parsed["message"];
-      if (typeof message !== "string") return unrecognised();
+    case "log":
       return {
         kind: "event",
-        event: { type: "log", level: logLevel(parsed["level"]), message },
+        event: { type: "log", level: message.level, message: message.message },
       };
-    }
-    case "finished": {
-      const backupDir = parsed["backupDir"];
-      const durationMs = parsed["durationMs"];
-      if (typeof backupDir !== "string" || typeof durationMs !== "number") {
-        return unrecognised();
-      }
-      return { kind: "finished", backupDir, durationMs };
-    }
-    case "error": {
-      const message =
-        typeof parsed["message"] === "string" ? parsed["message"] : "unknown error";
+    case "finished":
+      return { kind: "finished", backupDir: message.backupDir, durationMs: message.durationMs };
+    case "error":
       return {
         kind: "error",
-        reason:
-          parsed["code"] === MB_ERROR_DEVICE_LOCKED
-            ? "device-locked"
-            : categoryReason(parsed["category"]),
-        message,
+        reason: message.code === MB_ERROR_DEVICE_LOCKED ? "device-locked" : message.category,
+        message: message.message,
       };
-    }
-    default:
-      return unrecognised();
   }
 }
 
@@ -134,51 +137,16 @@ export function parseSidecarLine(line: string): SidecarMessage | undefined {
  * the expected shape.
  */
 export function parseProbeResult(value: unknown): DeviceStatus {
-  if (!isRecord(value)) {
-    throw new DeviceError("probe: sidecar printed no result", "failed");
+  const parsed = ProbeReplySchema.safeParse(value);
+  if (!parsed.success) {
+    throw new DeviceError(
+      `probe: unexpected reply from the sidecar: ${describeIssues(parsed.error).join("; ")}`,
+      "failed",
+    );
   }
-  if (value["ok"] !== true) {
-    const message =
-      typeof value["message"] === "string" ? value["message"] : "probe failed";
-    throw new DeviceError(message, categoryReason(value["category"]));
+  if (!parsed.data.ok) {
+    throw new DeviceError(parsed.data.message, parsed.data.category);
   }
-
-  const text = (key: string): string => {
-    const field = value[key];
-    if (typeof field !== "string" || field === "") {
-      throw new DeviceError(`probe: missing field "${key}"`, "failed");
-    }
-    return field;
-  };
-
-  const battery = value["battery"];
-  if (!isRecord(battery)) {
-    throw new DeviceError('probe: missing field "battery"', "failed");
-  }
-  const level = battery["levelPercent"];
-  if (typeof level !== "number" || level < 0 || level > 100) {
-    throw new DeviceError("probe: battery level is not a percentage", "failed");
-  }
-  const flag = (key: string): boolean => {
-    const field = battery[key];
-    if (typeof field !== "boolean") {
-      throw new DeviceError(`probe: missing battery field "${key}"`, "failed");
-    }
-    return field;
-  };
-
-  return {
-    udid: text("udid"),
-    name: text("name"),
-    productType: text("productType"),
-    osVersion: text("osVersion"),
-    buildVersion: text("buildVersion"),
-    battery: {
-      levelPercent: level,
-      isCharging: flag("isCharging"),
-      externalPowerConnected: flag("externalPowerConnected"),
-      fullyCharged: flag("fullyCharged"),
-    },
-    backupEncryptionEnabled: value["backupEncryptionEnabled"] === true,
-  };
+  const { ok: _ok, ...status } = parsed.data;
+  return status;
 }

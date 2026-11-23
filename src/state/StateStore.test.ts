@@ -200,4 +200,24 @@ describe("StateStore on disk", () => {
     raw.close();
     expect(() => new StateStore(file)).toThrow(/newer nightstand/);
   });
+
+  it("fails loudly on a row it cannot read, naming what is wrong with it", () => {
+    const file = path.join(dir, "state.sqlite");
+    const first = new StateStore(file);
+    const id = first.startRun("mike", t("2026-11-24T08:00:00Z"));
+    first.recordEvent(id, t("2026-11-24T08:00:01Z"), { type: "started" });
+    first.close();
+
+    const raw = new DatabaseSync(file);
+    raw.exec("UPDATE run_events SET detail = 'not json'");
+    raw.close();
+
+    const second = new StateStore(file);
+    expect(() => second.eventsFor(id)).toThrow(
+      "the state database holds a run event this version cannot read: detail is not a JSON object",
+    );
+    // Rows that are intact are unaffected.
+    expect(second.getRun(id)).toMatchObject({ deviceId: "mike", outcome: "running" });
+    second.close();
+  });
 });

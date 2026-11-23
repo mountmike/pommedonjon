@@ -4,7 +4,13 @@
  * pymobiledevice3 through a Python sidecar; anything else that can satisfy
  * this interface could replace it without the daemon noticing. Nothing in
  * this file may mention a specific tool.
+ *
+ * Shapes that arrive from outside the program (a device's status, the events
+ * of a backup) are Zod schemas with their types derived from them, so the
+ * same definition both checks the data and types it.
  */
+
+import { z } from "zod";
 
 /** How a usbmux daemon on the host can reach a device. */
 export type ConnectionType = "usb" | "network";
@@ -49,26 +55,31 @@ export interface DeviceInfo {
   readonly connections: readonly ConnectionType[];
 }
 
-export interface BatteryStatus {
+export const BatteryStatusSchema = z.object({
   /** 0 to 100. */
-  readonly levelPercent: number;
-  readonly isCharging: boolean;
+  levelPercent: z.number().min(0).max(100),
+  isCharging: z.boolean(),
   /** True when on external power, whether or not it is still charging. */
-  readonly externalPowerConnected: boolean;
-  readonly fullyCharged: boolean;
-}
+  externalPowerConnected: z.boolean(),
+  fullyCharged: z.boolean(),
+});
+export type BatteryStatus = Readonly<z.infer<typeof BatteryStatusSchema>>;
 
 /** What a reachable device says about itself. Reading it never prompts. */
-export interface DeviceStatus {
-  readonly udid: string;
-  readonly name: string;
-  readonly productType: string;
-  readonly osVersion: string;
-  readonly buildVersion: string;
-  readonly battery: BatteryStatus;
+export const DeviceStatusSchema = z.object({
+  udid: z.string().min(1),
+  name: z.string().min(1),
+  /** Apple's model identifier, e.g. "iPhone17,5". */
+  productType: z.string().min(1),
+  osVersion: z.string().min(1),
+  buildVersion: z.string().min(1),
+  battery: BatteryStatusSchema,
   /** Whether the device will encrypt its backups. */
-  readonly backupEncryptionEnabled: boolean;
-}
+  backupEncryptionEnabled: z.boolean(),
+});
+export type DeviceStatus = Readonly<
+  Omit<z.infer<typeof DeviceStatusSchema>, "battery"> & { battery: BatteryStatus }
+>;
 
 export type DeviceErrorReason =
   /** No answer: off the network, asleep, wrong address, firewalled. */
@@ -100,31 +111,33 @@ export interface BackupOptions extends DeviceTarget {
   readonly signal?: AbortSignal;
 }
 
-export type BackupEvent =
+export const BackupEventSchema = z.discriminatedUnion("type", [
   /** The transport has started talking to the device. */
-  | { readonly type: "started" }
+  z.object({ type: z.literal("started") }),
   /**
    * The device is showing its passcode prompt and the backup is blocked until
    * someone types the passcode on the phone. A locked phone wakes to show it.
    */
-  | { readonly type: "passcode-required" }
+  z.object({ type: z.literal("passcode-required") }),
   /**
    * The passcode prompt went away. This does not say why: the passcode may
    * have been typed, or the prompt may have timed out, in which case the run
    * fails with reason "device-locked" straight afterwards.
    */
-  | { readonly type: "passcode-dismissed" }
+  z.object({ type: z.literal("passcode-dismissed") }),
   /**
    * Overall progress as reported by the device, 0 to 100. Not linear in time:
-   * incrementals have been seen to jump from 23 to 99 in one step.
+   * an incremental has been seen to sit at 0 for half its run.
    */
-  | { readonly type: "progress"; readonly percent: number }
+  z.object({ type: z.literal("progress"), percent: z.number().min(0).max(100) }),
   /** Anything else the transport said that is worth keeping in a run log. */
-  | {
-      readonly type: "log";
-      readonly level: "info" | "warning" | "error";
-      readonly message: string;
-    };
+  z.object({
+    type: z.literal("log"),
+    level: z.enum(["info", "warning", "error"]),
+    message: z.string(),
+  }),
+]);
+export type BackupEvent = Readonly<z.infer<typeof BackupEventSchema>>;
 
 export interface BackupResult {
   readonly udid: string;

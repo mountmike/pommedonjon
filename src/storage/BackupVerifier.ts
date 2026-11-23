@@ -1,4 +1,13 @@
+import { z } from "zod";
 import type { Sidecar } from "../sidecar/Sidecar.js";
+
+/** What the sidecar's `verify` command prints. */
+const VerifyReplySchema = z.object({
+  ok: z.boolean(),
+  problems: z.array(z.string()),
+  udid: z.string().nullish(),
+  isEncrypted: z.boolean().nullish(),
+});
 
 export interface BackupVerification {
   readonly ok: boolean;
@@ -15,10 +24,6 @@ export interface BackupVerification {
  */
 export interface BackupVerifier {
   verify(backupDir: string): Promise<BackupVerification>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -39,7 +44,10 @@ export class SidecarBackupVerifier implements BackupVerifier {
       ["verify", "--backup-dir", backupDir],
       { timeoutMs: 60_000 },
     );
-    if (!isRecord(value) || typeof value["ok"] !== "boolean") {
+    const reply = VerifyReplySchema.safeParse(value);
+    if (!reply.success) {
+      // Fail closed: a check that did not run, or that answered in a shape
+      // we do not understand, is not a pass.
       const detail = stderrTail.trim();
       return {
         ok: false,
@@ -51,16 +59,13 @@ export class SidecarBackupVerifier implements BackupVerifier {
         isEncrypted: undefined,
       };
     }
-    const problems = Array.isArray(value["problems"])
-      ? value["problems"].filter((p): p is string => typeof p === "string")
-      : [];
+    const { ok, problems, udid, isEncrypted } = reply.data;
     return {
       // Never report ok alongside problems, whatever the sidecar printed.
-      ok: value["ok"] && problems.length === 0,
+      ok: ok && problems.length === 0,
       problems,
-      udid: typeof value["udid"] === "string" ? value["udid"] : undefined,
-      isEncrypted:
-        typeof value["isEncrypted"] === "boolean" ? value["isEncrypted"] : undefined,
+      udid: udid ?? undefined,
+      isEncrypted: isEncrypted ?? undefined,
     };
   }
 }

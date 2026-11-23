@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import { describeIssues } from "../schema/issues.js";
 import type { AttemptSummary } from "../policy/policy.js";
 
 export type RunOutcome = "running" | "succeeded" | "failed";
@@ -74,29 +76,101 @@ const SCHEMA = `
   ) STRICT;
 `;
 
-type Row = Record<string, unknown>;
+// Rows are parsed on the way out, like any other data from outside the
+// program: a database written by a different version, or edited by hand,
+// should fail loudly here and not as a wrong decision later.
 
-function optionalDate(value: unknown): Date | undefined {
-  return typeof value === "number" ? new Date(value) : undefined;
-}
+const timestamp = z.number().transform((ms) => new Date(ms));
+const optionalTimestamp = z
+  .number()
+  .nullable()
+  .transform((ms) => (ms === null ? undefined : new Date(ms)));
+const optionalText = z
+  .string()
+  .nullable()
+  .transform((value) => value ?? undefined);
+const outcome = z.enum(["running", "succeeded", "failed"]);
 
-function optionalText(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
+const RunRowSchema = z
+  .object({
+    id: z.number(),
+    device_id: z.string(),
+    started_at: timestamp,
+    finished_at: optionalTimestamp,
+    outcome,
+    failure_reason: optionalText,
+    message: optionalText,
+    prompted: z.number(),
+    snapshot_path: optionalText,
+    duration_ms: z
+      .number()
+      .nullable()
+      .transform((value) => value ?? undefined),
+  })
+  .transform(
+    (row): RunRecord => ({
+      id: row.id,
+      deviceId: row.device_id,
+      startedAt: row.started_at,
+      finishedAt: row.finished_at,
+      outcome: row.outcome,
+      failureReason: row.failure_reason,
+      message: row.message,
+      prompted: row.prompted === 1,
+      snapshotPath: row.snapshot_path,
+      durationMs: row.duration_ms,
+    }),
+  );
 
-function toRun(row: Row): RunRecord {
-  return {
-    id: row["id"] as number,
-    deviceId: row["device_id"] as string,
-    startedAt: new Date(row["started_at"] as number),
-    finishedAt: optionalDate(row["finished_at"]),
-    outcome: row["outcome"] as RunOutcome,
-    failureReason: optionalText(row["failure_reason"]),
-    message: optionalText(row["message"]),
-    prompted: row["prompted"] === 1,
-    snapshotPath: optionalText(row["snapshot_path"]),
-    durationMs: typeof row["duration_ms"] === "number" ? row["duration_ms"] : undefined,
-  };
+const AttemptRowSchema = z
+  .object({
+    started_at: timestamp,
+    finished_at: optionalTimestamp,
+    outcome,
+    failure_reason: optionalText,
+  })
+  .transform(
+    (row): AttemptSummary => ({
+      startedAt: row.started_at,
+      finishedAt: row.finished_at,
+      outcome: row.outcome,
+      failureReason: row.failure_reason,
+    }),
+  );
+
+const EventRowSchema = z
+  .object({
+    at: timestamp,
+    type: z.string(),
+    detail: z.string().transform((text, ctx): Record<string, unknown> => {
+      try {
+        const value: unknown = JSON.parse(text);
+        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+          return value as Record<string, unknown>;
+        }
+      } catch {
+        // Reported below.
+      }
+      ctx.issues.push({ code: "custom", message: "is not a JSON object", input: text });
+      return z.NEVER;
+    }),
+  })
+  .transform((row): RunEvent => row);
+
+const whenRow = (column: string) =>
+  z
+    .object({ [column]: optionalTimestamp })
+    .optional()
+    .transform((row) => row?.[column]);
+
+function read<Output>(schema: z.ZodType<Output>, what: string, row: unknown): Output {
+  const parsed = schema.safeParse(row);
+  if (!parsed.success) {
+    throw new Error(
+      `the state database holds ${what} this version cannot read: ${describeIssues(parsed.error).join("; ")}`,
+    );
+  }
+  return parsed.data;
 }
 
 /**
@@ -114,8 +188,11 @@ export class StateStore {
   }
 
   #migrate(): void {
-    const row = this.#db.prepare("PRAGMA user_version").get() as Row | undefined;
-    const version = (row?.["user_version"] as number | undefined) ?? 0;
+    const { user_version: version } = read(
+      z.object({ user_version: z.number() }),
+      "a schema version",
+      this.#db.prepare("PRAGMA user_version").get(),
+    );
     if (version > SCHEMA_VERSION) {
       throw new Error(
         `the state database is from a newer nightstand (schema ${version}, this build knows ${SCHEMA_VERSION})`,
@@ -187,64 +264,59 @@ export class StateStore {
   }
 
   getRun(runId: number): RunRecord | undefined {
-    const row = this.#db.prepare("SELECT * FROM runs WHERE id = ?").get(runId) as
-      | Row
-      | undefined;
-    return row ? toRun(row) : undefined;
+    const row = this.#db.prepare("SELECT * FROM runs WHERE id = ?").get(runId);
+    return row === undefined ? undefined : read(RunRowSchema, "a run", row);
   }
 
   /** Newest first. */
   recentRuns(deviceId: string, limit: number): RunRecord[] {
-    const rows = this.#db
+    return this.#db
       .prepare("SELECT * FROM runs WHERE device_id = ? ORDER BY started_at DESC, id DESC LIMIT ?")
-      .all(deviceId, limit) as Row[];
-    return rows.map(toRun);
+      .all(deviceId, limit)
+      .map((row) => read(RunRowSchema, "a run", row));
   }
 
   eventsFor(runId: number): RunEvent[] {
-    const rows = this.#db
+    return this.#db
       .prepare("SELECT at, type, detail FROM run_events WHERE run_id = ? ORDER BY id")
-      .all(runId) as Row[];
-    return rows.map((row) => ({
-      at: new Date(row["at"] as number),
-      type: row["type"] as string,
-      detail: JSON.parse(row["detail"] as string) as Record<string, unknown>,
-    }));
+      .all(runId)
+      .map((row) => read(EventRowSchema, "a run event", row));
   }
 
   /** When the last verified backup of this device finished. */
   lastSuccessAt(deviceId: string): Date | undefined {
-    const row = this.#db
-      .prepare(
-        "SELECT MAX(finished_at) AS at FROM runs WHERE device_id = ? AND outcome = 'succeeded'",
-      )
-      .get(deviceId) as Row | undefined;
-    return optionalDate(row?.["at"]);
+    return read(
+      whenRow("at"),
+      "a backup time",
+      this.#db
+        .prepare(
+          "SELECT MAX(finished_at) AS at FROM runs WHERE device_id = ? AND outcome = 'succeeded'",
+        )
+        .get(deviceId),
+    );
   }
 
   /** Attempts started at or after `since`, plus any still running. */
   attemptsSince(deviceId: string, since: Date): AttemptSummary[] {
-    const rows = this.#db
+    return this.#db
       .prepare(
         `SELECT started_at, finished_at, outcome, failure_reason FROM runs
          WHERE device_id = ? AND (started_at >= ? OR outcome = 'running')
          ORDER BY started_at`,
       )
-      .all(deviceId, since.getTime()) as Row[];
-    return rows.map((row) => ({
-      startedAt: new Date(row["started_at"] as number),
-      finishedAt: optionalDate(row["finished_at"]),
-      outcome: row["outcome"] as RunOutcome,
-      failureReason: optionalText(row["failure_reason"]),
-    }));
+      .all(deviceId, since.getTime())
+      .map((row) => read(AttemptRowSchema, "a run", row));
   }
 
   /** When an alert of this kind last went out for this device. */
   lastAlertAt(deviceId: string, kind: string): Date | undefined {
-    const row = this.#db
-      .prepare("SELECT sent_at FROM alerts WHERE device_id = ? AND kind = ?")
-      .get(deviceId, kind) as Row | undefined;
-    return optionalDate(row?.["sent_at"]);
+    return read(
+      whenRow("sent_at"),
+      "an alert time",
+      this.#db
+        .prepare("SELECT sent_at FROM alerts WHERE device_id = ? AND kind = ?")
+        .get(deviceId, kind),
+    );
   }
 
   recordAlert(deviceId: string, kind: string, at: Date): void {
