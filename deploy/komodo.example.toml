@@ -1,0 +1,43 @@
+# The two environments as Komodo stacks. Komodo has no notion of one stack
+# with several environments; the same compose file deployed as two stacks,
+# each with its own variables, is how that is done.
+#
+# Paste into Komodo (Stacks -> New -> TOML, or a Resource Sync) and change
+# `server` and the paths.
+
+# Test: follows the `test` branch and builds the image on the server from
+# that commit. `pnpm deploy:test` moves the branch and triggers the deploy.
+[[stack]]
+name = "pommedonjon-test"
+[stack.config]
+server = "my-server"
+repo = "mountmike/pommedonjon"
+branch = "test"
+run_directory = "deploy"
+file_paths = ["compose.yaml", "compose.build.yaml"]
+extra_args = ["--build"]
+environment = """
+POMMEDONJON_IMAGE = pommedonjon:test
+POMMEDONJON_CONFIG_DIR = /opt/pommedonjon/test/config
+POMMEDONJON_SECRETS_DIR = /opt/pommedonjon/test/secrets
+POMMEDONJON_BACKUPS_DIR = /mnt/backups/iphones
+TZ = Etc/UTC
+"""
+
+# Production: runs a released image. Change POMMEDONJON_IMAGE's tag to move
+# to a new version.
+[[stack]]
+name = "pommedonjon"
+[stack.config]
+server = "my-server"
+repo = "mountmike/pommedonjon"
+branch = "main"
+run_directory = "deploy"
+file_paths = ["compose.yaml"]
+environment = """
+POMMEDONJON_IMAGE = ghcr.io/mountmike/pommedonjon:0.1.0
+POMMEDONJON_CONFIG_DIR = /opt/pommedonjon/prod/config
+POMMEDONJON_SECRETS_DIR = /opt/pommedonjon/prod/secrets
+POMMEDONJON_BACKUPS_DIR = /mnt/backups/iphones
+TZ = Etc/UTC
+"""

@@ -426,13 +426,31 @@ How that is built, by judgement:
 - **The image carries its commit**, shown by `--version` and in the
   start-up log, since every build between two releases has the same version.
 
-Not yet done, and waiting on the owner:
+Since then:
 
-- The repository has no GitHub remote, so **the workflow has never run**.
-- Which image registry account, and whether the repository is public (O13).
-- The stacks themselves live in the owner's stacks repository and Komodo.
-  Komodo is reachable only on the tailnet, so GitHub cannot notify it;
-  redeploys come from Komodo polling for a newer image, or by hand.
+- The repository is on GitHub (D22) and the workflow's test job has run and
+  passed on the first pull request. Its release and image jobs only run on
+  `main` and have not run yet.
+
+**Test does not go through the pipeline at all.** The owner asked for the
+quickest path from a development session to a test environment managed by
+Komodo. So:
+
+- The test stack follows a branch called `test` and **builds the image on
+  the server** from that commit (`--build`). No CI run, no registry.
+- `pnpm deploy:test` moves `test` to the current commit, asks Komodo over
+  its API to deploy, waits, and prints the result and the log. The branch
+  is only a pointer to "what is on test now", so it is force-moved.
+- Production still runs released images from the registry.
+- Komodo has no notion of one stack with several environments. Both
+  environments are the same compose file (`deploy/compose.yaml`) deployed
+  as two stacks with different variables.
+- The stacks are defined from this repository, not from the owner's stacks
+  repository, because the compose file has to travel with the code it
+  builds. That is a departure from how the owner's other stacks are kept.
+
+Not verified: any of it against a real Komodo. The API calls follow the
+documentation; no key has been available to try them.
 
 One constraint the environments must respect: **a phone may be watched by
 only one daemon.** Two would each prompt it. So test and production cannot
