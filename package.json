@@ -15,9 +15,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "changeset": "changeset",
+    "release:version": "changeset version",
+    "release:tag": "changeset git-tag"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^24.19.2",
     "typescript": "^7.0.2",
     "vitest": "^5.1.1"
