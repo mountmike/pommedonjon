@@ -58,18 +58,18 @@ function harness(options: {
 
 describe("DeviceLocator", () => {
   it("goes straight to the last address the phone was reached at, without sweeping", async () => {
-    const h = harness({ lastKnown: "192.168.1.235", at: { "192.168.1.235": fakeStatus() } });
+    const h = harness({ lastKnown: "192.168.1.50", at: { "192.168.1.50": fakeStatus() } });
 
     const located = await h.locator.locate(device);
 
-    expect(located).toEqual({ host: "192.168.1.235", status: fakeStatus() });
-    expect(h.probed).toEqual(["192.168.1.235"]);
+    expect(located).toEqual({ host: "192.168.1.50", status: fakeStatus() });
+    expect(h.probed).toEqual(["192.168.1.50"]);
     expect(h.scans()).toBe(0);
   });
 
   it("sweeps when the phone has moved, and remembers where it found it", async () => {
     const h = harness({
-      lastKnown: "192.168.1.235",
+      lastKnown: "192.168.1.50",
       scan: ["192.168.1.40", "192.168.1.77"],
       at: { "192.168.1.40": refused(), "192.168.1.77": fakeStatus() },
     });
@@ -81,7 +81,7 @@ describe("DeviceLocator", () => {
     expect(h.logs).toEqual([
       {
         message: "found the phone at a new address",
-        fields: { device: "mike", host: "192.168.1.77", previous: "192.168.1.235" },
+        fields: { device: "mike", host: "192.168.1.77", previous: "192.168.1.50" },
       },
     ]);
   });
@@ -138,32 +138,32 @@ describe("DeviceLocator", () => {
   });
 
   it("does not probe the last-known address a second time when the sweep lists it too", async () => {
-    const h = harness({ lastKnown: "192.168.1.235", scan: ["192.168.1.235", "192.168.1.40"] });
+    const h = harness({ lastKnown: "192.168.1.50", scan: ["192.168.1.50", "192.168.1.40"] });
 
     await expect(h.locator.locate(device)).rejects.toBeInstanceOf(DeviceError);
-    expect(h.probed).toEqual(["192.168.1.235", "192.168.1.40"]);
+    expect(h.probed).toEqual(["192.168.1.50", "192.168.1.40"]);
   });
 
   it("reports a phone that is nowhere to be found as unreachable, which means away", async () => {
     const h = harness({
-      lastKnown: "192.168.1.235",
+      lastKnown: "192.168.1.50",
       scan: ["192.168.1.40"],
       at: { "192.168.1.40": refused() },
     });
 
     await expect(h.locator.locate(device)).rejects.toMatchObject({
       reason: "unreachable",
-      message: "mike did not answer at 192.168.1.235 and was not found in the discovery ranges",
+      message: "mike did not answer at 192.168.1.50 and was not found in the discovery ranges",
     });
     // And it keeps its last-known address for next time.
-    expect(h.book.get("mike")).toBe("192.168.1.235");
+    expect(h.book.get("mike")).toBe("192.168.1.50");
   });
 
   it("uses a pinned host and looks nowhere else, even if it does not answer", async () => {
     const h = harness({
-      lastKnown: "192.168.1.235",
+      lastKnown: "192.168.1.50",
       scan: ["192.168.1.77"],
-      at: { "192.168.1.235": fakeStatus(), "192.168.1.77": fakeStatus() },
+      at: { "192.168.1.50": fakeStatus(), "192.168.1.77": fakeStatus() },
     });
 
     await expect(h.locator.locate({ ...device, host: "phone.lan" })).rejects.toMatchObject({
@@ -181,7 +181,7 @@ describe("DeviceLocator", () => {
   });
 
   it("with discovery off, reports what the last-known address said", async () => {
-    const h = harness({ scanning: false, lastKnown: "192.168.1.235" });
+    const h = harness({ scanning: false, lastKnown: "192.168.1.50" });
     await expect(h.locator.locate(device)).rejects.toMatchObject({ reason: "unreachable" });
     expect(h.scans()).toBe(0);
   });
@@ -189,7 +189,7 @@ describe("DeviceLocator", () => {
   it("lets an unexpected error through instead of calling the phone away", async () => {
     const locator = new DeviceLocator({
       transport: { probe: () => Promise.reject(new TypeError("bug")) },
-      addresses: { lastAddress: () => "192.168.1.235", rememberAddress: () => undefined },
+      addresses: { lastAddress: () => "192.168.1.50", rememberAddress: () => undefined },
       scanner: { enabled: true, candidates: () => Promise.resolve([]) },
       log: () => undefined,
       clock: () => new Date(),

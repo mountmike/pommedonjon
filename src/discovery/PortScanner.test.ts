@@ -42,50 +42,50 @@ function scanner(options: {
 
 describe("PortScanner", () => {
   it("returns the addresses that accept a connection on the lockdown port, in order", async () => {
-    const h = scanner({ open: (host) => ["192.168.1.235", "192.168.1.40"].includes(host) });
+    const h = scanner({ open: (host) => ["192.168.1.50", "192.168.1.40"].includes(host) });
 
-    expect(await h.scanner.candidates("mike")).toEqual(["192.168.1.40", "192.168.1.235"]);
+    expect(await h.scanner.candidates("mike")).toEqual(["192.168.1.40", "192.168.1.50"]);
     expect(h.calls.every((call) => call.port === 62078)).toBe(true);
   });
 
   it("knocks a second time on addresses that did not answer the first", async () => {
     // The phone has been seen to ignore one connection and accept the next.
-    const h = scanner({ open: (host, attempt) => host === "192.168.1.235" && attempt === 2 });
+    const h = scanner({ open: (host, attempt) => host === "192.168.1.50" && attempt === 2 });
 
-    expect(await h.scanner.candidates("mike")).toEqual(["192.168.1.235"]);
-    expect(h.attempts.get("192.168.1.235")).toBe(2);
+    expect(await h.scanner.candidates("mike")).toEqual(["192.168.1.50"]);
+    expect(h.attempts.get("192.168.1.50")).toBe(2);
   });
 
   it("waits longer on the second knock than on the first", async () => {
     // The phone has been seen to take over six seconds to accept a connection.
     const h = scanner({});
     await h.scanner.candidates("mike");
-    const waits = h.calls.filter((call) => call.host === "192.168.1.235").map((c) => c.timeoutMs);
+    const waits = h.calls.filter((call) => call.host === "192.168.1.50").map((c) => c.timeoutMs);
     expect(waits).toEqual([2000, 6000]);
   });
 
   it("does not knock again on an address that already answered", async () => {
-    const h = scanner({ open: (host) => host === "192.168.1.235" });
+    const h = scanner({ open: (host) => host === "192.168.1.50" });
     await h.scanner.candidates("mike");
-    expect(h.attempts.get("192.168.1.235")).toBe(1);
+    expect(h.attempts.get("192.168.1.50")).toBe(1);
     expect(h.attempts.get("192.168.1.1")).toBe(2);
   });
 
   it("sweeps once for several phones looked for at the same time", async () => {
-    const h = scanner({ open: (host) => host === "192.168.1.235" });
+    const h = scanner({ open: (host) => host === "192.168.1.50" });
 
     const [mike, lolo] = await Promise.all([
       h.scanner.candidates("mike"),
       h.scanner.candidates("lolo"),
     ]);
 
-    expect(mike).toEqual(["192.168.1.235"]);
-    expect(lolo).toEqual(["192.168.1.235"]);
+    expect(mike).toEqual(["192.168.1.50"]);
+    expect(lolo).toEqual(["192.168.1.50"]);
     expect(h.calls).toHaveLength(254 + 253);
   });
 
   it("gives each caller a sweep's result once, and does not sweep again too soon", async () => {
-    const h = scanner({ open: (host) => host === "192.168.1.235", minIntervalMs: 300_000 });
+    const h = scanner({ open: (host) => host === "192.168.1.50", minIntervalMs: 300_000 });
     await h.scanner.candidates("mike");
     const afterFirstSweep = h.calls.length;
 
@@ -95,17 +95,17 @@ describe("PortScanner", () => {
     expect(h.calls).toHaveLength(afterFirstSweep);
 
     // Another phone asking for the first time still gets that sweep.
-    expect(await h.scanner.candidates("lolo")).toEqual(["192.168.1.235"]);
+    expect(await h.scanner.candidates("lolo")).toEqual(["192.168.1.50"]);
     expect(h.calls).toHaveLength(afterFirstSweep);
   });
 
   it("sweeps again once the interval has passed", async () => {
-    const h = scanner({ open: (host) => host === "192.168.1.235", minIntervalMs: 300_000 });
+    const h = scanner({ open: (host) => host === "192.168.1.50", minIntervalMs: 300_000 });
     await h.scanner.candidates("mike");
     const afterFirstSweep = h.calls.length;
 
     h.advance(300_000);
-    expect(await h.scanner.candidates("mike")).toEqual(["192.168.1.235"]);
+    expect(await h.scanner.candidates("mike")).toEqual(["192.168.1.50"]);
     expect(h.calls.length).toBeGreaterThan(afterFirstSweep);
   });
 

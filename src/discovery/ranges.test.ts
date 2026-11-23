@@ -10,7 +10,7 @@ describe("addressesIn", () => {
   });
 
   it("works from any address inside the range, not only its first", () => {
-    expect(addressesIn("192.168.1.235/24")).toEqual(addressesIn("192.168.1.0/24"));
+    expect(addressesIn("192.168.1.50/24")).toEqual(addressesIn("192.168.1.0/24"));
   });
 
   it("handles ranges that cross an octet boundary", () => {
@@ -26,8 +26,8 @@ describe("addressesIn", () => {
   });
 
   it("treats a /32 as one address and a /31 as two", () => {
-    expect(addressesIn("192.168.1.235/32")).toEqual(["192.168.1.235"]);
-    expect(addressesIn("192.168.1.234/31")).toEqual(["192.168.1.234", "192.168.1.235"]);
+    expect(addressesIn("192.168.1.50/32")).toEqual(["192.168.1.50"]);
+    expect(addressesIn("192.168.1.50/31")).toEqual(["192.168.1.50", "192.168.1.51"]);
   });
 
   it("refuses to expand a range that is not acceptable", () => {
@@ -39,7 +39,7 @@ describe("rangeProblem", () => {
   it("accepts ranges up to about a thousand addresses", () => {
     expect(rangeProblem("192.168.1.0/24")).toBeUndefined();
     expect(rangeProblem("10.0.20.0/22")).toBeUndefined();
-    expect(rangeProblem("192.168.1.235/32")).toBeUndefined();
+    expect(rangeProblem("192.168.1.50/32")).toBeUndefined();
   });
 
   it("refuses anything larger, so a typo cannot become millions of connections", () => {
