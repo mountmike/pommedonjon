@@ -49,6 +49,10 @@ from typing import Any
 
 LOCKDOWN_PORT = 62078
 PROBE_TIMEOUT_SECONDS = 20
+# How long to keep dialling a phone that does not answer, and the gap
+# between dials. Must stay well inside PROBE_TIMEOUT_SECONDS.
+CONNECT_WINDOW_SECONDS = 12
+CONNECT_RETRY_PAUSE_SECONDS = 0.5
 
 # pymobiledevice3 watches the passcode prompt itself and only tells us through
 # its logger, so these two messages are matched by text. If they change
@@ -155,14 +159,26 @@ async def connect(args: argparse.Namespace):
 
     if args.host:
         pair_record = plistlib.loads(Path(args.pair_record).read_bytes())
-        return await create_using_tcp(
-            hostname=args.host,
-            identifier=args.udid,
-            pair_record=pair_record,
-            autopair=False,
-            port=args.port,
-            keep_alive=True,
-        )
+        # A phone on battery can take several seconds to accept a connection
+        # (6.7 s was measured), and pymobiledevice3 gives each dial one
+        # second. So "no answer" only counts after trying for a while.
+        deadline = time.monotonic() + CONNECT_WINDOW_SECONDS
+        while True:
+            try:
+                return await create_using_tcp(
+                    hostname=args.host,
+                    identifier=args.udid,
+                    pair_record=pair_record,
+                    autopair=False,
+                    port=args.port,
+                    keep_alive=True,
+                )
+            except Exception as error:  # noqa: BLE001 - re-raised unless unreachable
+                if failure_category(error) != "unreachable":
+                    raise
+                if time.monotonic() >= deadline:
+                    raise
+                await asyncio.sleep(CONNECT_RETRY_PAUSE_SECONDS)
     return await create_using_usbmux(
         serial=args.udid,
         autopair=False,
