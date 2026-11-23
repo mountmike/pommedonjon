@@ -368,34 +368,55 @@ without paying for it.
 
 ## What exists in the repo
 
-Built the night of 2026-11-23/24, at the owner's request, ahead of the Phase 0
-review. 120 unit tests pass; all use fakes for the phone and the sidecar.
+First built the night of 2026-11-23/24, then reworked on 2026-11-24 to the
+design in [DECISIONS.md](DECISIONS.md). 235 unit tests pass; all use fakes
+for the phone and the sidecar.
 
 | Part | Where | Tried against the real phone? |
 |---|---|---|
-| Sidecar: `probe`, `backup`, `verify` | `sidecar/nightstand_sidecar.py` | `backup`: yes, by its earlier version (attempts 5 to 8). `probe` and `verify`: yes, read-only |
-| Transport interface and implementation | `src/transport/` | `probe` and `startBackup`: yes (attempt 9) |
-| Config loading and validation | `src/config/` | n/a |
-| Due-policy: interval, window, back-off, prompt budget | `src/policy/` | n/a |
-| Storage: working copy, verification, snapshots | `src/storage/` | Verification: yes. Snapshot copy: yes, on a clone of the real backup |
-| Run history in SQLite | `src/state/` | n/a |
-| Runner: heads-up, back up, verify, snapshot, record | `src/runner/` | Yes (attempt 9), with snapshots off. Failure paths: connection failures only (attempts 10 to 12) |
-| Daemon loop and stale alerts | `src/daemon/` | Idle only: started outside the window for 3 seconds |
-| CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe`, `backup` and `status`: yes. A working `daemon`: **no** |
-| Container image | `Dockerfile` | `probe` and `backup` from a read-only, unprivileged container: yes |
+| Sidecar: `probe`, `backup`, `verify` | `sidecar/nightstand_sidecar.py` | Yes, all three |
+| Transport interface and implementation | `src/transport/` | Yes (attempt 9) |
+| Config, as a Zod schema | `src/config/` | n/a; the container loads real configs with it |
+| Discovery: range sweep, locator, address book | `src/discovery/` | Yes: found the phone by sweeping the home /24 from the container, on the second sweep |
+| Schedule and plug-in detection | `src/policy/` | **No** |
+| Storage: one backup per phone, verified marker | `src/storage/` | Verification: yes. The marker: no |
+| Run history in SQLite | `src/state/` | Yes: recorded attempts 9 to 12, then upgraded in place to the current schema |
+| Runner: back up, verify, record | `src/runner/` | Before the rework: yes (attempt 9). Since: **no** |
+| Daemon: one cycle per phone, stale alerts | `src/daemon/` | Started and stopped cleanly in the container with a backup not due. A backup it started itself: **no** |
+| Pair record permission check | `src/credentials/` | Yes: warned on a 644 file mounted as a Compose secret, silent on 600 |
+| CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe` and `status`: yes. `backup`: before the rework only |
+| Container image and Compose example | `Dockerfile`, `compose.example.yaml` | `probe` through Compose with secrets, read-only and unprivileged: yes |
 
-Not built: mDNS discovery (devices are found by configured address), any
-notification channel (notifications go to the service log only), email
-alerts, ZFS snapshot integration, the web UI.
+Not built: notifications (they go to the service log only), telling a
+cancelled prompt from a timeout, mDNS discovery, the web UI.
 
-**The next real test owed** is the daemon starting a backup by its own
-decision: phone home, on a charger, inside the window, a backup due. It
-needs one passcode entry at a moment the daemon picks, and it is only a fair
-test once a heads-up can reach the phone (DECISIONS.md O1).
+**The next real test owed** is a backup with the reworked code, then the
+field trial: the daemon running for a week or two and starting backups by
+its own decision when the phone is plugged in.
 
 Things the build turned up:
 
-- **Copy snapshots are full copies.** On APFS, snapshotting the real 22 GB
+- **The phone's Tailscale address does not work for lockdown.** Port 62078
+  accepts a connection on the Tailscale address, then the phone drops the
+  session: two probes failed after 13 seconds each while the same probe to
+  the WiFi address succeeded. So the direct path does not extend over the
+  tailnet, and the phone does treat connections differently by where they
+  arrive.
+- **A range sweep finds the phone, but not always first time.** From the
+  container, sweeping the home /24 for port 62078 and then proving identity
+  with the pair record found the phone on the second sweep, with the phone
+  on battery. In a separate measurement the phone did not accept a
+  connection within 2 seconds from either the container or the Mac, moments
+  after accepting three in a row. The first contact seems to wake it. Once
+  found, its address is remembered and probed with a 12-second dialling
+  window, which has been dependable.
+- **A sweep from a container is slow for dead addresses.** They time out
+  instead of failing fast (250 of 254 timed out, against an immediate
+  "host down" on the Mac itself), so a sweep's length is set by the timeout
+  and how many connections run at once: about 4 seconds for the first knock
+  and 12 for the second.
+- **Copy snapshots were full copies** (the feature has since been removed;
+  keeping history is left to whoever runs nightstand). On APFS, snapshotting the real 22 GB
   backup took 84 to 105 seconds and 22 GB of disk each. Node does not make
   copy-on-write clones on macOS. For the ZFS dataset, real ZFS snapshots are
   the right tool and the copy strategy should stay off.

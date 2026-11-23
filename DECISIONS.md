@@ -15,8 +15,8 @@ Numbers are stable because commit messages cite them. A decision that has
 been replaced stays in place, marked with what replaced it.
 
 Revised 2026-11-24 after the owner's first review. Entries changed by that
-review say so. Where the code has not caught up, the entry ends with
-**To build**.
+review say so, and all of them are now built. Each entry ends with a
+**Built** note where how it was built involved further choices.
 
 ## Scope
 
@@ -162,7 +162,25 @@ The design to build, in order of preference at run time:
 Whatever finds a candidate address, the pair record decides whether it is
 the right phone. Discovery only has to produce candidates.
 
-Discovery is by scanning a configured network range (O7). **To build.**
+Discovery is by scanning a configured network range (O7).
+
+**Built.** Choices made while building it, by judgement:
+
+- Sweeps are rationed to one per five minutes (`scanIntervalSeconds`). A
+  phone that is away is the normal case; without a limit every poll would
+  knock on every address.
+- One sweep serves every phone being looked for, and each phone is given a
+  sweep's result once, so other people's devices are not re-tested on every
+  poll.
+- Each address gets two knocks, 2 and then 6 seconds: on battery the phone
+  has ignored a first connection and taken 6.7 seconds to accept one.
+- Ranges are capped at /22, about a thousand addresses.
+- With discovery, a refused pair record is not reported as "not paired":
+  every other Apple device in the house refuses it too. It is only reported
+  for a pinned `host`. This makes O12 slightly worse.
+- Tried on the real network from the container: found the phone on the
+  second sweep, not the first, with the phone on battery. The first contact
+  seems to wake it.
 
 ### D7. Back up when the phone is on a charger and a backup is due
 
@@ -182,8 +200,20 @@ answered within 60 seconds, and there is no bypass. So the owner must be
 near the phone when it starts.
 
 Whether "on a charger" means the moment of plugging in or the whole time on
-power is left to the field trial. See O16. **To build**, with both
-behaviours available so the trial can compare them.
+power is left to the field trial. See O16.
+
+**Built**, with both behaviours as the `trigger` setting. The default is
+`"plugged-in"` with a 30-minute window, by judgement. Further choices:
+
+- A probe only says "on power" at one moment, so a plug-in is inferred from
+  successive probes. The phone starts being probed 30 minutes before a
+  backup is due so there is history to judge from.
+- A phone already on power when first seen, as after a restart of the
+  service, does not count as plugged in: nobody knows how long it has been
+  there. It waits for its next plug-in.
+- A missed probe never creates a plug-in. Not answering for 15 minutes and
+  then appearing on power does: the phone came home onto a charger.
+- Backing up on battery is no longer possible at all, even as an option.
 
 ### D8. Keep asking after a timeout; treat a cancel differently
 
@@ -198,7 +228,12 @@ prompts in 24 hours".
 
 Whether the two can be told apart is not known yet. A timeout is
 recognisable: the prompt closes at 60 seconds and the phone reports error
-208. A cancel has not been observed. See O17. **To build.**
+208. A cancel has not been observed. See O17.
+
+**Built**, except for the cancel. After a timeout the phone is asked again in
+10 minutes; after any other failure, also 10 minutes, set separately. With
+the plugged-in trigger the 30-minute window limits that to about four prompts
+per plug-in. With on-charger nothing limits it.
 
 ### D9. Heads-up before a backup: deferred with notifications
 
@@ -242,7 +277,18 @@ that is the job of whatever snapshots the person running it has arranged.
 Consequence worth designing for: a snapshot taken on a timer can catch a
 backup half-written. nightstand should make "the directory is in a verified
 state" visible to outside tools, for example a small marker file written
-after verification and removed when a run starts. **To build.**
+after verification and removed when a run starts.
+
+**Built** as `<backupRoot>/<device id>/verified.json`, holding the UDID and
+the time of verification. Choices, by judgement:
+
+- It is withdrawn just before the transport starts, so a run that stops
+  earlier leaves the claim alone. A run that then fails to connect has
+  withdrawn it without changing anything; that errs on the safe side.
+- If the marker cannot be written after a good backup, the run still counts
+  and an error is logged.
+- The layout lost its `working/` level: the backup is at
+  `<backupRoot>/<device id>/<udid>/`.
 
 Limit: verification is structural. It does not prove the backup decrypts or
 restores. See O9.
@@ -269,7 +315,10 @@ Cost accepted: Node still labels the module as under active development.
 
 Cost accepted: two backups share the disk and the WiFi. A limit on how many
 run at once can be added as an option if that turns out to matter.
-**To build.**
+
+**Built** as one independent cycle per phone. Besides starting together, it
+means a phone is still watched while another's backup runs, so its plug-in
+is not missed.
 
 ### D14. Zod schemas, parsed at run time, for all data crossing a boundary
 
@@ -285,7 +334,10 @@ parser.
   silently falls back to a default is a trap.
 - Pair records are referenced by path and never inlined.
 
-**To build.**
+**Built.** Two behaviours tightened as a result, both failing closed: a
+probe reply that does not say whether backups are encrypted is refused, and
+a verification report in an unexpected shape counts as not having run. Config
+errors are now all reported at once.
 
 ### D15. Unprivileged, read-only container
 
@@ -318,7 +370,10 @@ and has not been tried on the real device.
 - The SQLite state must be on a local disk, not a network share.
 
 Not decided: which registry, and which CPU architectures to publish (only
-arm64 has been built). **To build.**
+arm64 has been built).
+
+**Built** as far as the Compose example, the example config and an image
+that builds locally. Publishing waits on the registry choice and O13.
 
 ### D19. Pair records are handled as secrets
 
@@ -336,7 +391,11 @@ means here, by judgement:
 
 Already true: the config references pair records by path, the build context
 excludes them, and the container reads them from a read-only mount.
-**To build:** the Compose secrets layout and the permission check.
+**Built.** Compose mounts a file-backed secret exactly as it is on the host,
+so the host file's owner and mode are what protect it; the example says so.
+At start-up nightstand logs an error for a pair record that is missing or
+unreadable and a warning for one that anyone but its owner can read, and
+carries on, so one phone's mistake does not stop another's backups.
 
 ## Open
 
