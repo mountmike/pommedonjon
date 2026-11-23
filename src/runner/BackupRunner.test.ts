@@ -83,13 +83,16 @@ function harness(
   };
 
   const sleeps: number[] = [];
+  const logs: { level: string; message: string; fields: unknown }[] = [];
   const runner = new BackupRunner({
     transport,
     store: new BackupStore(root, strategy),
     verifier,
     state,
     notifier,
-    log: () => undefined,
+    log: (level, message, fields) => {
+      logs.push({ level, message, fields });
+    },
     clock: () => new Date("2026-11-24T20:00:00Z"),
     sleep: (ms) => {
       order.push("sleep");
@@ -98,7 +101,7 @@ function harness(
     },
     headsUpLeadSeconds: 5,
   });
-  return { runner, transport, sent, order, sleeps, snapshots, verified };
+  return { runner, transport, sent, order, sleeps, snapshots, verified, logs };
 }
 
 describe("BackupRunner", () => {
@@ -174,6 +177,46 @@ describe("BackupRunner", () => {
       ["progress", 99],
       ["progress", 100],
     ]);
+  });
+
+  it("logs the passcode stage and each recorded progress step as they happen", async () => {
+    const h = harness();
+    h.transport.onBackup = (run) => {
+      run.emit(
+        { type: "started" },
+        { type: "passcode-required" },
+        { type: "passcode-dismissed" },
+        { type: "progress", percent: 0 },
+        { type: "progress", percent: 4 },
+        { type: "progress", percent: 57.1 },
+      );
+      run.succeed(1234);
+    };
+
+    const report = await h.runner.run(device);
+
+    const live = h.logs.slice(1, -1);
+    expect(live.map((entry) => entry.message)).toEqual([
+      "waiting for the passcode on the phone",
+      "passcode prompt closed",
+      "backup progress",
+      "backup progress",
+    ]);
+    expect(live.every((entry) => entry.level === "info")).toBe(true);
+    expect(live.at(0)?.fields).toEqual({ device: "mike", runId: report.runId });
+    expect(live.at(-1)?.fields).toEqual({ device: "mike", runId: report.runId, percent: 57.1 });
+  });
+
+  it("says nothing about a passcode when the phone never asked for one", async () => {
+    const h = harness();
+    h.transport.onBackup = (run) => {
+      run.emit({ type: "started" });
+      run.fail(new BackupError("connection refused", "unreachable"));
+    };
+
+    await h.runner.run(device);
+
+    expect(h.logs.map((entry) => entry.message)).toEqual(["backup starting", "backup failed"]);
   });
 
   it("records an unanswered passcode prompt as device-locked and preserves nothing", async () => {

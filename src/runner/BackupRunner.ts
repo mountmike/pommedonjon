@@ -169,6 +169,19 @@ export class BackupRunner {
         lastStep = step;
       }
       state.recordEvent(runId, clock(), event);
+
+      // The log is the only live view of a run. Someone who started it by
+      // hand needs the cue to pick up their phone, and a quiet log should
+      // never be the sign that a backup is healthy.
+      const fields = { device: device.id, runId };
+      if (event.type === "passcode-required") {
+        this.deps.log("info", "waiting for the passcode on the phone", fields);
+      } else if (event.type === "passcode-dismissed") {
+        // The phone reports the prompt closing, not whether it was answered.
+        this.deps.log("info", "passcode prompt closed", fields);
+      } else if (event.type === "progress") {
+        this.deps.log("info", "backup progress", { ...fields, percent: event.percent });
+      }
     });
     const result = await run.done;
 
