@@ -13,6 +13,7 @@
     "pluggedInWindowMinutes": 30,
     "window": null,
     "retryAfterTimeoutMinutes": 10,
+    "retryAfterCancelMinutes": 240,
     "retryAfterFailureMinutes": 10,
     "staleAfterHours": 72
   },

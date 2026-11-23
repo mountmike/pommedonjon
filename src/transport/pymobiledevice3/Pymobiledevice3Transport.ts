@@ -39,6 +39,8 @@ export interface Pymobiledevice3TransportOptions {
   readonly probeTimeoutMs?: number;
   /** Test seam. */
   readonly exec?: ExecFn;
+  /** Milliseconds since the epoch; the clock used to time the passcode prompt. */
+  readonly now?: () => number;
 }
 
 const execFileAsync = promisify(execFile);
@@ -58,12 +60,14 @@ export class Pymobiledevice3Transport implements DeviceTransport {
   readonly #cliPath: string;
   readonly #probeTimeoutMs: number;
   readonly #exec: ExecFn;
+  readonly #now: () => number;
 
   constructor(options: Pymobiledevice3TransportOptions) {
     this.#sidecar = options.sidecar;
     this.#cliPath = options.cliPath ?? "pymobiledevice3";
     this.#probeTimeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
     this.#exec = options.exec ?? defaultExec;
+    this.#now = options.now ?? Date.now;
   }
 
   async listDevices(): Promise<DeviceInfo[]> {
@@ -121,10 +125,20 @@ export class Pymobiledevice3Transport implements DeviceTransport {
     return new SidecarBackupRun(
       this.#sidecar.spawn(args),
       options.udid,
+      this.#now,
       options.signal,
     );
   }
 }
+
+/**
+ * A passcode prompt that nobody touches closes after 60 seconds (measured:
+ * 58 to 61). One that is dismissed on the phone closes when it is dismissed,
+ * and the device then reports the same "Device locked" error either way. So
+ * a prompt that closed well short of a minute was cancelled by a person.
+ * Measured once: 2.6 seconds.
+ */
+const PROMPT_CANCELLED_BELOW_MS = 45_000;
 
 /** How much of the sidecar's stderr to keep for an error message. */
 const STDERR_TAIL_CHARS = 4000;
@@ -135,19 +149,32 @@ class SidecarBackupRun implements BackupRun {
   readonly #child: SidecarChild;
   #cancelled = false;
 
-  constructor(child: SidecarChild, udid: string, signal?: AbortSignal) {
+  constructor(
+    child: SidecarChild,
+    udid: string,
+    now: () => number,
+    signal?: AbortSignal,
+  ) {
     this.#child = child;
 
     this.done = new Promise<BackupResult>((resolve, reject) => {
       let outcome: Exclude<SidecarMessage, { kind: "event" }> | undefined;
       let stderrTail = "";
+      let promptShownAt: number | undefined;
+      let promptOpenMs: number | undefined;
 
       if (child.stdout) {
         createInterface({ input: child.stdout }).on("line", (line) => {
           const message = parseSidecarLine(line);
           if (!message) return;
-          if (message.kind === "event") this.#emit(message.event);
-          else outcome ??= message;
+          if (message.kind === "event") {
+            if (message.event.type === "passcode-required") {
+              promptShownAt = now();
+            } else if (message.event.type === "passcode-dismissed" && promptShownAt !== undefined) {
+              promptOpenMs = now() - promptShownAt;
+            }
+            this.#emit(message.event);
+          } else outcome ??= message;
         });
       }
       child.stderr?.on("data", (chunk: Buffer | string) => {
@@ -173,6 +200,18 @@ class SidecarBackupRun implements BackupRun {
             backupDir: outcome.backupDir,
             durationMs: outcome.durationMs,
           });
+        } else if (
+          outcome?.kind === "error" &&
+          outcome.reason === "device-locked" &&
+          promptOpenMs !== undefined &&
+          promptOpenMs < PROMPT_CANCELLED_BELOW_MS
+        ) {
+          reject(
+            new BackupError(
+              `the passcode prompt was dismissed on the phone after ${Math.round(promptOpenMs / 1000)} s`,
+              "passcode-cancelled",
+            ),
+          );
         } else if (outcome?.kind === "error") {
           reject(new BackupError(outcome.message, outcome.reason));
         } else {

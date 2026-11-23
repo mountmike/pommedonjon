@@ -39,7 +39,8 @@ function startFakeBackup(
   options: { signal?: AbortSignal; full?: boolean; target?: DeviceTarget } = {},
 ) {
   const { sidecar, children } = fakeSidecar();
-  const transport = new Pymobiledevice3Transport({ sidecar });
+  let clock = 0;
+  const transport = new Pymobiledevice3Transport({ sidecar, now: () => clock });
   const { target = overTcp, ...rest } = options;
   const run = transport.startBackup({
     ...target,
@@ -49,7 +50,12 @@ function startFakeBackup(
   const events: BackupEvent[] = [];
   run.onEvent((event) => events.push(event));
   const child = children[0] as FakeChild;
-  return { child, run, events };
+  /** Let the lines said so far be read, then move the clock on. */
+  const afterSeconds = async (seconds: number) => {
+    await new Promise((resolve) => setImmediate(resolve));
+    clock += seconds * 1000;
+  };
+  return { child, run, events, afterSeconds };
 }
 
 describe("Pymobiledevice3Transport.startBackup", () => {
@@ -127,20 +133,19 @@ describe("Pymobiledevice3Transport.startBackup", () => {
     ]);
   });
 
-  it("reports an unanswered passcode prompt as device-locked", async () => {
-    const { child, run } = startFakeBackup();
-    child.say(
-      { event: "started" },
-      { event: "passcode-required" },
-      { event: "passcode-dismissed" },
-      {
-        event: "error",
-        kind: "PyMobileDevice3Exception",
-        category: "failed",
-        message: "Device locked (MBErrorDomain/208)",
-        code: 208,
-      },
-    );
+  const deviceLocked = {
+    event: "error",
+    kind: "PyMobileDevice3Exception",
+    category: "failed",
+    message: "Device locked (MBErrorDomain/208)",
+    code: 208,
+  };
+
+  it("reports a passcode prompt left for its full minute as device-locked", async () => {
+    const { child, run, afterSeconds } = startFakeBackup();
+    child.say({ event: "started" }, { event: "passcode-required" });
+    await afterSeconds(60);
+    child.say({ event: "passcode-dismissed" }, deviceLocked);
     await child.exit(1);
 
     await expect(run.done).rejects.toMatchObject({
@@ -148,6 +153,53 @@ describe("Pymobiledevice3Transport.startBackup", () => {
       reason: "device-locked",
       message: "Device locked (MBErrorDomain/208)",
     });
+  });
+
+  it("reports a prompt dismissed on the phone as cancelled, though the device says the same thing", async () => {
+    // Measured on the real phone: Cancel was tapped and the prompt closed
+    // after 2.6 seconds, followed by the same error 208 as a timeout.
+    const { child, run, afterSeconds } = startFakeBackup();
+    child.say({ event: "started" }, { event: "passcode-required" });
+    await afterSeconds(2.6);
+    child.say({ event: "passcode-dismissed" }, deviceLocked);
+    await child.exit(1);
+
+    await expect(run.done).rejects.toMatchObject({
+      name: "BackupError",
+      reason: "passcode-cancelled",
+      message: "the passcode prompt was dismissed on the phone after 3 s",
+    });
+  });
+
+  it.each([
+    [44, "passcode-cancelled"],
+    [45, "device-locked"],
+  ])("draws the line at 45 seconds: closed after %i s is %s", async (seconds, reason) => {
+    const { child, run, afterSeconds } = startFakeBackup();
+    child.say({ event: "passcode-required" });
+    await afterSeconds(seconds);
+    child.say({ event: "passcode-dismissed" }, deviceLocked);
+    await child.exit(1);
+    await expect(run.done).rejects.toMatchObject({ reason });
+  });
+
+  it("does not call it a cancel when the prompt closed quickly and the backup then ran", async () => {
+    const { child, run, afterSeconds } = startFakeBackup();
+    child.say({ event: "passcode-required" });
+    await afterSeconds(3);
+    child.say(
+      { event: "passcode-dismissed" },
+      { event: "finished", backupDir: "/data/backups/x", durationMs: 5 },
+    );
+    await child.exit(0);
+    await expect(run.done).resolves.toMatchObject({ durationMs: 5 });
+  });
+
+  it("keeps device-locked when the device refused without ever showing a prompt", async () => {
+    const { child, run } = startFakeBackup();
+    child.say({ event: "started" }, deviceLocked);
+    await child.exit(1);
+    await expect(run.done).rejects.toMatchObject({ reason: "device-locked" });
   });
 
   it("reports a dropped connection as unreachable", async () => {

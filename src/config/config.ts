@@ -81,6 +81,8 @@ const DevicePolicySchema = z.strictObject(
     window: TimeWindowSchema.nullable(),
     /** How soon to ask again after a passcode prompt went unanswered. */
     retryAfterTimeoutMinutes: number({ min: 1 }),
+    /** How long to leave the phone alone after its owner dismissed the prompt. */
+    retryAfterCancelMinutes: number({ min: 1 }),
     /** How soon to try again after a run failed for any other reason. */
     retryAfterFailureMinutes: number({ min: 1 }),
     /** Raise a stale-backup alert once the last good backup is older than this. */
@@ -102,6 +104,8 @@ export const DEFAULT_POLICY: DevicePolicy = {
   pluggedInWindowMinutes: 30,
   window: null,
   retryAfterTimeoutMinutes: 10,
+  // A cancel is the owner saying "not now", so it buys a much longer pause.
+  retryAfterCancelMinutes: 240,
   retryAfterFailureMinutes: 10,
   staleAfterHours: 72,
 };

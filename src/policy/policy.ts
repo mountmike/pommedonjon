@@ -114,7 +114,8 @@ export function schedule(input: {
   }
 
   // An unanswered prompt may be asked again soon: the owner was simply not
-  // there. Anything else gets its own, separately set, pause.
+  // there. A dismissed one means "not now" and is respected for much
+  // longer. Anything else gets its own, separately set, pause.
   let lastFailure: AttemptSummary | undefined;
   for (const attempt of recentAttempts) {
     if (attempt.outcome !== "failed" || !attempt.finishedAt) continue;
@@ -126,7 +127,9 @@ export function schedule(input: {
     const pauseMinutes =
       lastFailure.failureReason === "device-locked"
         ? policy.retryAfterTimeoutMinutes
-        : policy.retryAfterFailureMinutes;
+        : lastFailure.failureReason === "passcode-cancelled"
+          ? policy.retryAfterCancelMinutes
+          : policy.retryAfterFailureMinutes;
     const retryAt = lastFailure.finishedAt.getTime() + pauseMinutes * MINUTE_MS;
     if (nowMs < retryAt) {
       return {

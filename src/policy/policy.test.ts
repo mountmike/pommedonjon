@@ -19,6 +19,7 @@ const policy: DevicePolicy = {
   dueAfterHours: 20,
   window: null,
   retryAfterTimeoutMinutes: 10,
+  retryAfterCancelMinutes: 240,
   retryAfterFailureMinutes: 30,
 };
 
@@ -115,6 +116,29 @@ describe("schedule", () => {
     expect(schedule({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts })).toEqual(
       GO,
     );
+  });
+
+  it("leaves the phone alone for hours after its owner dismissed the prompt", () => {
+    const recentAttempts = [failed(at(19), "passcode-cancelled")];
+    expect(
+      schedule({ now: at(19, 11), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "backing-off", until: at(23, 1) },
+    });
+    expect(
+      schedule({ now: at(23, 1), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual(GO);
+  });
+
+  it("goes back to asking soon if a later prompt merely timed out", () => {
+    const recentAttempts = [
+      failed(at(14), "passcode-cancelled"),
+      failed(at(19), "device-locked"),
+    ];
+    expect(
+      schedule({ now: at(19, 11), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual(GO);
   });
 
   it("waits the longer, separate pause after any other failure", () => {

@@ -154,6 +154,12 @@ export type BackupFailureReason =
    * passcode prompt is left unanswered for 60 seconds.
    */
   | "device-locked"
+  /**
+   * Someone dismissed the passcode prompt on the phone. The device reports
+   * this exactly as it reports a timeout; what tells them apart is that the
+   * prompt closed long before its 60 seconds were up.
+   */
+  | "passcode-cancelled"
   /** The device could not be reached, or the connection dropped. */
   | "unreachable"
   /** Reached, but it does not accept this host's pair record. */
