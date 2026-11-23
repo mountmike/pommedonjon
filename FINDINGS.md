@@ -79,7 +79,7 @@ built for arm64 here.
 
 ## What was measured
 
-### Backup attempts (encryption on; 1 to 5 over USB, 6 to 9 over WiFi)
+### Backup attempts (encryption on; 1 to 5 over USB, 6 to 12 over WiFi)
 
 | # | Tool | Passcode prompt | Outcome |
 |---|---|---|---|
@@ -117,6 +117,38 @@ Three things it turned up:
 - **Progress sat at 0% for two and a half minutes**, then went to 100% in
   the next 80 seconds. Presumably an incremental spends that first stretch
   working out what changed. A progress bar will need to allow for it.
+
+Attempts 10 to 12, the same morning, with the phone **locked and on
+battery**. All three used `nightstand backup` from the container.
+
+| # | What happened | Outcome |
+|---|---|---|
+| 10 | Connection attempt timed out about a second after the backup started | Failed as `unreachable`; the phone showed nothing |
+| 11 | The same, six seconds after a plain connection from the Mac had succeeded | Failed as `unreachable`; the phone showed nothing |
+| 12 | After the sidecar was changed to keep dialling: connected at +11 s, prompt at +14 s. The owner saw a keypad **with a message** and typed the passcode | Failed: the session was lost 2.5 s after connecting and the backup's connection dropped 7.6 s after the prompt. Recorded as `unreachable`, with the prompt noted |
+
+What these show:
+
+- **A phone on battery can be slow to accept a connection.** Five raw
+  connections in a row took 0.09, 0.01, 0.10, 0.11 and 6.66 seconds.
+  pymobiledevice3 allows one second per dial. Six probes in a row failed
+  that way; with a 12-second dialling window the next probe took 12 seconds
+  and succeeded, and the five after it answered within a second.
+- **A locked phone on battery dropped the session mid-prompt.** In attempt
+  12 the keep-alive connection was closed by the phone almost at once, and
+  the backup connection followed although the passcode had been typed. Seen
+  once. One reference project reports the same thing on iOS 26.6 (see
+  [Reference projects](#reference-projects)). Attempt 9, also on battery but
+  with the phone unlocked and in hand, completed.
+- **The locked prompt does not always look the same.** Attempt 8 (locked, on
+  a charger): bare keypad, no text. Attempt 12 (locked, on battery): keypad
+  with a message. The owner also reports a prompt with a clear message when
+  the phone was unlocked. What decides which appears is not known.
+- **Cancelling the prompt has still not been observed**, so a cancel cannot
+  yet be told from a timeout (DECISIONS.md O17).
+- Two bugs surfaced and were fixed: the connection gave up too early, and a
+  failed run's log line said "TimeoutError" where it should have said
+  "backup failed".
 
 Attempt 8 answers the locked-phone question (owner's observation plus the
 event log): a locked phone lights its screen and shows the backup passcode
@@ -337,7 +369,7 @@ without paying for it.
 ## What exists in the repo
 
 Built the night of 2026-11-23/24, at the owner's request, ahead of the Phase 0
-review. 115 unit tests pass; all use fakes for the phone and the sidecar.
+review. 120 unit tests pass; all use fakes for the phone and the sidecar.
 
 | Part | Where | Tried against the real phone? |
 |---|---|---|
@@ -347,7 +379,7 @@ review. 115 unit tests pass; all use fakes for the phone and the sidecar.
 | Due-policy: interval, window, back-off, prompt budget | `src/policy/` | n/a |
 | Storage: working copy, verification, snapshots | `src/storage/` | Verification: yes. Snapshot copy: yes, on a clone of the real backup |
 | Run history in SQLite | `src/state/` | n/a |
-| Runner: heads-up, back up, verify, snapshot, record | `src/runner/` | Yes (attempt 9), with snapshots off. The failure paths: no |
+| Runner: heads-up, back up, verify, snapshot, record | `src/runner/` | Yes (attempt 9), with snapshots off. Failure paths: connection failures only (attempts 10 to 12) |
 | Daemon loop and stale alerts | `src/daemon/` | Idle only: started outside the window for 3 seconds |
 | CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe`, `backup` and `status`: yes. A working `daemon`: **no** |
 | Container image | `Dockerfile` | `probe` and `backup` from a read-only, unprivileged container: yes |
@@ -381,11 +413,11 @@ Things the build turned up:
 1. **Passcode prompt on every backup.** No bypass is known. Fully unattended
    backups are not achievable; the realistic target is "one passcode entry,
    at a moment the owner is already holding the phone".
-2. **WiFi lockdown availability is only characterised for a charging phone.**
-   One night on a charger showed no gaps longer than a single five-minute
-   check, and every direct query succeeded. A sleeping phone on battery may
-   behave differently; the charger requirement in the default policy avoids
-   depending on that.
+2. **A phone on battery is a worse target than one on a charger.** One
+   night on a charger showed no gaps and every direct query succeeded. On
+   battery, connections were slow to open and one session was dropped
+   mid-prompt on a locked phone. Backing up only on a charger (DECISIONS.md
+   D7) avoids depending on that.
 3. **Apple can change this again.** 26.4 already changed discovery. Classic
    lockdown over WiFi could be withdrawn in a later release.
 4. **Tailnet path is unproven** and may need the RemotePairing tunnel plus
@@ -395,59 +427,17 @@ Things the build turned up:
    checked before publishing anything.
 6. **Pair record handling.** It is a long-lived, full-access credential that
    must live on dockyard.
-7. **VLANs.** Not looked at yet: mDNS will not cross VLANs without a
-   reflector, and dockyard needs a firewall rule to reach the phones on 62078.
+7. **Different subnets.** The owner's server and phones are on different
+   VLANs. mDNS will not cross them without the router relaying it, and port
+   62078 is reported to refuse connections from outside the phone's subnet.
+   Neither has been tested (DECISIONS.md O5).
 
-## Decisions needed before deploying
+## Decisions and design
 
-1. **Notification channel** for the heads-up and alerts. Until one exists, a
-   backup started by the daemon shows the owner an unexplained passcode
-   prompt.
-2. **Trigger policy:** the evening window as built (default 07:00 to 22:00,
-   on charge, at most two unanswered prompts a day), or trigger on unlock.
-3. **Snapshots on crepevault:** ZFS snapshot through the TrueNAS API after a
-   verified run, or a periodic snapshot task. Either way `snapshots.strategy`
-   stays `"none"`.
-4. **Dataset path and mount:** which dataset under crepevault's backups, and
-   how dockyard mounts it (NFS or SMB), including which user owns the files.
-5. **Network:** the VLANs the phones and dockyard are on, a firewall rule for
-   TCP 62078, fixed addresses for both phones, and dockyard's CPU
-   architecture.
-6. **Where the pair records live** on dockyard.
-
-## Proposed Phase 1 design (provisional)
-
-- **Trigger when the owner is there, not at 3 a.m.** Two candidate triggers,
-  both needing one passcode entry:
-  - *On unlock:* start when the owner unlocks the phone and a backup is due
-    (one reference project does this, five seconds after unlock). Still to
-    test: whether lock and unlock events can be observed over WiFi
-    (`com.apple.springboard.lockstate`).
-  - *Evening window:* start once the phone is home, on charge and a backup is
-    due, inside a window when the owner is awake. Attempt 8 shows the phone
-    wakes and asks on the lock screen. Unanswered prompts must be rationed so
-    the phone does not light up repeatedly.
-- **Discovery:** mDNS browse for `_apple-mobdev2._tcp` with `authTag`
-  matching, plus a configured address per phone as a fallback for when mDNS
-  does not cross the VLAN.
-- **Preconditions:** on external power or above a battery floor, backup due
-  (counted from the last *verified* backup), inside an allowed time window.
-- **Storage:** back up into a per-device working directory, verify (manifest
-  present and non-empty, status finished, sidecar reported `finished`), then
-  snapshot. A failed run never touches the last good snapshot. Storage is on
-  crepevault's backups dataset; the exact path and mount method are to be
-  confirmed.
-- **Failure handling:** typed reasons from the transport (`device-locked`,
-  `cancelled`, `failed`), backoff, and a cap on prompts per day so the phone
-  does not nag.
-- **Heads-up before every run:** a push notification to the phone a few
-  seconds before the backup starts, naming nightstand and saying a passcode
-  prompt is coming, because the prompt itself says nothing. The channel is to
-  be decided (for example ntfy or Pushover; email is too slow for a 60-second
-  window).
-- **Alerting:** email on repeated failure and on stale backups; a
-  "waiting for passcode" state surfaced to the UI.
-- **State:** SQLite, one row per run with the event log.
+These were here as "Decisions needed before deploying" and "Proposed Phase 1
+design". Both are superseded by [DECISIONS.md](DECISIONS.md), which was
+revised after the owner's review on 2026-11-24 and is the single place for
+what is decided, what is in scope and what is open.
 
 ## Reference projects
 
