@@ -1,5 +1,5 @@
 /**
- * The seam between nightstand's orchestration logic and whatever actually
+ * The seam between pommedonjon's orchestration logic and whatever actually
  * speaks Apple's device protocols. The first implementation drives
  * pymobiledevice3 through a Python sidecar; anything else that can satisfy
  * this interface could replace it without the daemon noticing. Nothing in

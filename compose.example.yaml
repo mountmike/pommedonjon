@@ -1,15 +1,15 @@
 # Example deployment. Copy to compose.yaml next to a directory laid out as:
 #
-#   config/nightstand.json    settings (start from nightstand.example.json)
+#   config/pommedonjon.json    settings (start from pommedonjon.example.json)
 #   secrets/<name>.plist      one pair record per phone, mode 600
-#   state/                    created by nightstand; keep it on a local disk
+#   state/                    created by pommedonjon; keep it on a local disk
 #
 # and point the backups volume at wherever backups should live.
 #
 # The container needs only outbound TCP to each phone on port 62078. It does
 # not need host networking, USB, privileges or extra capabilities.
 services:
-  nightstand:
+  pommedonjon:
     # Not published yet: build from this repository.
     build: .
     restart: unless-stopped
@@ -50,7 +50,7 @@ services:
 #
 #   chown 1000:1000 secrets/*.plist && chmod 600 secrets/*.plist
 #
-# nightstand checks this when it starts and says so if a record is readable
+# pommedonjon checks this when it starts and says so if a record is readable
 # by anyone else.
 secrets:
   phone_one_pair_record:

@@ -34,7 +34,7 @@ const GOOD: BackupVerification = {
 let root: string;
 let state: StateStore;
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "nightstand-runner-"));
+  root = await mkdtemp(path.join(tmpdir(), "pommedonjon-runner-"));
   state = new StateStore(":memory:");
 });
 afterEach(async () => {

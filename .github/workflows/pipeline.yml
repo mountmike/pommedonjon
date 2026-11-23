@@ -154,6 +154,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            NIGHTSTAND_BUILD=${{ steps.commit.outputs.short }}
+            POMMEDONJON_BUILD=${{ steps.commit.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

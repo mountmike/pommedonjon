@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The device-protocol side of nightstand.
+"""The device-protocol side of pommedonjon.
 
 The TypeScript daemon spawns this script and reads JSON from stdout. It never
 parses human-oriented output. pymobiledevice3 is used as a library because its
@@ -389,7 +389,7 @@ def add_device_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="nightstand device sidecar")
+    parser = argparse.ArgumentParser(description="pommedonjon device sidecar")
     commands = parser.add_subparsers(dest="command", required=True)
 
     probe_parser = commands.add_parser("probe", help="Describe a reachable device.")

@@ -1,7 +1,7 @@
 # Development on your own machine: builds the image from this checkout and
 # keeps everything it reads and writes under local/, which git ignores.
 #
-#   local/dev/config/nightstand.json   settings
+#   local/dev/config/pommedonjon.json   settings
 #   local/dev/secrets/                 pair records, mode 600
 #   local/dev/state/                   run history
 #   local/dev/backups/                 backups
@@ -16,13 +16,16 @@
 # A phone should only ever be watched by one running daemon. If a server is
 # already backing a phone up, leave that phone out of local/dev's config, or
 # stick to one-off commands here.
+# Named here so it does not depend on what the checkout's folder is called.
+name: pommedonjon-dev
+
 services:
-  nightstand:
+  pommedonjon:
     build:
       context: .
       args:
-        NIGHTSTAND_BUILD: dev
-    image: nightstand:dev
+        POMMEDONJON_BUILD: dev
+    image: pommedonjon:dev
     environment:
       # So `report` shows days and hours as you see them on the wall.
       TZ: ${TZ:-Etc/UTC}

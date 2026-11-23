@@ -9,7 +9,7 @@ export type SpawnFn = (command: string, args: readonly string[]) => SidecarChild
 export interface SidecarOptions {
   /** A Python interpreter that can import pymobiledevice3. */
   readonly pythonPath?: string;
-  /** Path to nightstand_sidecar.py. Defaults to the copy in this repo. */
+  /** Path to pommedonjon_sidecar.py. Defaults to the copy in this repo. */
   readonly scriptPath?: string;
   /** Test seam. */
   readonly spawn?: SpawnFn;
@@ -27,7 +27,7 @@ const defaultSpawn: SpawnFn = (command, args) =>
   spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] });
 
 const DEFAULT_SCRIPT_PATH = fileURLToPath(
-  new URL("../../sidecar/nightstand_sidecar.py", import.meta.url),
+  new URL("../../sidecar/pommedonjon_sidecar.py", import.meta.url),
 );
 
 const STDERR_TAIL_CHARS = 4000;

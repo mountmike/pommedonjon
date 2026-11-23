@@ -8,31 +8,31 @@ import { inspectPairRecord } from "./credentials/pairRecord.js";
 import { DeviceError } from "./transport/DeviceTransport.js";
 import { describeBuild, readBuildInfo } from "./version.js";
 
-const USAGE = `nightstand: self-hosted iPhone backups
+const USAGE = `pommedonjon: self-hosted iPhone backups
 
 Usage:
-  nightstand daemon --config FILE
+  pommedonjon daemon --config FILE
       Run the service: back each phone up when it is due, home and ready.
 
-  nightstand probe --config FILE [--device ID]
+  pommedonjon probe --config FILE [--device ID]
       Ask each configured phone about itself. Read-only; never prompts.
 
-  nightstand backup --config FILE --device ID
+  pommedonjon backup --config FILE --device ID
       Back one phone up now, ignoring the schedule. The phone will show its
       passcode prompt, and someone must type the passcode within a minute.
 
-  nightstand status --config FILE
+  pommedonjon status --config FILE
       Show each phone's last good backup and recent attempts.
 
-  nightstand report --config FILE [--device ID] [--days N] [--json]
+  pommedonjon report --config FILE [--device ID] [--days N] [--json]
       Day by day, what happened to each phone over the last N days (default
       14): when it was plugged in, each prompt and its outcome, and why no
       backup started when none did.
 
-  nightstand --version
+  pommedonjon --version
       Show which build this is.
 
-The config file path can also come from the NIGHTSTAND_CONFIG environment
+The config file path can also come from the POMMEDONJON_CONFIG environment
 variable.
 `;
 
@@ -150,7 +150,7 @@ async function main(argv: readonly string[]): Promise<number> {
     },
   });
   if (values.version) {
-    print(`nightstand ${describeBuild(readBuildInfo())}`);
+    print(`pommedonjon ${describeBuild(readBuildInfo())}`);
     return 0;
   }
   const [command, ...extra] = positionals;
@@ -165,9 +165,9 @@ async function main(argv: readonly string[]): Promise<number> {
     throw new UsageError(`unknown command "${command}"`);
   }
 
-  const configPath = values.config ?? process.env["NIGHTSTAND_CONFIG"];
+  const configPath = values.config ?? process.env["POMMEDONJON_CONFIG"];
   if (configPath === undefined) {
-    throw new UsageError("no config file: pass --config FILE or set NIGHTSTAND_CONFIG");
+    throw new UsageError("no config file: pass --config FILE or set POMMEDONJON_CONFIG");
   }
   const app = createApp(await loadConfig(configPath), jsonLogger);
 
@@ -208,12 +208,12 @@ main(process.argv.slice(2)).then(
   },
   (error: unknown) => {
     if (error instanceof UsageError || error instanceof ConfigError) {
-      process.stderr.write(`nightstand: ${error.message}\n`);
+      process.stderr.write(`pommedonjon: ${error.message}\n`);
       process.exitCode = 2;
       return;
     }
     process.stderr.write(
-      `nightstand: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+      `pommedonjon: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
     );
     process.exitCode = 1;
   },

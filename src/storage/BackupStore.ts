@@ -21,10 +21,10 @@ export const VERIFIED_MARKER = "verified.json";
  *   <root>/<deviceId>/verified.json   present only while that backup is in a
  *                                     verified state
  *
- * nightstand keeps this one copy and no history. Because a run updates the
+ * pommedonjon keeps this one copy and no history. Because a run updates the
  * backup in place, a failed run can leave it worse than it was; keeping
  * earlier versions is the job of whatever snapshots the person running
- * nightstand has arranged on this directory.
+ * pommedonjon has arranged on this directory.
  *
  * The marker is for those tools. It is removed before a run touches the
  * backup and written again only after the result verifies, so "snapshot only

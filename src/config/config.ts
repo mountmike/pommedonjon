@@ -139,7 +139,7 @@ const ConfigFileSchema = z.strictObject(
     /**
      * Where backups live: one directory per device id underneath. Which disk
      * or share is behind it, and keeping history of it, are up to whoever
-     * runs nightstand.
+     * runs pommedonjon.
      */
     backupRoot: text,
     /** Where the daemon keeps its SQLite database. */
@@ -187,7 +187,7 @@ export type DeviceConfig = Readonly<
 >;
 
 /** The config as the rest of the program sees it: defaults filled in, paths absolute. */
-export type NightstandConfig = Readonly<
+export type PommedonjonConfig = Readonly<
   Omit<ConfigFile, "defaultPolicy" | "devices"> & { devices: readonly DeviceConfig[] }
 >;
 
@@ -208,7 +208,7 @@ function layer(base: DevicePolicy, overrides: PolicyOverrides | undefined): Devi
  * `baseDir`, normally the directory holding the config file. Every problem
  * found is reported, one per line.
  */
-export function parseConfig(document: unknown, baseDir: string): NightstandConfig {
+export function parseConfig(document: unknown, baseDir: string): PommedonjonConfig {
   const parsed = ConfigFileSchema.safeParse(document);
   if (!parsed.success) {
     throw new ConfigError(describeIssues(parsed.error).join("\n"));
@@ -255,7 +255,7 @@ export function parseConfig(document: unknown, baseDir: string): NightstandConfi
   };
 }
 
-export async function loadConfig(file: string): Promise<NightstandConfig> {
+export async function loadConfig(file: string): Promise<PommedonjonConfig> {
   let text: string;
   try {
     text = await readFile(file, "utf8");

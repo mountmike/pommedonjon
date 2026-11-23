@@ -7,7 +7,7 @@ import { describeBuild, readBuildInfo } from "../src/version.js";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "nightstand-version-"));
+  dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-version-"));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -25,8 +25,8 @@ describe("readBuildInfo", () => {
   });
 
   it("takes the version from package.json and the commit from the environment", async () => {
-    const url = await manifest('{"name":"nightstand","version":"0.3.1"}');
-    expect(readBuildInfo({ NIGHTSTAND_BUILD: "3f2a9c1" }, url)).toEqual({
+    const url = await manifest('{"name":"pommedonjon","version":"0.3.1"}');
+    expect(readBuildInfo({ POMMEDONJON_BUILD: "3f2a9c1" }, url)).toEqual({
       version: "0.3.1",
       build: "3f2a9c1",
     });
@@ -34,12 +34,12 @@ describe("readBuildInfo", () => {
 
   it.each([undefined, "", "  "])("has no build when the environment says %j", async (value) => {
     const url = await manifest('{"version":"0.3.1"}');
-    const env = value === undefined ? {} : { NIGHTSTAND_BUILD: value };
+    const env = value === undefined ? {} : { POMMEDONJON_BUILD: value };
     expect(readBuildInfo(env, url).build).toBeUndefined();
   });
 
   it("refuses a package.json with no version rather than reporting a made-up one", async () => {
-    await expect(manifest('{"name":"nightstand"}').then((url) => readBuildInfo({}, url))).rejects.toThrow();
+    await expect(manifest('{"name":"pommedonjon"}').then((url) => readBuildInfo({}, url))).rejects.toThrow();
   });
 });
 

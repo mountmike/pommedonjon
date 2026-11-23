@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_POLICY,
   type DeviceConfig,
-  type NightstandConfig,
+  type PommedonjonConfig,
 } from "../../src/config/config.js";
 import type { LogLevel, Notification } from "../../src/notify/Notifier.js";
 import type { RunReport } from "../../src/runner/BackupRunner.js";
@@ -47,7 +47,7 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
   const ran: string[] = [];
   let now = at(19);
 
-  const config: NightstandConfig = {
+  const config: PommedonjonConfig = {
     backupRoot: "/backups",
     stateDir: "/state",
     pollIntervalSeconds: 120,
@@ -599,7 +599,7 @@ describe("Daemon.run", () => {
     });
     expect(h.transport.probes).toHaveLength(3);
     expect(h.sleeps).toEqual([120_000, 120_000, 120_000]);
-    expect(h.logs.at(-1)?.message).toBe("nightstand stopped");
+    expect(h.logs.at(-1)?.message).toBe("pommedonjon stopped");
   });
 
   it("says which build it is when it starts, if told", async () => {
@@ -629,7 +629,7 @@ describe("Daemon.run", () => {
     await daemon.run(controller.signal);
 
     expect(logs[0]).toEqual({
-      message: "nightstand started",
+      message: "pommedonjon started",
       fields: { version: "0.3.1 (build 3f2a9c1)", devices: [], pollIntervalSeconds: 120 },
     });
   });

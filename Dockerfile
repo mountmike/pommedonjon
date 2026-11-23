@@ -30,20 +30,20 @@ COPY sidecar ./sidecar
 
 # The commit this image was built from, shown by --version and in the
 # start-up log. Set by the build pipeline; "dev" for a local build.
-ARG NIGHTSTAND_BUILD=dev
+ARG POMMEDONJON_BUILD=dev
 
 # pymobiledevice3 insists on creating a data folder under $HOME at start-up.
 # Point it at /tmp so the container can run with a read-only root filesystem
-# (mount /tmp as tmpfs). Nothing nightstand needs to keep is written there.
+# (mount /tmp as tmpfs). Nothing pommedonjon needs to keep is written there.
 ENV HOME=/tmp \
     NODE_ENV=production \
-    NIGHTSTAND_PYTHON=/opt/sidecar/bin/python \
-    NIGHTSTAND_CONFIG=/config/nightstand.json \
-    NIGHTSTAND_BUILD=${NIGHTSTAND_BUILD} \
+    POMMEDONJON_PYTHON=/opt/sidecar/bin/python \
+    POMMEDONJON_CONFIG=/config/pommedonjon.json \
+    POMMEDONJON_BUILD=${POMMEDONJON_BUILD} \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# /config        nightstand.json (mount read-only)
+# /config        pommedonjon.json (mount read-only)
 # /run/secrets   one pair record per phone, as Compose secrets
 # /state         the SQLite database; a local disk
 # /backups       where backups live

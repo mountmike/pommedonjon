@@ -6,7 +6,7 @@ import { inspectPairRecord } from "../../src/credentials/pairRecord.js";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "nightstand-secret-"));
+  dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-secret-"));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });

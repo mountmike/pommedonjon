@@ -10,7 +10,7 @@ const UDID = "00008140-000A1B2C3D4E001C";
 
 let root: string;
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "nightstand-store-"));
+  root = await mkdtemp(path.join(tmpdir(), "pommedonjon-store-"));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -39,7 +39,7 @@ describe("BackupStore verified marker", () => {
       udid: UDID,
       verifiedAt: "2026-11-24T08:05:45.059Z",
     });
-    // Plain JSON an outside script can read without nightstand.
+    // Plain JSON an outside script can read without pommedonjon.
     expect(JSON.parse(await readFile(path.join(root, "mike", "verified.json"), "utf8"))).toEqual({
       udid: UDID,
       verifiedAt: "2026-11-24T08:05:45.059Z",

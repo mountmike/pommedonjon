@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import type { NightstandConfig } from "./config/config.js";
+import type { PommedonjonConfig } from "./config/config.js";
 import { Daemon } from "./daemon/Daemon.js";
 import { DeviceLocator } from "./discovery/DeviceLocator.js";
 import { PortScanner } from "./discovery/PortScanner.js";
@@ -35,7 +35,7 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 export interface App {
-  readonly config: NightstandConfig;
+  readonly config: PommedonjonConfig;
   readonly transport: DeviceTransport;
   readonly locator: DeviceLocator;
   readonly state: StateStore;
@@ -47,11 +47,11 @@ export interface App {
 
 /** Wire the real implementations together from a loaded config. */
 export function createApp(
-  config: NightstandConfig,
+  config: PommedonjonConfig,
   log: Logger,
   env: NodeJS.ProcessEnv = process.env,
 ): App {
-  const pythonPath = config.sidecar.pythonPath ?? env["NIGHTSTAND_PYTHON"];
+  const pythonPath = config.sidecar.pythonPath ?? env["POMMEDONJON_PYTHON"];
   const sidecar = new Sidecar({
     ...(pythonPath !== undefined && { pythonPath }),
     ...(config.sidecar.scriptPath !== undefined && {
@@ -61,7 +61,7 @@ export function createApp(
   const transport = new Pymobiledevice3Transport({ sidecar });
 
   mkdirSync(config.stateDir, { recursive: true });
-  const state = new StateStore(path.join(config.stateDir, "nightstand.sqlite"));
+  const state = new StateStore(path.join(config.stateDir, "pommedonjon.sqlite"));
 
   const store = new BackupStore(config.backupRoot);
   // No delivery channel has been chosen yet, so notifications only reach the

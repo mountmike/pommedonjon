@@ -1,5 +1,5 @@
 ---
-"nightstand": minor
+"pommedonjon": minor
 ---
 
 First build for the field trial. Backs up iPhones over WiFi to a directory you

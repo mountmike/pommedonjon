@@ -11,7 +11,7 @@ export interface SecretFinding {
  * Check one pair record file the way an SSH client checks a private key.
  *
  * A pair record grants full access to a phone, with no passcode, for as long
- * as the pairing lasts. It should be readable by the user nightstand runs as
+ * as the pairing lasts. It should be readable by the user pommedonjon runs as
  * and by nobody else.
  */
 export async function inspectPairRecord(file: string): Promise<SecretFinding | undefined> {
@@ -29,7 +29,7 @@ export async function inspectPairRecord(file: string): Promise<SecretFinding | u
   } catch {
     return {
       level: "error",
-      problem: `pair record ${file} cannot be read by the user nightstand runs as`,
+      problem: `pair record ${file} cannot be read by the user pommedonjon runs as`,
     };
   }
   const others = info.mode & 0o077;

@@ -1,10 +1,10 @@
-# nightstand
+# pommedonjon
 
 Self-hosted iPhone backups: full, encrypted, restorable backups in the
 standard Finder/iTunes format, taken over WiFi to your own storage. No iCloud,
 and no Mac or PC in the loop once a phone has been paired.
 
-**Status: early.** The backup path is proven on iOS 26.6.1 and nightstand's
+**Status: early.** The backup path is proven on iOS 26.6.1 and pommedonjon's
 own code has backed a real phone up from the container (see
 [FINDINGS.md](FINDINGS.md)). The daemon deciding by itself when to start has
 only been tested with fakes; a field trial on a real phone is the next phase.
@@ -16,7 +16,7 @@ been decided and what is still open.
 - **Every backup needs the phone's passcode typed on the phone**, within 60
   seconds of the backup starting. iOS has required this since 16.1 and there
   is no bypass. A locked phone wakes to ask.
-- So nightstand starts a backup when you are likely to be there: when the
+- So pommedonjon starts a backup when you are likely to be there: when the
   phone goes onto a charger at home and its last good backup is more than 20
   hours old. If the prompt goes unanswered it asks again a few minutes later;
   if you tap Cancel it leaves you alone for four hours.
@@ -78,13 +78,13 @@ pymobiledevice3 backup2 encryption
 **The pair record grants full access to the phone**, with no passcode, for as
 long as the pairing lasts. Treat it like a private key: never commit it, keep
 it readable only by the user the container runs as, and hand it to the
-container as a secret. nightstand checks the file's permissions when it
+container as a secret. pommedonjon checks the file's permissions when it
 starts and warns if anyone else can read it.
 
 ## Configuration
 
-Copy [nightstand.example.json](nightstand.example.json) to
-`config/nightstand.json`. Unknown settings are errors, and every problem in
+Copy [pommedonjon.example.json](pommedonjon.example.json) to
+`config/pommedonjon.json`. Unknown settings are errors, and every problem in
 the file is reported at once.
 
 | Setting | Meaning |
@@ -102,7 +102,7 @@ the file is reported at once.
 ### Finding the phone
 
 A phone's address can change, so it does not need one in the config.
-nightstand tries the address where it last reached the phone, and if that
+pommedonjon tries the address where it last reached the phone, and if that
 does not answer it tries the lockdown port on every address in
 `discovery.ranges`. Whatever answers, the pair record decides whether it is
 the right phone, so a wrong address can never lead to backing up the wrong
@@ -129,7 +129,7 @@ backup falls due at 3 a.m.; it is backed up at the next plug-in. With
 `"on-charger"` it would be, and would be asked again every
 `retryAfterTimeoutMinutes` until answered.
 
-nightstand has to see the phone go onto power to call it a plug-in. A phone
+pommedonjon has to see the phone go onto power to call it a plug-in. A phone
 already charging when the service starts waits for its next plug-in.
 
 ## Running
@@ -137,16 +137,16 @@ already charging when the service starts waits for its next plug-in.
 Start from [compose.example.yaml](compose.example.yaml), which expects:
 
 ```
-config/nightstand.json    settings
+config/pommedonjon.json    settings
 secrets/<name>.plist      one pair record per phone, mode 600
-state/                    created by nightstand; a local disk
+state/                    created by pommedonjon; a local disk
 ```
 
 ```bash
 docker compose up -d
 ```
 
-Commands (`docker compose run --rm nightstand <command>`, or
+Commands (`docker compose run --rm pommedonjon <command>`, or
 `node dist/cli.js <command>` after `pnpm build`):
 
 | Command | What it does |
@@ -189,7 +189,7 @@ file to read them as local time.
 ```
 
 Each run updates the backup in place. If a run fails part-way, the backup on
-disk can be left incomplete until the next good run, and nightstand keeps no
+disk can be left incomplete until the next good run, and pommedonjon keeps no
 earlier copy. **Arrange your own history** on this directory if you want one.
 
 `verified.json` is there for that. It is removed before a run touches the
@@ -230,7 +230,7 @@ them touch a real device.
 keeps everything under `local/dev/`, which git ignores:
 
 ```
-local/dev/config/nightstand.json   settings
+local/dev/config/pommedonjon.json   settings
 local/dev/secrets/                 pair records, mode 600
 local/dev/state/                   run history
 local/dev/backups/                 backups
@@ -259,7 +259,7 @@ prompt it. If a server already backs a phone up, leave that phone out of
 | Test | A server, from the published image | `edge`: every commit on `main` |
 | Production | A server, from the published image | A released version |
 
-`nightstand --version` and the first line of the daemon's log say which
+`pommedonjon --version` and the first line of the daemon's log say which
 build is running, including the commit.
 
 ### Releasing

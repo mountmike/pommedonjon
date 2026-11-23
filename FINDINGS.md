@@ -26,7 +26,7 @@ are in the git-ignored `local/` folder.
   record exported from the Mac. Done twice: 5 min 38 s with the phone also on
   the Mac's USB, and 6 min 17 s with it unplugged from the Mac entirely. This
   is the path dockyard would use.
-- **The service's own code has backed the phone up.** `nightstand backup`,
+- **The service's own code has backed the phone up.** `pommedonjon backup`,
   run from the read-only container with the phone on battery, completed an
   incremental in 4 min 48 s, verified it and recorded it. The daemon loop
   deciding by itself when to start has still not been run for real.
@@ -96,13 +96,13 @@ built for arm64 here.
 
 | 8 | As 6, started while the phone was **locked** | Appeared at +6 s; the phone woke by itself and showed the prompt on the lock screen; typed at +18 s | **Completed** in 5 min 55 s (355 s), sidecar exit 0 |
 
-| 9 | **`nightstand backup`** from the read-only, unprivileged container: runner, transport and sidecar together. Phone **on battery** (97%), incremental onto a clone of attempt 8 | Appeared at +3 s after the backup started, closed at +8 s | **Completed** in 4 min 48 s (288 s) including the 5-second heads-up wait; verified, recorded as succeeded, exit 0 |
+| 9 | **`pommedonjon backup`** from the read-only, unprivileged container: runner, transport and sidecar together. Phone **on battery** (97%), incremental onto a clone of attempt 8 | Appeared at +3 s after the backup started, closed at +8 s | **Completed** in 4 min 48 s (288 s) including the 5-second heads-up wait; verified, recorded as succeeded, exit 0 |
 
 Attempt 9 is the first run driven by the service's own code and not by the
 sidecar alone (morning of 2026-11-24). The run history recorded the whole
 sequence: started, passcode required, passcode dismissed, then progress from
 0% to 100%. The runner's verification passed (complete, the right phone,
-encrypted) and `nightstand status` afterwards reported the last good backup.
+encrypted) and `pommedonjon status` afterwards reported the last good backup.
 Snapshots were off, so nothing was preserved beyond the working copy.
 
 Three things it turned up:
@@ -119,7 +119,7 @@ Three things it turned up:
   working out what changed. A progress bar will need to allow for it.
 
 Attempts 10 to 12, the same morning, with the phone **locked and on
-battery**. All three used `nightstand backup` from the container.
+battery**. All three used `pommedonjon backup` from the container.
 
 | # | What happened | Outcome |
 |---|---|---|
@@ -235,7 +235,7 @@ which may explain it; the cause was not isolated.
   on showing the passcode keypad, with no text saying a backup was asking or
   which computer wanted it (owner's observation, attempt 8). To the owner it
   is an unexplained passcode request. Two consequences: the service must send
-  its own heads-up through another channel just before it starts ("nightstand
+  its own heads-up through another channel just before it starts ("pommedonjon
   is about to back up your phone, enter your passcode"), and nobody should be
   taught to type their passcode into unexplained prompts, so a prompt with no
   matching heads-up should be treated as suspect. Whether the prompt carries
@@ -398,7 +398,7 @@ all use fakes for the phone and the sidecar.
 
 | Part | Where | Tried against the real phone? |
 |---|---|---|
-| Sidecar: `probe`, `backup`, `verify` | `sidecar/nightstand_sidecar.py` | Yes, all three |
+| Sidecar: `probe`, `backup`, `verify` | `sidecar/pommedonjon_sidecar.py` | Yes, all three |
 | Transport interface and implementation | `src/transport/` | Yes (attempt 9) |
 | Config, as a Zod schema | `src/config/` | n/a; the container loads real configs with it |
 | Discovery: range sweep, locator, address book | `src/discovery/` | Yes: found the phone by sweeping the home /24 from the container, on the second sweep |
@@ -442,7 +442,7 @@ Things the build turned up:
   and how many connections run at once: about 4 seconds for the first knock
   and 12 for the second.
 - **Copy snapshots were full copies** (the feature has since been removed;
-  keeping history is left to whoever runs nightstand). On APFS, snapshotting the real 22 GB
+  keeping history is left to whoever runs pommedonjon). On APFS, snapshotting the real 22 GB
   backup took 84 to 105 seconds and 22 GB of disk each. Node does not make
   copy-on-write clones on macOS. For the ZFS dataset, real ZFS snapshots are
   the right tool and the copy strategy should stay off.

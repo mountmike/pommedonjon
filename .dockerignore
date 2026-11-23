@@ -12,4 +12,4 @@ coverage/
 *.md
 scripts/
 compose*.yaml
-nightstand.example.json
+pommedonjon.example.json

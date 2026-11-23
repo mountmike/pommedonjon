@@ -1,4 +1,4 @@
-import type { DeviceConfig, NightstandConfig } from "../config/config.js";
+import type { DeviceConfig, PommedonjonConfig } from "../config/config.js";
 import type { Logger, Notifier } from "../notify/Notifier.js";
 import { isStale, readyToStart, schedule } from "../policy/policy.js";
 import {
@@ -33,7 +33,7 @@ export type DeviceOutcome =
     };
 
 export interface DaemonDeps {
-  readonly config: NightstandConfig;
+  readonly config: PommedonjonConfig;
   readonly locator: Pick<DeviceLocator, "locate">;
   readonly runner: Pick<BackupRunner, "run">;
   readonly state: StateStore;
@@ -74,14 +74,14 @@ export class Daemon {
         count: interrupted,
       });
     }
-    log("info", "nightstand started", {
+    log("info", "pommedonjon started", {
       ...(this.deps.version !== undefined && { version: this.deps.version }),
       devices: config.devices.map((device) => device.id),
       pollIntervalSeconds: config.pollIntervalSeconds,
     });
 
     await Promise.all(config.devices.map((device) => this.#cycle(device, signal)));
-    log("info", "nightstand stopped");
+    log("info", "pommedonjon stopped");
   }
 
   /** One device's cycle: consider it, pause, repeat, until told to stop. */

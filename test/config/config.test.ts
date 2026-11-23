@@ -6,7 +6,7 @@ const UDID = "00008140-000A1B2C3D4E001C";
 function minimal(overrides: object = {}) {
   return {
     backupRoot: "backups",
-    stateDir: "/var/lib/nightstand",
+    stateDir: "/var/lib/pommedonjon",
     devices: [
       {
         id: "mike",
@@ -21,7 +21,7 @@ function minimal(overrides: object = {}) {
 
 describe("the example config in the repo", () => {
   it("is valid, so copying it is a working starting point", async () => {
-    const config = await loadConfig(new URL("../../nightstand.example.json", import.meta.url).pathname);
+    const config = await loadConfig(new URL("../../pommedonjon.example.json", import.meta.url).pathname);
     expect(config.devices.map((device) => device.id)).toEqual(["phone-one", "phone-two"]);
     // One phone found by discovery, one pinned; both read their pair record
     // from where Compose mounts secrets.
@@ -40,10 +40,10 @@ describe("the example config in the repo", () => {
 
 describe("parseConfig", () => {
   it("fills in defaults and resolves relative paths against the config's directory", () => {
-    const config = parseConfig(minimal(), "/etc/nightstand");
+    const config = parseConfig(minimal(), "/etc/pommedonjon");
     expect(config).toEqual({
-      backupRoot: "/etc/nightstand/backups",
-      stateDir: "/var/lib/nightstand",
+      backupRoot: "/etc/pommedonjon/backups",
+      stateDir: "/var/lib/pommedonjon",
       pollIntervalSeconds: 120,
       headsUpLeadSeconds: 5,
       sidecar: { pythonPath: undefined, scriptPath: undefined },
@@ -55,7 +55,7 @@ describe("parseConfig", () => {
           udid: UDID,
           host: "10.0.0.7",
           port: undefined,
-          pairRecordPath: "/etc/nightstand/secrets/mike.plist",
+          pairRecordPath: "/etc/pommedonjon/secrets/mike.plist",
           policy: DEFAULT_POLICY,
         },
       ],

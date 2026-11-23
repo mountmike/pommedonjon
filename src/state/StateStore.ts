@@ -224,7 +224,7 @@ export class StateStore {
     );
     if (version > SCHEMA_VERSION) {
       throw new Error(
-        `the state database is from a newer nightstand (schema ${version}, this build knows ${SCHEMA_VERSION})`,
+        `the state database is from a newer pommedonjon (schema ${version}, this build knows ${SCHEMA_VERSION})`,
       );
     }
     if (version === 0) {

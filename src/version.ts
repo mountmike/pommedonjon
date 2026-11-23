@@ -21,7 +21,7 @@ export function readBuildInfo(
   manifest: URL = MANIFEST,
 ): BuildInfo {
   const { version } = ManifestSchema.parse(JSON.parse(readFileSync(manifest, "utf8")));
-  const build = env["NIGHTSTAND_BUILD"]?.trim();
+  const build = env["POMMEDONJON_BUILD"]?.trim();
   return { version, build: build ? build : undefined };
 }
 

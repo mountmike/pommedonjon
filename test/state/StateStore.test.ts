@@ -166,7 +166,7 @@ describe("StateStore alerts", () => {
 describe("StateStore on disk", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "nightstand-state-"));
+    dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-state-"));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -193,7 +193,7 @@ describe("StateStore on disk", () => {
     const raw = new DatabaseSync(file);
     raw.exec("PRAGMA user_version = 99");
     raw.close();
-    expect(() => new StateStore(file)).toThrow(/newer nightstand/);
+    expect(() => new StateStore(file)).toThrow(/newer pommedonjon/);
   });
 
   it("upgrades a database from before snapshots were removed, keeping its history", () => {

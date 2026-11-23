@@ -22,12 +22,12 @@ review say so, and all of them are now built. Each entry ends with a
 
 *Decided by the owner, 2026-11-24.*
 
-nightstand is an application that someone runs in their own homelab. It is
+pommedonjon is an application that someone runs in their own homelab. It is
 published as a container image with an example Compose file; the person
 running it mounts directories for backups, state and secrets, the same way
 they would for any other stack.
 
-nightstand is responsible for:
+pommedonjon is responsible for:
 
 - finding the phones it is configured for and deciding when to back them up;
 - running the backup, verifying it, and recording what happened;
@@ -35,10 +35,10 @@ nightstand is responsible for:
   given;
 - handling pair records as the secrets they are.
 
-The person running it is responsible for, and nightstand takes as given:
+The person running it is responsible for, and pommedonjon takes as given:
 
 - **Where backups live.** A directory path in the config. Which disk,
-  dataset, share or mount is behind it is not nightstand's concern.
+  dataset, share or mount is behind it is not pommedonjon's concern.
 - **Keeping history.** Snapshots or copies of the backup directory (ZFS or
   anything else) are theirs to arrange.
 - **The network.** Routing, VLANs and firewall rules that let the container
@@ -278,7 +278,7 @@ failed run can leave the directory worse than it was, and protecting against
 that is the job of whatever snapshots the person running it has arranged.
 
 Consequence worth designing for: a snapshot taken on a timer can catch a
-backup half-written. nightstand should make "the directory is in a verified
+backup half-written. pommedonjon should make "the directory is in a verified
 state" visible to outside tools, for example a small marker file written
 after verification and removed when a run starts.
 
@@ -387,7 +387,7 @@ means here, by judgement:
   the config and from the backups directory.
 - Never in the image, the config file, environment variables, logs, run
   history, or the build context.
-- Readable only by the user the container runs as; nightstand checks the
+- Readable only by the user the container runs as; pommedonjon checks the
   file's permissions at start-up and says so if they are loose.
 - The Compose example and README show the layout and the host-side
   permissions.
@@ -396,7 +396,7 @@ Already true: the config references pair records by path, the build context
 excludes them, and the container reads them from a read-only mount.
 **Built.** Compose mounts a file-backed secret exactly as it is on the host,
 so the host file's owner and mode are what protect it; the example says so.
-At start-up nightstand logs an error for a pair record that is missing or
+At start-up pommedonjon logs an error for a pair record that is missing or
 unreadable and a warning for one that anyone but its owner can read, and
 carries on, so one phone's mistake does not stop another's backups.
 
@@ -437,6 +437,25 @@ Not yet done, and waiting on the owner:
 One constraint the environments must respect: **a phone may be watched by
 only one daemon.** Two would each prompt it. So test and production cannot
 both be given the same phone. See O18.
+
+### D21. The name is pommedonjon
+
+*Decided by the owner, 2026-11-24.* The project started as "nightstand".
+
+"Pomme" is French for apple and a donjon is a castle's keep, the word
+"dungeon" comes from: the apple's keep, in the language of crepes, to sit
+in the owner's crepe-themed homelab beside crepecastle and crepevault. A
+web search found no existing app or project by the name. Names passed over
+because they were taken: iKeep (an accounting app), donjon, iDungeon (an
+iOS app), cider.
+
+Renamed with it, before anything was published: the package and command,
+the image, the `POMMEDONJON_*` environment variables, the sidecar script,
+the example config, and the default names `pommedonjon.json` and
+`pommedonjon.sqlite`.
+
+Not renamed: commit messages before this point, and the throwaway image
+used by the reachability script from the first night's spike.
 
 ## Open
 
@@ -504,7 +523,7 @@ revisited after more testing and when remote backups are taken up.
 How it works:
 
 - The config gives the network range the phones live on.
-- nightstand first tries the address where it last reached the phone.
+- pommedonjon first tries the address where it last reached the phone.
 - If that does not answer, it tries the lockdown port on every address in
   the range.
 - For each device that answers, the pair record decides whether it is the
@@ -612,7 +631,7 @@ Settled already: due after 20 hours, not 24 (D7).
 
 **Built for the trial:** the daemon stores every change in a phone's power
 state and every change in why it is waiting, alongside the run history, and
-`nightstand report` lays them out day by day with totals that answer the
+`pommedonjon report` lays them out day by day with totals that answer the
 three questions above, including the hour at which unanswered prompts
 arrived. `--json` gives the same for analysis. A record in the database was
 chosen over the log because a container restart loses the log.
@@ -647,7 +666,4 @@ two server environments, the options:
 
 ### O19. The name
 
-The owner wants a better name than "nightstand" for the app and repository.
-It appears in the package, the command, the image, environment variables
-and file names, so it is cheapest to settle before the repository and image
-are first published.
+*Closed by the owner, 2026-11-24.* See D21.
