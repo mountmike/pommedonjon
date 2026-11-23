@@ -1,25 +1,36 @@
-# Example deployment. Copy to compose.yaml and adjust paths.
+# Example deployment. Copy to compose.yaml next to a directory laid out as:
+#
+#   config/nightstand.json    settings (start from nightstand.example.json)
+#   secrets/<name>.plist      one pair record per phone, mode 600
+#   state/                    created by nightstand; keep it on a local disk
+#
+# and point the backups volume at wherever backups should live.
 #
 # The container needs only outbound TCP to each phone on port 62078. It does
 # not need host networking, USB, privileges or extra capabilities.
 services:
   nightstand:
+    # Not published yet: build from this repository.
     build: .
     restart: unless-stopped
+    # The user that owns the backups and can read the pair records. The image
+    # defaults to 1000:1000.
+    user: "1000:1000"
     environment:
-      # The backup window in the config is read in this timezone. Set it to
-      # where the phones live, e.g. Europe/London. Left as UTC, an evening
-      # window would open at the wrong hours.
+      # Only matters if the config sets a time-of-day window: it is read in
+      # this timezone. Set it to where the phones live, e.g. Europe/London.
       TZ: Etc/UTC
     volumes:
-      # nightstand.json plus pair-records/<udid>.plist. Pair records grant
-      # full access to a phone: keep this directory private and read-only.
       - ./config:/config:ro
+      # The run history (SQLite). Must be a local disk, not a network share.
       - ./state:/state
-      # The backup dataset. The container runs as uid 1000 by default; change
-      # `user:` below to match the dataset's owner if it differs.
+      # Where backups live: one directory per phone. Which disk or share is
+      # behind this, and keeping snapshots of it, are yours to arrange. A
+      # snapshot job should only run while <phone>/verified.json exists.
       - /mnt/backups/iphone-backups:/backups
-    # user: "1000:1000"
+    secrets:
+      - phone_one_pair_record
+      - phone_two_pair_record
     read_only: true
     tmpfs:
       - /tmp
@@ -27,3 +38,21 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+
+# A pair record grants full access to a phone, with no passcode, for as long
+# as the pairing lasts. Each one is mounted read-only at /run/secrets/<name>
+# and referenced from the config by that path. It is never part of the image,
+# the config file or the environment.
+#
+# Compose mounts these files as they are on the host, so the host file's
+# owner and mode are what count:
+#
+#   chown 1000:1000 secrets/*.plist && chmod 600 secrets/*.plist
+#
+# nightstand checks this when it starts and says so if a record is readable
+# by anyone else.
+secrets:
+  phone_one_pair_record:
+    file: ./secrets/phone-one.plist
+  phone_two_pair_record:
+    file: ./secrets/phone-two.plist

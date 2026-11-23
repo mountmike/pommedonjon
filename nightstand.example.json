@@ -3,6 +3,10 @@
   "stateDir": "/state",
   "pollIntervalSeconds": 120,
   "headsUpLeadSeconds": 5,
+  "discovery": {
+    "ranges": ["192.0.2.0/24"],
+    "scanIntervalSeconds": 300
+  },
   "defaultPolicy": {
     "dueAfterHours": 20,
     "trigger": "plugged-in",
@@ -17,15 +21,14 @@
       "id": "phone-one",
       "name": "First iPhone",
       "udid": "00000000-0000000000000000",
-      "host": "192.0.2.10",
-      "pairRecordPath": "pair-records/00000000-0000000000000000.plist"
+      "pairRecordPath": "/run/secrets/phone_one_pair_record"
     },
     {
       "id": "phone-two",
       "name": "Second iPhone",
       "udid": "00000000-0000000000000001",
+      "pairRecordPath": "/run/secrets/phone_two_pair_record",
       "host": "192.0.2.11",
-      "pairRecordPath": "pair-records/00000000-0000000000000001.plist",
       "policy": { "trigger": "on-charger", "window": { "start": "07:00", "end": "22:00" } }
     }
   ]

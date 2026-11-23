@@ -38,9 +38,10 @@ ENV HOME=/tmp \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# /config   nightstand.json and the pair records (secrets, mount read-only)
-# /state    the SQLite database
-# /backups  the backup dataset
+# /config        nightstand.json (mount read-only)
+# /run/secrets   one pair record per phone, as Compose secrets
+# /state         the SQLite database; a local disk
+# /backups       where backups live
 VOLUME ["/state", "/backups"]
 
 # Unprivileged: nothing here needs root, USB or host networking.

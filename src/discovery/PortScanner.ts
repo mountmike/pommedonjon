@@ -25,7 +25,10 @@ export interface PortScannerOptions {
   readonly minIntervalMs: number;
   readonly clock: () => Date;
   readonly connect?: ConnectFn;
+  /** How long the first knock on each address waits. */
   readonly timeoutMs?: number;
+  /** How long the second knock waits, on addresses that ignored the first. */
+  readonly retryTimeoutMs?: number;
   readonly concurrency?: number;
 }
 
@@ -41,6 +44,7 @@ export class PortScanner {
   readonly #addresses: readonly string[];
   readonly #connect: ConnectFn;
   readonly #timeoutMs: number;
+  readonly #retryTimeoutMs: number;
   readonly #concurrency: number;
   #last:
     | { readonly at: number; readonly sweep: number; readonly open: Promise<string[]> }
@@ -52,7 +56,8 @@ export class PortScanner {
     this.#addresses = [...new Set(options.ranges.flatMap(addressesIn))];
     this.#connect = options.connect ?? tcpConnect;
     this.#timeoutMs = options.timeoutMs ?? 2000;
-    this.#concurrency = options.concurrency ?? 64;
+    this.#retryTimeoutMs = options.retryTimeoutMs ?? 6000;
+    this.#concurrency = options.concurrency ?? 128;
   }
 
   get enabled(): boolean {
@@ -80,21 +85,22 @@ export class PortScanner {
   }
 
   async #sweep(): Promise<string[]> {
-    const open = new Set(await this.#pass(this.#addresses));
+    const open = new Set(await this.#pass(this.#addresses, this.#timeoutMs));
     // A phone has been seen to ignore one connection attempt and accept the
-    // next, so everything that did not answer gets a second knock.
+    // next, and to take over six seconds to accept one. So everything that
+    // did not answer gets a second, more patient knock.
     const quiet = this.#addresses.filter((address) => !open.has(address));
-    for (const address of await this.#pass(quiet)) open.add(address);
+    for (const address of await this.#pass(quiet, this.#retryTimeoutMs)) open.add(address);
     return this.#addresses.filter((address) => open.has(address));
   }
 
-  async #pass(addresses: readonly string[]): Promise<string[]> {
+  async #pass(addresses: readonly string[], timeoutMs: number): Promise<string[]> {
     const open: string[] = [];
     let next = 0;
     const worker = async () => {
       while (next < addresses.length) {
         const address = addresses[next++] as string;
-        if (await this.#connect(address, this.options.port, this.#timeoutMs)) {
+        if (await this.#connect(address, this.options.port, timeoutMs)) {
           open.push(address);
         }
       }

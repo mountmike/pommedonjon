@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { createApp, type App } from "./app.js";
 import { ConfigError, loadConfig, type DeviceConfig } from "./config/config.js";
 import { jsonLogger } from "./notify/Notifier.js";
+import { inspectPairRecord } from "./credentials/pairRecord.js";
 import { DeviceError } from "./transport/DeviceTransport.js";
 
 const USAGE = `nightstand: self-hosted iPhone backups
@@ -132,6 +133,13 @@ async function main(argv: readonly string[]): Promise<number> {
   process.once("SIGTERM", stop);
 
   try {
+    if (command !== "status") {
+      // Said once at start-up, before anything depends on it.
+      for (const device of app.config.devices) {
+        const finding = await inspectPairRecord(device.pairRecordPath);
+        if (finding) jsonLogger(finding.level, finding.problem, { device: device.id });
+      }
+    }
     switch (command) {
       case "daemon":
         await app.daemon.run(controller.signal);

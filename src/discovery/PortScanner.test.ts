@@ -56,6 +56,14 @@ describe("PortScanner", () => {
     expect(h.attempts.get("192.168.1.235")).toBe(2);
   });
 
+  it("waits longer on the second knock than on the first", async () => {
+    // The phone has been seen to take over six seconds to accept a connection.
+    const h = scanner({});
+    await h.scanner.candidates("mike");
+    const waits = h.calls.filter((call) => call.host === "192.168.1.235").map((c) => c.timeoutMs);
+    expect(waits).toEqual([2000, 6000]);
+  });
+
   it("does not knock again on an address that already answered", async () => {
     const h = scanner({ open: (host) => host === "192.168.1.235" });
     await h.scanner.candidates("mike");

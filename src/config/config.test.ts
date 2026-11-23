@@ -23,6 +23,13 @@ describe("the example config in the repo", () => {
   it("is valid, so copying it is a working starting point", async () => {
     const config = await loadConfig(new URL("../../nightstand.example.json", import.meta.url).pathname);
     expect(config.devices.map((device) => device.id)).toEqual(["phone-one", "phone-two"]);
+    // One phone found by discovery, one pinned; both read their pair record
+    // from where Compose mounts secrets.
+    expect(config.devices.map((device) => device.host)).toEqual([undefined, "192.0.2.11"]);
+    expect(config.devices.map((device) => device.pairRecordPath)).toEqual([
+      "/run/secrets/phone_one_pair_record",
+      "/run/secrets/phone_two_pair_record",
+    ]);
     expect(config.devices[0]?.policy).toEqual(DEFAULT_POLICY);
     expect(config.devices[1]?.policy).toMatchObject({
       trigger: "on-charger",
