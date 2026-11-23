@@ -1,0 +1,69 @@
+# --- Local working data: backups, pair records, logs, captures ---
+# Everything the spike and the daemon write on this machine lives here.
+/local/
+
+# --- Secrets and device material: never commit ---
+# Belt and braces in case any of these land outside local/.
+# Pair records (lockdown and RemotePairing)
+*.plist
+*.mobiledevicepairing
+pair-records/
+pairing/
+lockdown/
+remote-pairing/
+.pymobiledevice3/
+
+# Backup passwords and other credentials
+.env
+.env.*
+!.env.example
+*.password
+*.passwd
+*.secret
+*.key
+*.pem
+*.p12
+secrets/
+
+# Backup contents and working copies
+backups/
+backup/
+Backup/
+MobileSync/
+*.mddata
+*.mdinfo
+Manifest.db
+Manifest.mbdb
+Manifest.plist
+Status.plist
+Info.plist
+
+# Packet captures and raw device logs from the spike (may contain identifiers)
+*.pcap
+*.pcapng
+captures/
+spike-logs/
+*.log
+
+# --- Project ---
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.pnpm-store/
+
+# Python sidecar
+__pycache__/
+*.pyc
+.venv/
+
+# Local state
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
