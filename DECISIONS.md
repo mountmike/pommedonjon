@@ -162,7 +162,7 @@ The design to build, in order of preference at run time:
 Whatever finds a candidate address, the pair record decides whether it is
 the right phone. Discovery only has to produce candidates.
 
-Which discovery mechanism is not decided. See O7. **To build.**
+Discovery is by scanning a configured network range (O7). **To build.**
 
 ### D7. Back up when the phone is on a charger and a backup is due
 
@@ -398,34 +398,41 @@ it could change what the Compose example has to look like:
 
 ### O7. Which discovery mechanism
 
-*In scope for the first build, by the owner, 2026-11-24.* See D6 for the
-shape. The candidates:
+*Decided by the owner, 2026-11-24: scan a configured range, for now.* To be
+revisited after more testing and when remote backups are taken up.
 
-- **mDNS.** The phone advertises itself, and pymobiledevice3 can match an
-  advert to a pair record. It does not cross VLANs without the router
-  relaying it, and a container on Docker's default network does not receive
-  it at all, which conflicts with D15.
-- **Scan a configured network range** for the lockdown port, then let the
-  pair record pick the right phone. Works across VLANs and from an ordinary
-  container. Costs a setting (the range) and some connection attempts.
-- **The phone announces itself** (the app or Shortcut idea in O1). Exact and
-  cheap, but belongs to the notifications phase.
+How it works:
 
-The owner's requirement, 2026-11-24: something more stable than a local IP
-address.
+- The config gives the network range the phones live on.
+- nightstand first tries the address where it last reached the phone.
+- If that does not answer, it tries the lockdown port on every address in
+  the range.
+- For each device that answers, the pair record decides whether it is the
+  right phone. That is the stable identity; the address is only where the
+  phone was found.
+- The address is remembered. A phone that is not found is away.
 
-Ruled out on evidence: **the phone's Tailscale address.** It never changes
-and would have worked from anywhere. Tested 2026-11-24 from the Mac: the
-lockdown port accepts a connection on the Tailscale address, then the phone
-drops the session (two probes, both failed after 13 seconds, while the same
-probe to the WiFi address succeeded).
+Why this one: it survives an address change, works across VLANs, and keeps
+the container unprivileged. Its costs: the firewall rule has to cover the
+whole range, and a router's intrusion detection may flag the sweeps.
 
-Recommendation: scan first, because it works in the owner's own network
-layout and keeps the container unprivileged. Add mDNS as an option for
-setups where server and phones share a network.
+Considered:
 
-Also seen: the phone's mDNS name failed to resolve twice, and the
-RemotePairing identifier it advertises rotates about hourly.
+- **mDNS.** Does not cross VLANs without the router relaying it, and a
+  container on Docker's default network does not receive it at all (D15).
+  The phone's mDNS name also failed to resolve twice, and the RemotePairing
+  identifier it advertises rotates about hourly. A possible later option for
+  setups where server and phones share a network.
+- **A DNS name kept current by the router.** Needs no code, since `host`
+  already accepts a name. Whether a given router does this for iPhones is
+  for the person running it to check.
+- **The phone's Tailscale address.** Never changes, but ruled out on
+  evidence: tested 2026-11-24 from the Mac, the lockdown port accepts a
+  connection on the Tailscale address and the phone then drops the session,
+  while the same probe to the WiFi address succeeds.
+- **The phone announces itself**, from an app or a Shortcut. Exact and
+  cheap, and the owner is interested. It belongs with the notifications
+  phase (O1).
 
 ### O8. Remote backups over the tailnet
 
