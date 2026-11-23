@@ -1,77 +1,81 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
+import { describeIssues } from "../schema/issues.js";
+
+// Messages are phrased to follow the setting's path: "<path> must be ...".
+
+const NON_EMPTY = "must be a non-empty string";
+const text = z
+  .string({ error: NON_EMPTY })
+  .refine((value) => value.trim() !== "", { error: NON_EMPTY });
+
+function number(range: { min: number; max?: number }) {
+  const error =
+    range.max === undefined
+      ? `must be at least ${range.min}`
+      : `must be between ${range.min} and ${range.max}`;
+  const schema = z.number({ error: "must be a number" }).min(range.min, { error });
+  return range.max === undefined ? schema : schema.max(range.max, { error });
+}
+
+const flag = z.boolean({ error: "must be true or false" });
+
+/** "18:30" as minutes after midnight. */
+const clock = z.string({ error: 'must be a time like "18:30"' }).transform((value, ctx) => {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  const hours = Number(match?.[1]);
+  const minutes = Number(match?.[2]);
+  if (!match || hours > 23 || minutes > 59) {
+    ctx.issues.push({ code: "custom", message: 'must be a time like "18:30"', input: value });
+    return z.NEVER;
+  }
+  return hours * 60 + minutes;
+});
 
 /** A daily time window in the daemon's local time, e.g. 18:00 to 22:30. */
-export interface TimeWindow {
-  /** Minutes after midnight, inclusive. */
-  readonly startMinutes: number;
-  /** Minutes after midnight, exclusive. May be less than start: wraps midnight. */
-  readonly endMinutes: number;
-}
+const TimeWindowSchema = z
+  .strictObject({ start: clock, end: clock }, { error: "must be an object" })
+  .refine((window) => window.start !== window.end, { error: "start and end must differ" })
+  .transform((window) => ({
+    /** Minutes after midnight, inclusive. */
+    startMinutes: window.start,
+    /** Minutes after midnight, exclusive. May be less than start: wraps midnight. */
+    endMinutes: window.end,
+  }));
+export type TimeWindow = Readonly<z.infer<typeof TimeWindowSchema>>;
 
-export interface DevicePolicy {
-  /** A backup is due once the last good one is older than this. */
-  readonly minIntervalHours: number;
-  /**
-   * Only start backups inside this window. Starting a backup wakes the phone
-   * and shows a passcode prompt, so this should be when its owner is awake.
-   */
-  readonly window: TimeWindow | undefined;
-  /** Only start when the phone is on a charger. */
-  readonly requireExternalPower: boolean;
-  /** When on battery (and that is allowed), the level needed to start. */
-  readonly minBatteryPercent: number;
-  /**
-   * How many passcode prompts may go unanswered in 24 hours before the
-   * service stops asking until the next day.
-   */
-  readonly maxUnansweredPromptsPerDay: number;
-  /** How long to leave the phone alone after any failed attempt. */
-  readonly retryAfterMinutes: number;
-  /** Raise a stale-backup alert once the last good backup is older than this. */
-  readonly staleAfterHours: number;
-}
+const DevicePolicySchema = z.strictObject(
+  {
+    /** A backup is due once the last good one is older than this. */
+    minIntervalHours: number({ min: 1 }),
+    /**
+     * Only start backups inside this window; null means any time of day.
+     * Starting a backup wakes the phone and shows a passcode prompt, so this
+     * should be when its owner is awake.
+     */
+    window: TimeWindowSchema.nullable(),
+    /** Only start when the phone is on a charger. */
+    requireExternalPower: flag,
+    /** When on battery (and that is allowed), the level needed to start. */
+    minBatteryPercent: number({ min: 0, max: 100 }),
+    /**
+     * How many passcode prompts may go unanswered in 24 hours before the
+     * service stops asking until the next day.
+     */
+    maxUnansweredPromptsPerDay: number({ min: 1 }),
+    /** How long to leave the phone alone after any failed attempt. */
+    retryAfterMinutes: number({ min: 1 }),
+    /** Raise a stale-backup alert once the last good backup is older than this. */
+    staleAfterHours: number({ min: 1 }),
+  },
+  { error: "must be an object" },
+);
+export type DevicePolicy = Readonly<z.infer<typeof DevicePolicySchema>>;
 
-export interface DeviceConfig {
-  /** Short name used in paths, logs and commands, e.g. "mike". */
-  readonly id: string;
-  /** Display name for notifications. */
-  readonly name: string;
-  readonly udid: string;
-  /** Address or resolvable name of the phone on the network. */
-  readonly host: string;
-  readonly port: number | undefined;
-  /** Pair record plist for this phone. A secret: grants full device access. */
-  readonly pairRecordPath: string;
-  readonly policy: DevicePolicy;
-}
-
-export type SnapshotStrategyName = "none" | "copy";
-
-export interface NightstandConfig {
-  /** Where backups live: one directory per device id underneath. */
-  readonly backupRoot: string;
-  /** Where the daemon keeps its SQLite database. */
-  readonly stateDir: string;
-  /** How often each device is considered for a backup. */
-  readonly pollIntervalSeconds: number;
-  /** Gap between the heads-up notification and the backup starting. */
-  readonly headsUpLeadSeconds: number;
-  readonly snapshots: {
-    readonly strategy: SnapshotStrategyName;
-    /** How many snapshots to keep per device (strategy "copy"). */
-    readonly keep: number;
-  };
-  readonly sidecar: {
-    readonly pythonPath: string | undefined;
-    readonly scriptPath: string | undefined;
-  };
-  readonly devices: readonly DeviceConfig[];
-}
-
-export class ConfigError extends Error {
-  override readonly name = "ConfigError";
-}
+/** What a config file may say about policy: any subset of the settings. */
+const PolicyOverridesSchema = DevicePolicySchema.partial();
+type PolicyOverrides = z.infer<typeof PolicyOverridesSchema>;
 
 export const DEFAULT_POLICY: DevicePolicy = {
   minIntervalHours: 20,
@@ -84,211 +88,111 @@ export const DEFAULT_POLICY: DevicePolicy = {
   staleAfterHours: 72,
 };
 
-type Json = Record<string, unknown>;
-
-function isObject(value: unknown): value is Json {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Reads fields from one JSON object, naming the full path in every error. */
-class Reader {
-  readonly #seen = new Set<string>();
-
-  constructor(
-    private readonly source: Json,
-    private readonly where: string,
-  ) {}
-
-  #path(key: string): string {
-    return this.where === "" ? key : `${this.where}.${key}`;
-  }
-
-  #raw(key: string): unknown {
-    this.#seen.add(key);
-    return this.source[key];
-  }
-
-  string(key: string): string {
-    const value = this.#raw(key);
-    if (typeof value !== "string" || value.trim() === "") {
-      throw new ConfigError(`${this.#path(key)} must be a non-empty string`);
-    }
-    return value;
-  }
-
-  optionalString(key: string): string | undefined {
-    return this.#raw(key) === undefined ? undefined : this.string(key);
-  }
-
-  number(key: string, fallback: number, range: { min: number; max?: number }): number {
-    const value = this.#raw(key);
-    if (value === undefined) return fallback;
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      throw new ConfigError(`${this.#path(key)} must be a number`);
-    }
-    if (value < range.min || (range.max !== undefined && value > range.max)) {
-      const upper = range.max === undefined ? "" : ` and ${range.max}`;
-      throw new ConfigError(
-        `${this.#path(key)} must be ${range.max === undefined ? "at least" : "between"} ${range.min}${upper}`,
-      );
-    }
-    return value;
-  }
-
-  optionalNumber(key: string, range: { min: number; max?: number }): number | undefined {
-    return this.#raw(key) === undefined ? undefined : this.number(key, 0, range);
-  }
-
-  boolean(key: string, fallback: boolean): boolean {
-    const value = this.#raw(key);
-    if (value === undefined) return fallback;
-    if (typeof value !== "boolean") {
-      throw new ConfigError(`${this.#path(key)} must be true or false`);
-    }
-    return value;
-  }
-
-  object(key: string): Reader | undefined {
-    const value = this.#raw(key);
-    if (value === undefined) return undefined;
-    if (!isObject(value)) {
-      throw new ConfigError(`${this.#path(key)} must be an object`);
-    }
-    return new Reader(value, this.#path(key));
-  }
-
-  array(key: string): Reader[] {
-    const value = this.#raw(key);
-    if (!Array.isArray(value)) {
-      throw new ConfigError(`${this.#path(key)} must be an array`);
-    }
-    return value.map((item, index) => {
-      if (!isObject(item)) {
-        throw new ConfigError(`${this.#path(key)}[${index}] must be an object`);
-      }
-      return new Reader(item, `${this.#path(key)}[${index}]`);
-    });
-  }
-
-  raw(key: string): unknown {
-    return this.#raw(key);
-  }
-
-  /** A misspelt key silently falling back to a default is a trap; refuse it. */
-  rejectUnknownKeys(): void {
-    for (const key of Object.keys(this.source)) {
-      if (!this.#seen.has(key)) {
-        throw new ConfigError(`${this.#path(key)} is not a recognised setting`);
-      }
-    }
-  }
-}
-
-function parseClock(value: unknown, where: string): number {
-  const match = typeof value === "string" ? /^(\d{1,2}):(\d{2})$/.exec(value) : null;
-  const hours = Number(match?.[1]);
-  const minutes = Number(match?.[2]);
-  if (!match || hours > 23 || minutes > 59) {
-    throw new ConfigError(`${where} must be a time like "18:30"`);
-  }
-  return hours * 60 + minutes;
-}
-
-function parseWindow(reader: Reader, fallback: TimeWindow | undefined): TimeWindow | undefined {
-  const raw = reader.raw("window");
-  if (raw === undefined) return fallback;
-  // An explicit null means "any time of day".
-  if (raw === null) return undefined;
-  const window = reader.object("window");
-  if (!window) return fallback;
-  const where = "window";
-  const startMinutes = parseClock(window.raw("start"), `${where}.start`);
-  const endMinutes = parseClock(window.raw("end"), `${where}.end`);
-  window.rejectUnknownKeys();
-  if (startMinutes === endMinutes) {
-    throw new ConfigError(`${where} start and end must differ`);
-  }
-  return { startMinutes, endMinutes };
-}
-
-function parsePolicy(reader: Reader | undefined, base: DevicePolicy): DevicePolicy {
-  if (!reader) return base;
-  const policy: DevicePolicy = {
-    minIntervalHours: reader.number("minIntervalHours", base.minIntervalHours, { min: 1 }),
-    window: parseWindow(reader, base.window),
-    requireExternalPower: reader.boolean("requireExternalPower", base.requireExternalPower),
-    minBatteryPercent: reader.number("minBatteryPercent", base.minBatteryPercent, {
-      min: 0,
-      max: 100,
+const DeviceEntrySchema = z.strictObject(
+  {
+    /** Short name used in paths, logs and commands, e.g. "mike". */
+    id: text.refine((id) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(id), {
+      error: "must be lower-case letters, digits and hyphens",
     }),
-    maxUnansweredPromptsPerDay: reader.number(
-      "maxUnansweredPromptsPerDay",
-      base.maxUnansweredPromptsPerDay,
-      { min: 1 },
-    ),
-    retryAfterMinutes: reader.number("retryAfterMinutes", base.retryAfterMinutes, { min: 1 }),
-    staleAfterHours: reader.number("staleAfterHours", base.staleAfterHours, { min: 1 }),
-  };
-  reader.rejectUnknownKeys();
-  return policy;
+    /** Display name for notifications. Defaults to the id. */
+    name: text.optional(),
+    udid: text.refine((udid) => /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$|^[0-9a-f]{40}$/.test(udid), {
+      error: "does not look like a device UDID",
+    }),
+    /** Address or resolvable name of the phone on the network. */
+    host: text,
+    port: number({ min: 1, max: 65535 }).optional(),
+    /** Pair record plist for this phone. A secret: grants full device access. */
+    pairRecordPath: text,
+    policy: PolicyOverridesSchema.optional(),
+  },
+  { error: "must be an object" },
+);
+
+const ConfigFileSchema = z.strictObject(
+  {
+    /** Where backups live: one directory per device id underneath. */
+    backupRoot: text,
+    /** Where the daemon keeps its SQLite database. */
+    stateDir: text,
+    /** How often each device is considered for a backup. */
+    pollIntervalSeconds: number({ min: 10 }).default(120),
+    /** Gap between the heads-up notification and the backup starting. */
+    headsUpLeadSeconds: number({ min: 0, max: 300 }).default(5),
+    snapshots: z
+      .strictObject(
+        {
+          strategy: z.enum(["none", "copy"]).default("none"),
+          /** How many snapshots to keep per device (strategy "copy"). */
+          keep: number({ min: 1 }).default(7),
+        },
+        { error: "must be an object" },
+      )
+      .prefault({}),
+    sidecar: z
+      .strictObject(
+        { pythonPath: text.optional(), scriptPath: text.optional() },
+        { error: "must be an object" },
+      )
+      .prefault({}),
+    defaultPolicy: PolicyOverridesSchema.optional(),
+    devices: z
+      .array(DeviceEntrySchema, { error: "must be an array" })
+      .min(1, { error: "must list at least one device" }),
+  },
+  { error: "the config must be a JSON object" },
+);
+type ConfigFile = z.infer<typeof ConfigFileSchema>;
+
+/** One phone, with its policy fully resolved. */
+export type DeviceConfig = Readonly<
+  Omit<ConfigFile["devices"][number], "name" | "policy"> & {
+    name: string;
+    policy: DevicePolicy;
+  }
+>;
+
+export type SnapshotStrategyName = ConfigFile["snapshots"]["strategy"];
+
+/** The config as the rest of the program sees it: defaults filled in, paths absolute. */
+export type NightstandConfig = Readonly<
+  Omit<ConfigFile, "defaultPolicy" | "devices"> & { devices: readonly DeviceConfig[] }
+>;
+
+export class ConfigError extends Error {
+  override readonly name = "ConfigError";
 }
 
-const DEVICE_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const UDID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$|^[0-9a-f]{40}$/;
+function layer(base: DevicePolicy, overrides: PolicyOverrides | undefined): DevicePolicy {
+  // A setting that was left out inherits; an explicit null (window) does not.
+  const stated = Object.fromEntries(
+    Object.entries(overrides ?? {}).filter(([, value]) => value !== undefined),
+  ) as Partial<DevicePolicy>;
+  return { ...base, ...stated };
+}
 
 /**
  * Validate a parsed config document. Relative paths are resolved against
- * `baseDir`, normally the directory holding the config file.
+ * `baseDir`, normally the directory holding the config file. Every problem
+ * found is reported, one per line.
  */
 export function parseConfig(document: unknown, baseDir: string): NightstandConfig {
-  if (!isObject(document)) {
-    throw new ConfigError("the config must be a JSON object");
+  const parsed = ConfigFileSchema.safeParse(document);
+  if (!parsed.success) {
+    throw new ConfigError(describeIssues(parsed.error).join("\n"));
   }
-  const root = new Reader(document, "");
+  const { defaultPolicy: overrides, devices: entries, ...rest } = parsed.data;
   const resolve = (p: string) => path.resolve(baseDir, p);
+  const defaultPolicy = layer(DEFAULT_POLICY, overrides);
 
-  const defaultPolicy = parsePolicy(root.object("defaultPolicy"), DEFAULT_POLICY);
-
-  const snapshotsReader = root.object("snapshots");
-  const strategy = snapshotsReader?.optionalString("strategy") ?? "none";
-  if (strategy !== "none" && strategy !== "copy") {
-    throw new ConfigError('snapshots.strategy must be "none" or "copy"');
-  }
-  const keep = snapshotsReader?.number("keep", 7, { min: 1 }) ?? 7;
-  snapshotsReader?.rejectUnknownKeys();
-
-  const sidecarReader = root.object("sidecar");
-  const pythonPath = sidecarReader?.optionalString("pythonPath");
-  const scriptPath = sidecarReader?.optionalString("scriptPath");
-  sidecarReader?.rejectUnknownKeys();
-
-  const devices = root.array("devices").map((reader): DeviceConfig => {
-    const id = reader.string("id");
-    if (!DEVICE_ID.test(id)) {
-      throw new ConfigError(
-        `device id "${id}" must be lower-case letters, digits and hyphens`,
-      );
-    }
-    const udid = reader.string("udid");
-    if (!UDID.test(udid)) {
-      throw new ConfigError(`devices "${id}": udid does not look like a device UDID`);
-    }
-    const device: DeviceConfig = {
-      id,
-      name: reader.optionalString("name") ?? id,
-      udid,
-      host: reader.string("host"),
-      port: reader.optionalNumber("port", { min: 1, max: 65535 }),
-      pairRecordPath: resolve(reader.string("pairRecordPath")),
-      policy: parsePolicy(reader.object("policy"), defaultPolicy),
-    };
-    reader.rejectUnknownKeys();
-    return device;
-  });
-
-  if (devices.length === 0) {
-    throw new ConfigError("devices must list at least one device");
-  }
+  const devices = entries.map(
+    ({ name, policy, ...entry }): DeviceConfig => ({
+      ...entry,
+      name: name ?? entry.id,
+      pairRecordPath: resolve(entry.pairRecordPath),
+      policy: layer(defaultPolicy, policy),
+    }),
+  );
   for (const field of ["id", "udid"] as const) {
     const values = devices.map((device) => device[field]);
     const repeated = values.find((value, index) => values.indexOf(value) !== index);
@@ -297,20 +201,18 @@ export function parseConfig(document: unknown, baseDir: string): NightstandConfi
     }
   }
 
-  const config: NightstandConfig = {
-    backupRoot: resolve(root.string("backupRoot")),
-    stateDir: resolve(root.string("stateDir")),
-    pollIntervalSeconds: root.number("pollIntervalSeconds", 120, { min: 10 }),
-    headsUpLeadSeconds: root.number("headsUpLeadSeconds", 5, { min: 0, max: 300 }),
-    snapshots: { strategy, keep },
+  return {
+    ...rest,
+    backupRoot: resolve(rest.backupRoot),
+    stateDir: resolve(rest.stateDir),
     sidecar: {
-      pythonPath,
-      scriptPath: scriptPath === undefined ? undefined : resolve(scriptPath),
+      ...rest.sidecar,
+      ...(rest.sidecar.scriptPath !== undefined && {
+        scriptPath: resolve(rest.sidecar.scriptPath),
+      }),
     },
     devices,
   };
-  root.rejectUnknownKeys();
-  return config;
 }
 
 export async function loadConfig(file: string): Promise<NightstandConfig> {

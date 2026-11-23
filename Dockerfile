@@ -9,6 +9,8 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN pnpm build
+# Leave only what the daemon needs at run time for the next stage to copy.
+RUN pnpm prune --prod
 
 # --- Runtime: Node for the daemon, Python for the device sidecar -----------
 FROM node:24-alpine
@@ -22,6 +24,7 @@ RUN apk add --no-cache python3 tini \
 
 WORKDIR /app
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./
 COPY sidecar ./sidecar
 

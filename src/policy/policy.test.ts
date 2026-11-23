@@ -75,7 +75,7 @@ describe("shouldAttempt", () => {
     expect(
       shouldAttempt({
         now: at(3),
-        policy: { ...policy, window: undefined },
+        policy: { ...policy, window: null },
         lastSuccessAt: undefined,
         recentAttempts: [],
       }),

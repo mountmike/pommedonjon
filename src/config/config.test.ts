@@ -85,7 +85,59 @@ describe("parseConfig", () => {
 
   it("treats window: null as any time of day", () => {
     const config = parseConfig(minimal({ defaultPolicy: { window: null } }), "/");
-    expect(config.devices[0]?.policy.window).toBeUndefined();
+    expect(config.devices[0]?.policy.window).toBeNull();
+  });
+
+  it("lets a device switch off a window that the shared default set", () => {
+    const config = parseConfig(
+      minimal({
+        defaultPolicy: { window: { start: "18:00", end: "22:00" } },
+        devices: [
+          { id: "mike", udid: UDID, host: "h", pairRecordPath: "/p", policy: { window: null } },
+          { id: "lolo", udid: "00008150-000F0E0D0C0B002E", host: "h2", pairRecordPath: "/q" },
+        ],
+      }),
+      "/",
+    );
+    expect(config.devices[0]?.policy.window).toBeNull();
+    expect(config.devices[1]?.policy.window).toEqual({ startMinutes: 1080, endMinutes: 1320 });
+  });
+
+  it("reports every problem at once, one per line", () => {
+    const bad = minimal({
+      backupRoot: "",
+      pollIntervalSeconds: 1,
+      defaultPolicy: { minBatteryPercent: 140 },
+      devices: [{ id: "mike", udid: UDID, host: "h", pairRecordPath: "/p", polcy: {} }],
+    });
+    let message = "";
+    try {
+      parseConfig(bad, "/");
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message.split("\n").sort()).toEqual([
+      "backupRoot must be a non-empty string",
+      "defaultPolicy.minBatteryPercent must be between 0 and 100",
+      "devices[0].polcy is not a recognised setting",
+      "pollIntervalSeconds must be at least 10",
+    ]);
+  });
+
+  it("names a missing required setting", () => {
+    const { stateDir: _stateDir, ...withoutStateDir } = minimal();
+    expect(() => parseConfig(withoutStateDir, "/")).toThrow("stateDir must be a non-empty string");
+  });
+
+  it("rejects values of the wrong type by name", () => {
+    expect(() => parseConfig(minimal({ pollIntervalSeconds: "60" }), "/")).toThrow(
+      "pollIntervalSeconds must be a number",
+    );
+    expect(() => parseConfig(minimal({ devices: {} }), "/")).toThrow("devices must be an array");
+    expect(() => parseConfig(minimal({ devices: ["mike"] }), "/")).toThrow(
+      "devices[0] must be an object",
+    );
+    expect(() => parseConfig("nope", "/")).toThrow("the config must be a JSON object");
   });
 
   it.each([
