@@ -18,7 +18,8 @@ been decided and what is still open.
   is no bypass. A locked phone wakes to ask.
 - So nightstand starts a backup when you are likely to be there: when the
   phone goes onto a charger at home and its last good backup is more than 20
-  hours old. If the prompt goes unanswered it asks again a few minutes later.
+  hours old. If the prompt goes unanswered it asks again a few minutes later;
+  if you tap Cancel it leaves you alone for four hours.
 - It only backs up a phone that has backup encryption turned on.
 - It keeps **one** verified backup per phone and no history. Keeping earlier
   versions is for you to arrange on the backups directory, for example with
@@ -119,6 +120,7 @@ A router's intrusion detection may notice the sweeps.
 | `pluggedInWindowMinutes` | 30 | With `"plugged-in"`: how long after going onto power a backup may start. |
 | `window` | `null` | Optional hours to stay inside, e.g. `{"start": "07:00", "end": "22:00"}`. |
 | `retryAfterTimeoutMinutes` | 10 | How soon to ask again after an unanswered passcode prompt. |
+| `retryAfterCancelMinutes` | 240 | How long to leave the phone alone after you tap Cancel on the prompt. |
 | `retryAfterFailureMinutes` | 10 | How soon to try again after any other failure. |
 | `staleAfterHours` | 72 | When a backup counts as stale. |
 

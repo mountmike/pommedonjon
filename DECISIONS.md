@@ -226,14 +226,17 @@ prompts in 24 hours".
 - A phone that does not answer a probe is away. That is not an attempt and
   causes no back-off. (Unchanged.)
 
-Whether the two can be told apart is not known yet. A timeout is
-recognisable: the prompt closes at 60 seconds and the phone reports error
-208. A cancel has not been observed. See O17.
+The phone itself does not tell the two apart; timing does. See O17.
 
-**Built**, except for the cancel. After a timeout the phone is asked again in
-10 minutes; after any other failure, also 10 minutes, set separately. With
-the plugged-in trigger the 30-minute window limits that to about four prompts
-per plug-in. With on-charger nothing limits it.
+**Built.** After a timeout the phone is asked again in 10 minutes; after any
+other failure, also 10 minutes, set separately. With the plugged-in trigger
+the 30-minute window limits that to about four prompts per plug-in. With
+on-charger nothing limits it.
+
+A cancel can be told apart (O17) and buys a pause of four hours
+(`retryAfterCancelMinutes`). Four hours is my judgement: long enough not to
+nag the same evening, short enough that a cancel at breakfast does not cost
+the evening's backup.
 
 ### D9. Heads-up before a backup: deferred with notifications
 
@@ -571,11 +574,16 @@ Settled already: due after 20 hours, not 24 (D7).
 
 ### O17. Telling a cancel from a timeout
 
-Needed for D8. Not yet observed: the one test aimed at it ended with the
-passcode typed and the connection lost.
+*Settled on evidence, 2026-11-24.* The owner tapped Cancel on the prompt
+(attempt 13). The phone reported the same "Device locked" error 208 that it
+reports after a timeout, so the device does not distinguish them. The time
+the prompt stayed open does:
 
-- A timeout: prompt closes at 60 seconds, phone reports error 208.
-- A cancel: unknown. Possible tells are a different error, or the same error
-  arriving well before 60 seconds.
+- left alone: 58 to 61 seconds (attempts 1, 3 and 4);
+- cancelled: 2.6 seconds.
 
-Needs one run where the owner taps Cancel.
+The transport reports a prompt that closed in under 45 seconds, followed by
+that error, as cancelled.
+
+Limits: one observation, on an unlocked phone. Not seen yet: a prompt
+cancelled from the lock screen, or a wrong passcode, which may look the same.

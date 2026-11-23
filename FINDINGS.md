@@ -79,7 +79,7 @@ built for arm64 here.
 
 ## What was measured
 
-### Backup attempts (encryption on; 1 to 5 over USB, 6 to 12 over WiFi)
+### Backup attempts (encryption on; 1 to 5 over USB, 6 to 14 over WiFi)
 
 | # | Tool | Passcode prompt | Outcome |
 |---|---|---|---|
@@ -149,6 +149,30 @@ What these show:
 - Two bugs surfaced and were fixed: the connection gave up too early, and a
   failed run's log line said "TimeoutError" where it should have said
   "backup failed".
+
+Attempts 13 and 14, later the same morning, with the reworked code
+(discovery, verified marker, schemas). Phone unlocked, in hand, on battery
+at 94%.
+
+| # | What happened | Outcome |
+|---|---|---|
+| 13 | Prompt appeared 3 s after the backup started. **The owner tapped Cancel.** It closed 2.6 s later | Failed at once with `Device locked (MBErrorDomain/208)`, the same error as a timeout |
+| 14 | Prompt appeared at +3 s, passcode typed, closed at +7 s | **Completed** in 4 min 11 s (251 s): verified, `verified.json` written, recorded as succeeded |
+
+What these show:
+
+- **The phone does not distinguish a cancel from a timeout.** Both end in
+  error 208. What differs is how long the prompt was open: 2.6 seconds when
+  cancelled, 58 to 61 when left alone (attempts 1, 3 and 4). The transport
+  now reports a prompt that closed in under 45 seconds, followed by that
+  error, as cancelled. One observation, on an unlocked phone; a cancel from
+  the lock screen and a wrong passcode have not been seen.
+- **The reworked code backs the phone up end to end.** The phone was found
+  at its remembered address, the backup ran and verified, and the marker
+  file appeared beside it with the phone's UDID and the time.
+- **Battery is not always bad.** This is the second successful backup on
+  battery, both with the phone unlocked and in hand. The failures on battery
+  were with it locked.
 
 Attempt 8 answers the locked-phone question (owner's observation plus the
 event log): a locked phone lights its screen and shows the backup passcode
@@ -369,7 +393,7 @@ without paying for it.
 ## What exists in the repo
 
 First built the night of 2026-11-23/24, then reworked on 2026-11-24 to the
-design in [DECISIONS.md](DECISIONS.md). 235 unit tests pass; all use fakes
+design in [DECISIONS.md](DECISIONS.md). 242 unit tests pass; all use fakes
 for the phone and the sidecar.
 
 | Part | Where | Tried against the real phone? |
@@ -379,20 +403,21 @@ for the phone and the sidecar.
 | Config, as a Zod schema | `src/config/` | n/a; the container loads real configs with it |
 | Discovery: range sweep, locator, address book | `src/discovery/` | Yes: found the phone by sweeping the home /24 from the container, on the second sweep |
 | Schedule and plug-in detection | `src/policy/` | **No** |
-| Storage: one backup per phone, verified marker | `src/storage/` | Verification: yes. The marker: no |
+| Storage: one backup per phone, verified marker | `src/storage/` | Yes (attempt 14) |
 | Run history in SQLite | `src/state/` | Yes: recorded attempts 9 to 12, then upgraded in place to the current schema |
-| Runner: back up, verify, record | `src/runner/` | Before the rework: yes (attempt 9). Since: **no** |
+| Runner: back up, verify, record | `src/runner/` | Yes (attempts 13 and 14) |
 | Daemon: one cycle per phone, stale alerts | `src/daemon/` | Started and stopped cleanly in the container with a backup not due. A backup it started itself: **no** |
 | Pair record permission check | `src/credentials/` | Yes: warned on a 644 file mounted as a Compose secret, silent on 600 |
-| CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe` and `status`: yes. `backup`: before the rework only |
+| CLI: `daemon`, `probe`, `backup`, `status` | `src/cli.ts` | `probe`, `backup` and `status`: yes |
 | Container image and Compose example | `Dockerfile`, `compose.example.yaml` | `probe` through Compose with secrets, read-only and unprivileged: yes |
 
-Not built: notifications (they go to the service log only), telling a
-cancelled prompt from a timeout, mDNS discovery, the web UI.
+Not built: notifications (they go to the service log only), mDNS discovery,
+the web UI. Cancel detection was built after attempt 13 and has only been
+run against fakes.
 
-**The next real test owed** is a backup with the reworked code, then the
-field trial: the daemon running for a week or two and starting backups by
-its own decision when the phone is plugged in.
+**The next real test owed** is the field trial: the daemon running for a
+week or two and starting backups by its own decision when the phone is
+plugged in. Nothing has yet exercised plug-in detection on a real phone.
 
 Things the build turned up:
 
