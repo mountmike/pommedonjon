@@ -6,6 +6,7 @@ import {
 } from "../config/config.js";
 import type { LogLevel, Notification } from "../notify/Notifier.js";
 import type { RunReport } from "../runner/BackupRunner.js";
+import { DeviceLocator } from "../discovery/DeviceLocator.js";
 import { StateStore } from "../state/StateStore.js";
 import { FAKE_UDID, FakeTransport, fakeStatus } from "../testing/fakeTransport.js";
 import { DeviceError } from "../transport/DeviceTransport.js";
@@ -52,6 +53,7 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     pollIntervalSeconds: 120,
     headsUpLeadSeconds: 5,
     sidecar: { pythonPath: undefined, scriptPath: undefined },
+    discovery: { ranges: [], scanIntervalSeconds: 300 },
     devices,
   };
 
@@ -71,12 +73,21 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
 
   const sleeps: number[] = [];
   let onSleep = (): void => undefined;
+  const scanner = { enabled: false, candidates: () => Promise.resolve<string[]>([]) };
+  const hosts: string[] = [];
   const daemon = new Daemon({
     config,
-    transport,
+    locator: new DeviceLocator({
+      transport,
+      addresses: state,
+      scanner,
+      log: () => undefined,
+      clock: () => now,
+    }),
     runner: {
-      run: (device) => {
+      run: (device, host) => {
         ran.push(device.id);
+        hosts.push(host);
         return runImpl(device);
       },
     },
@@ -103,6 +114,8 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     sent,
     logs,
     ran,
+    hosts,
+    scanner,
     sleeps,
     setNow: (date: Date) => {
       now = date;
@@ -430,6 +443,33 @@ describe("Daemon stale alerts", () => {
     h.transport.probeResult = new DeviceError("no answer", "unreachable");
     await h.daemon.tick();
     expect(h.sent).toEqual([]);
+  });
+});
+
+describe("Daemon finding a phone", () => {
+  it("backs the phone up at the address discovery found, and remembers it", async () => {
+    const h = harness([deviceConfig({ host: undefined })]);
+    h.scanner.enabled = true;
+    h.scanner.candidates = () => Promise.resolve(["10.0.0.31", "10.0.0.57"]);
+    h.transport.probe = (target) => {
+      h.transport.probes.push(target);
+      const host = target.endpoint.kind === "tcp" ? target.endpoint.host : "";
+      // 10.0.0.31 is some other Apple device and refuses this pair record.
+      return host === "10.0.0.57"
+        ? Promise.resolve(fakeStatus())
+        : Promise.reject(new DeviceError("pair record refused", "not-paired"));
+    };
+
+    expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
+    expect(h.hosts).toEqual(["10.0.0.57"]);
+    expect(state.lastAddress("mike")).toBe("10.0.0.57");
+  });
+
+  it("treats a phone discovery cannot find as away", async () => {
+    const h = harness([deviceConfig({ host: undefined })]);
+    h.scanner.enabled = true;
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "unreachable" }]);
+    expect(state.attemptsSince("mike", new Date(0))).toEqual([]);
   });
 });
 

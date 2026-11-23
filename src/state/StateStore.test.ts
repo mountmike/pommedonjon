@@ -246,10 +246,29 @@ describe("StateStore on disk", () => {
     // And it can be written to in its new shape.
     const id = upgraded.startRun("mike", t("2026-11-24T08:00:00Z"));
     upgraded.finishRun(id, t("2026-11-24T08:06:00Z"), { outcome: "succeeded", durationMs: 1 });
+
+    // The upgrade also brought the tables added since.
+    upgraded.rememberAddress("mike", "192.168.1.235", t("2026-11-24T08:00:00Z"));
+    expect(upgraded.lastAddress("mike")).toBe("192.168.1.235");
     upgraded.close();
 
     // Opening it again does not try to upgrade twice.
     new StateStore(file).close();
+  });
+
+  it("remembers where each phone was last reached, across restarts", () => {
+    const file = path.join(dir, "state.sqlite");
+    const first = new StateStore(file);
+    expect(first.lastAddress("mike")).toBeUndefined();
+    first.rememberAddress("mike", "192.168.1.235", t("2026-11-24T08:00:00Z"));
+    first.rememberAddress("lolo", "192.168.1.40", t("2026-11-24T08:00:00Z"));
+    first.rememberAddress("mike", "192.168.1.77", t("2026-11-25T08:00:00Z"));
+    first.close();
+
+    const second = new StateStore(file);
+    expect(second.lastAddress("mike")).toBe("192.168.1.77");
+    expect(second.lastAddress("lolo")).toBe("192.168.1.40");
+    second.close();
   });
 
   it("fails loudly on a row it cannot read, naming what is wrong with it", () => {

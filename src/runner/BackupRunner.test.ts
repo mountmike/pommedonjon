@@ -21,6 +21,9 @@ const device: DeviceConfig = {
   policy: DEFAULT_POLICY,
 };
 
+/** Where the caller found the phone; deliberately not the pinned host. */
+const HOST = "10.0.0.42";
+
 const GOOD: BackupVerification = {
   ok: true,
   problems: [],
@@ -98,7 +101,7 @@ describe("BackupRunner", () => {
     const h = harness();
     h.transport.onBackup = (run) => run.succeed(355_000);
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     expect(h.order).toEqual([
       "notify:backup-starting",
@@ -115,13 +118,13 @@ describe("BackupRunner", () => {
     });
   });
 
-  it("backs up over TCP into the device's directory and verifies the backup inside it", async () => {
+  it("backs up over TCP at the address it was given, into the device's directory", async () => {
     const h = harness();
-    await h.runner.run(device);
+    await h.runner.run(device, HOST);
 
     expect(h.transport.backups[0]?.options).toMatchObject({
       udid: FAKE_UDID,
-      endpoint: { kind: "tcp", host: "10.0.0.7", pairRecordPath: "/secrets/mike.plist" },
+      endpoint: { kind: "tcp", host: HOST, pairRecordPath: "/secrets/mike.plist" },
       backupRoot: `${root}/mike`,
     });
     expect(h.transport.backups[0]?.options.full).toBeUndefined();
@@ -145,7 +148,7 @@ describe("BackupRunner", () => {
       run.succeed(1234);
     };
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     expect(state.getRun(report.runId)).toMatchObject({
       outcome: "succeeded",
@@ -179,7 +182,7 @@ describe("BackupRunner", () => {
       run.succeed(1234);
     };
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     const live = h.logs.slice(1, -1);
     expect(live.map((entry) => entry.message)).toEqual([
@@ -200,7 +203,7 @@ describe("BackupRunner", () => {
       run.fail(new BackupError("connection refused", "unreachable"));
     };
 
-    await h.runner.run(device);
+    await h.runner.run(device, HOST);
 
     expect(h.logs.map((entry) => entry.message)).toEqual(["backup starting", "backup failed"]);
   });
@@ -212,7 +215,7 @@ describe("BackupRunner", () => {
       run.fail(new BackupError("Device locked (MBErrorDomain/208)", "device-locked"));
     };
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     expect(report).toMatchObject({
       outcome: "failed",
@@ -239,7 +242,7 @@ describe("BackupRunner", () => {
       },
     });
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     expect(report).toMatchObject({
       outcome: "failed",
@@ -255,14 +258,14 @@ describe("BackupRunner", () => {
     const h = harness({
       verification: { ...GOOD, udid: "00008150-000F0E0D0C0B002E" },
     });
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
     expect(report).toMatchObject({ outcome: "failed", reason: "verification-failed" });
     expect(await h.store.verified("mike")).toBeUndefined();
   });
 
   it("does not count an unencrypted backup", async () => {
     const h = harness({ verification: { ...GOOD, isEncrypted: false } });
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
     expect(report).toMatchObject({ outcome: "failed", reason: "verification-failed" });
     expect((report as { message: string }).message).toContain("not encrypted");
     expect(await h.store.verified("mike")).toBeUndefined();
@@ -276,7 +279,7 @@ describe("BackupRunner", () => {
       run.succeed(1000);
     };
 
-    await h.runner.run(device);
+    await h.runner.run(device, HOST);
 
     expect(duringBackup).toBeUndefined();
     expect(await h.store.verified("mike")).toEqual({
@@ -287,14 +290,14 @@ describe("BackupRunner", () => {
 
   it("withdraws an earlier verified mark while a new run is changing the backup", async () => {
     const h = harness();
-    await h.runner.run(device);
+    await h.runner.run(device, HOST);
     expect(await h.store.verified("mike")).toBeDefined();
 
     h.transport.onBackup = (run) => {
       run.emit({ type: "passcode-required" }, { type: "passcode-dismissed" });
       run.fail(new BackupError("Device locked (MBErrorDomain/208)", "device-locked"));
     };
-    await h.runner.run(device);
+    await h.runner.run(device, HOST);
 
     // The failed run may have left the backup half-updated, so the claim
     // that it is verified must not survive it.
@@ -308,10 +311,10 @@ describe("BackupRunner", () => {
           ? Promise.reject(new Error("push service unreachable"))
           : Promise.resolve(),
     });
-    await h.runner.run(device);
+    await h.runner.run(device, HOST);
     const before = await h.store.verified("mike");
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     expect(report).toMatchObject({ outcome: "failed", reason: "heads-up-failed" });
     expect(await h.store.verified("mike")).toEqual(before);
@@ -321,7 +324,7 @@ describe("BackupRunner", () => {
     const h = harness();
     h.store.markVerified = () => Promise.reject(new Error("EROFS: read-only file system"));
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     expect(report.outcome).toBe("succeeded");
     expect(state.lastSuccessAt("mike")).toBeDefined();
@@ -338,7 +341,7 @@ describe("BackupRunner", () => {
           : Promise.resolve(),
     });
 
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
 
     expect(report).toMatchObject({ outcome: "failed", reason: "heads-up-failed" });
     expect(h.transport.backups).toEqual([]);
@@ -352,7 +355,7 @@ describe("BackupRunner", () => {
           ? Promise.reject(new Error("push service unreachable"))
           : Promise.resolve(),
     });
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
     expect(report.outcome).toBe("succeeded");
     expect(state.getRun(report.runId)?.outcome).toBe("succeeded");
   });
@@ -361,7 +364,7 @@ describe("BackupRunner", () => {
     const h = harness();
     const controller = new AbortController();
     controller.abort();
-    const report = await h.runner.run(device, controller.signal);
+    const report = await h.runner.run(device, HOST, controller.signal);
     expect(report).toMatchObject({ outcome: "failed", reason: "cancelled" });
     expect(h.transport.backups).toEqual([]);
   });
@@ -373,7 +376,7 @@ describe("BackupRunner", () => {
       run.emit({ type: "started" });
       controller.abort();
     };
-    const report = await h.runner.run(device, controller.signal);
+    const report = await h.runner.run(device, HOST, controller.signal);
     expect(report).toMatchObject({ outcome: "failed", reason: "cancelled" });
     expect(h.transport.backups[0]?.cancelled).toBe(true);
     expect(state.getRun(report.runId)?.outcome).toBe("failed");
@@ -384,7 +387,7 @@ describe("BackupRunner", () => {
     h.transport.startBackup = () => {
       throw new TypeError("boom");
     };
-    const report = await h.runner.run(device);
+    const report = await h.runner.run(device, HOST);
     expect(report).toMatchObject({ outcome: "failed", reason: "failed", message: "boom" });
     expect(state.attemptsSince("mike", new Date(0))).toEqual([
       expect.objectContaining({ outcome: "failed" }),

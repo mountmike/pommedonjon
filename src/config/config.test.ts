@@ -40,6 +40,7 @@ describe("parseConfig", () => {
       pollIntervalSeconds: 120,
       headsUpLeadSeconds: 5,
       sidecar: { pythonPath: undefined, scriptPath: undefined },
+      discovery: { ranges: [], scanIntervalSeconds: 300 },
       devices: [
         {
           id: "mike",
@@ -200,6 +201,43 @@ describe("parseConfig", () => {
     expect(() =>
       parseConfig(minimal({ devices: [device, { ...device, id: "other" }] }), "/"),
     ).toThrow(/share the udid/);
+  });
+
+  it("lets a phone have no address when there are ranges to find it in", () => {
+    const config = parseConfig(
+      minimal({
+        discovery: { ranges: ["192.168.1.0/24", "10.0.20.0/24"] },
+        devices: [{ id: "mike", udid: UDID, pairRecordPath: "/p" }],
+      }),
+      "/",
+    );
+    expect(config.discovery).toEqual({
+      ranges: ["192.168.1.0/24", "10.0.20.0/24"],
+      scanIntervalSeconds: 300,
+    });
+    expect(config.devices[0]?.host).toBeUndefined();
+  });
+
+  it("refuses a phone that has no address and no ranges to find it in", () => {
+    expect(() =>
+      parseConfig(minimal({ devices: [{ id: "mike", udid: UDID, pairRecordPath: "/p" }] }), "/"),
+    ).toThrow('devices "mike" has no host, and discovery.ranges is empty');
+  });
+
+  it.each([
+    ["192.168.1.0", /discovery\.ranges\[0\] must be an IPv4 range like/],
+    ["192.168.1.0/8", /discovery\.ranges\[0\] must be \/22 or smaller \(at most 1024 addresses\)/],
+    ["300.1.1.0/24", /discovery\.ranges\[0\] must be an IPv4 range like/],
+    ["fe80::/64", /discovery\.ranges\[0\] must be an IPv4 range like/],
+    [24, /discovery\.ranges\[0\] must be an IPv4 range like/],
+  ])("rejects the discovery range %j", (range, message) => {
+    expect(() => parseConfig(minimal({ discovery: { ranges: [range] } }), "/")).toThrow(message);
+  });
+
+  it("will not sweep more often than every 30 seconds", () => {
+    expect(() =>
+      parseConfig(minimal({ discovery: { scanIntervalSeconds: 5 } }), "/"),
+    ).toThrow("discovery.scanIntervalSeconds must be at least 30");
   });
 
   it("throws ConfigError, not a generic error", () => {

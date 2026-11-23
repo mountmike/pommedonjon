@@ -39,7 +39,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -69,6 +69,15 @@ const SCHEMA = `
     kind      TEXT    NOT NULL,
     sent_at   INTEGER NOT NULL,
     PRIMARY KEY (device_id, kind)
+  ) STRICT;
+`;
+
+/** Added in schema 3: where each phone was last reached. */
+const ADDRESSES = `
+  CREATE TABLE device_addresses (
+    device_id TEXT    PRIMARY KEY,
+    host      TEXT    NOT NULL,
+    seen_at   INTEGER NOT NULL
   ) STRICT;
 `;
 
@@ -193,7 +202,9 @@ export class StateStore {
       );
     }
     if (version === 0) {
-      this.#db.exec(`BEGIN; ${SCHEMA} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`);
+      this.#db.exec(
+        `BEGIN; ${SCHEMA} ${ADDRESSES} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`,
+      );
       return;
     }
     if (version < 2) {
@@ -202,6 +213,9 @@ export class StateStore {
       this.#db.exec(
         "BEGIN; ALTER TABLE runs DROP COLUMN snapshot_path; PRAGMA user_version = 2; COMMIT;",
       );
+    }
+    if (version < 3) {
+      this.#db.exec(`BEGIN; ${ADDRESSES} PRAGMA user_version = 3; COMMIT;`);
     }
   }
 
@@ -319,6 +333,27 @@ export class StateStore {
         .prepare("SELECT sent_at FROM alerts WHERE device_id = ? AND kind = ?")
         .get(deviceId, kind),
     );
+  }
+
+  /** Where this device was last reached, if it has been found before. */
+  lastAddress(deviceId: string): string | undefined {
+    return read(
+      z
+        .object({ host: z.string() })
+        .optional()
+        .transform((row) => row?.host),
+      "a device address",
+      this.#db.prepare("SELECT host FROM device_addresses WHERE device_id = ?").get(deviceId),
+    );
+  }
+
+  rememberAddress(deviceId: string, host: string, at: Date): void {
+    this.#db
+      .prepare(
+        `INSERT INTO device_addresses (device_id, host, seen_at) VALUES (?, ?, ?)
+         ON CONFLICT (device_id) DO UPDATE SET host = excluded.host, seen_at = excluded.seen_at`,
+      )
+      .run(deviceId, host, at.getTime());
   }
 
   recordAlert(deviceId: string, kind: string, at: Date): void {

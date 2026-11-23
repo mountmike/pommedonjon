@@ -3,7 +3,6 @@ import { parseArgs } from "node:util";
 import { createApp, type App } from "./app.js";
 import { ConfigError, loadConfig, type DeviceConfig } from "./config/config.js";
 import { jsonLogger } from "./notify/Notifier.js";
-import { targetFor } from "./runner/BackupRunner.js";
 import { DeviceError } from "./transport/DeviceTransport.js";
 
 const USAGE = `nightstand: self-hosted iPhone backups
@@ -46,10 +45,10 @@ async function probe(app: App, deviceId: string | undefined): Promise<number> {
   let failures = 0;
   for (const device of pickDevices(app, deviceId)) {
     try {
-      const status = await app.transport.probe(targetFor(device));
+      const { status, host } = await app.locator.locate(device);
       const power = status.battery.externalPowerConnected ? "on charger" : "on battery";
       print(
-        `${device.id}: reachable. ${status.productType}, iOS ${status.osVersion}, ` +
+        `${device.id}: reachable at ${host}. ${status.productType}, iOS ${status.osVersion}, ` +
           `battery ${status.battery.levelPercent}% ${power}, ` +
           `backup encryption ${status.backupEncryptionEnabled ? "on" : "OFF"}`,
       );
@@ -69,7 +68,15 @@ async function backup(app: App, deviceId: string | undefined, signal: AbortSigna
   }
   const [device] = pickDevices(app, deviceId);
   if (!device) return 2;
-  const report = await app.runner.run(device, signal);
+  let host: string;
+  try {
+    ({ host } = await app.locator.locate(device));
+  } catch (error) {
+    if (!(error instanceof DeviceError)) throw error;
+    print(`${device.id}: backup not started (${error.reason}). ${error.message}`);
+    return 1;
+  }
+  const report = await app.runner.run(device, host, signal);
   if (report.outcome === "succeeded") {
     print(`${device.id}: backed up in ${Math.round(report.durationMs / 1000)} s`);
     return 0;

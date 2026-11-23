@@ -3,10 +3,10 @@ import type { Logger, Notifier } from "../notify/Notifier.js";
 import type { StateStore } from "../state/StateStore.js";
 import type { BackupStore } from "../storage/BackupStore.js";
 import type { BackupVerifier } from "../storage/BackupVerifier.js";
+import { targetAt } from "../discovery/DeviceLocator.js";
 import {
   BackupError,
   type BackupEvent,
-  type DeviceTarget,
   type DeviceTransport,
 } from "../transport/DeviceTransport.js";
 
@@ -44,18 +44,6 @@ export interface BackupRunnerDeps {
 /** Progress is recorded only when it crosses one of these steps. */
 const PROGRESS_STEP_PERCENT = 10;
 
-export function targetFor(device: DeviceConfig): DeviceTarget {
-  return {
-    udid: device.udid,
-    endpoint: {
-      kind: "tcp",
-      host: device.host,
-      pairRecordPath: device.pairRecordPath,
-      ...(device.port !== undefined && { port: device.port }),
-    },
-  };
-}
-
 class RunFailure extends Error {
   constructor(
     readonly reason: string,
@@ -78,14 +66,18 @@ function describe(error: unknown): string {
 export class BackupRunner {
   constructor(private readonly deps: BackupRunnerDeps) {}
 
-  async run(device: DeviceConfig, signal?: AbortSignal): Promise<RunReport> {
+  /**
+   * @param host Where the phone is, as found by whoever decided to back it
+   *   up. The runner does not go looking for it.
+   */
+  async run(device: DeviceConfig, host: string, signal?: AbortSignal): Promise<RunReport> {
     const { state, clock, log, notifier } = this.deps;
     const runId = state.startRun(device.id, clock());
     log("info", "backup starting", { device: device.id, runId });
 
     let report: RunReport;
     try {
-      const { durationMs } = await this.#attempt(device, runId, signal);
+      const { durationMs } = await this.#attempt(device, host, runId, signal);
       state.finishRun(runId, clock(), { outcome: "succeeded", durationMs });
       report = { runId, outcome: "succeeded", durationMs };
       log("info", "backup succeeded", { device: device.id, runId, durationMs });
@@ -130,6 +122,7 @@ export class BackupRunner {
 
   async #attempt(
     device: DeviceConfig,
+    host: string,
     runId: number,
     signal: AbortSignal | undefined,
   ): Promise<{ durationMs: number }> {
@@ -157,7 +150,7 @@ export class BackupRunner {
     await store.beginRun(device.id);
 
     const run = transport.startBackup({
-      ...targetFor(device),
+      ...targetAt(device, host),
       backupRoot: store.deviceDir(device.id),
       ...(signal && { signal }),
     });

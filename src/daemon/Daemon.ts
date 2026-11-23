@@ -7,9 +7,10 @@ import {
   type PowerReading,
   type PowerState,
 } from "../policy/power.js";
-import { targetFor, type BackupRunner, type RunReport } from "../runner/BackupRunner.js";
+import type { DeviceLocator } from "../discovery/DeviceLocator.js";
+import type { BackupRunner, RunReport } from "../runner/BackupRunner.js";
 import type { StateStore } from "../state/StateStore.js";
-import { DeviceError, type DeviceTransport } from "../transport/DeviceTransport.js";
+import { DeviceError } from "../transport/DeviceTransport.js";
 
 /** What the daemon did about one device on one pass. */
 export type DeviceOutcome =
@@ -33,7 +34,7 @@ export type DeviceOutcome =
 
 export interface DaemonDeps {
   readonly config: NightstandConfig;
-  readonly transport: DeviceTransport;
+  readonly locator: Pick<DeviceLocator, "locate">;
   readonly runner: Pick<BackupRunner, "run">;
   readonly state: StateStore;
   readonly notifier: Notifier;
@@ -113,7 +114,7 @@ export class Daemon {
   }
 
   async #consider(device: DeviceConfig, signal?: AbortSignal): Promise<DeviceOutcome> {
-    const { transport, runner, state, clock } = this.deps;
+    const { locator, runner, state, clock } = this.deps;
     const now = clock();
     const lastSuccessAt = state.lastSuccessAt(device.id);
 
@@ -140,9 +141,9 @@ export class Daemon {
 
     // A phone that is away from home is the normal case, not a failure: it
     // is not recorded as an attempt and does not trigger a back-off.
-    let status;
+    let located;
     try {
-      status = await transport.probe(targetFor(device));
+      located = await locator.locate(device);
     } catch (error) {
       if (!(error instanceof DeviceError)) throw error;
       this.#observe(device, "unreachable", now);
@@ -152,6 +153,7 @@ export class Daemon {
         reason: error.reason === "failed" ? "probe-failed" : error.reason,
       };
     }
+    const { status, host } = located;
     const power = this.#observe(
       device,
       status.battery.externalPowerConnected ? "on-power" : "on-battery",
@@ -171,7 +173,7 @@ export class Daemon {
       return { deviceId: device.id, action: "waited", reason: readiness.reason };
     }
 
-    const report = await runner.run(device, signal);
+    const report = await runner.run(device, host, signal);
     return { deviceId: device.id, action: "backed-up", report };
   }
 

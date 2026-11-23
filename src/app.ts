@@ -2,6 +2,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type { NightstandConfig } from "./config/config.js";
 import { Daemon } from "./daemon/Daemon.js";
+import { DeviceLocator } from "./discovery/DeviceLocator.js";
+import { PortScanner } from "./discovery/PortScanner.js";
 import { LogNotifier, type Logger, type Notifier } from "./notify/Notifier.js";
 import { BackupRunner } from "./runner/BackupRunner.js";
 import { Sidecar } from "./sidecar/Sidecar.js";
@@ -10,6 +12,9 @@ import { BackupStore } from "./storage/BackupStore.js";
 import { SidecarBackupVerifier } from "./storage/BackupVerifier.js";
 import type { DeviceTransport } from "./transport/DeviceTransport.js";
 import { Pymobiledevice3Transport } from "./transport/pymobiledevice3/Pymobiledevice3Transport.js";
+
+/** The lockdown service's port on every iOS device. */
+const LOCKDOWN_PORT = 62078;
 
 /** Resolves after the delay, or early if the signal aborts. */
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -31,6 +36,7 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 export interface App {
   readonly config: NightstandConfig;
   readonly transport: DeviceTransport;
+  readonly locator: DeviceLocator;
   readonly state: StateStore;
   readonly runner: BackupRunner;
   readonly daemon: Daemon;
@@ -62,6 +68,19 @@ export function createApp(
   const notifier = new LogNotifier(log);
   const clock = () => new Date();
 
+  const locator = new DeviceLocator({
+    transport,
+    addresses: state,
+    scanner: new PortScanner({
+      ranges: config.discovery.ranges,
+      port: LOCKDOWN_PORT,
+      minIntervalMs: config.discovery.scanIntervalSeconds * 1000,
+      clock,
+    }),
+    log,
+    clock,
+  });
+
   const runner = new BackupRunner({
     transport,
     store,
@@ -75,7 +94,7 @@ export function createApp(
   });
   const daemon = new Daemon({
     config,
-    transport,
+    locator,
     runner,
     state,
     notifier,
@@ -84,5 +103,14 @@ export function createApp(
     sleep,
   });
 
-  return { config, transport, state, runner, daemon, notifier, close: () => state.close() };
+  return {
+    config,
+    transport,
+    locator,
+    state,
+    runner,
+    daemon,
+    notifier,
+    close: () => state.close(),
+  };
 }

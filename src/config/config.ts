@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { rangeProblem } from "../discovery/ranges.js";
 import { describeIssues } from "../schema/issues.js";
 
 // Messages are phrased to follow the setting's path: "<path> must be ...".
@@ -32,6 +33,18 @@ const clock = z.string({ error: 'must be a time like "18:30"' }).transform((valu
   }
   return hours * 60 + minutes;
 });
+
+/** An IPv4 range in CIDR form, small enough to sweep. */
+const range = z.string({ error: 'must be an IPv4 range like "192.168.1.0/24"' }).transform(
+  (value, ctx) => {
+    const problem = rangeProblem(value);
+    if (problem !== undefined) {
+      ctx.issues.push({ code: "custom", message: problem, input: value });
+      return z.NEVER;
+    }
+    return value;
+  },
+);
 
 /** A daily time window in the daemon's local time, e.g. 18:00 to 22:30. */
 const TimeWindowSchema = z
@@ -104,8 +117,11 @@ const DeviceEntrySchema = z.strictObject(
     udid: text.refine((udid) => /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$|^[0-9a-f]{40}$/.test(udid), {
       error: "does not look like a device UDID",
     }),
-    /** Address or resolvable name of the phone on the network. */
-    host: text,
+    /**
+     * Pins the phone to one address or resolvable name. Optional: without
+     * it the phone is found by discovery. With it, nowhere else is tried.
+     */
+    host: text.optional(),
     port: number({ min: 1, max: 65535 }).optional(),
     /** Pair record plist for this phone. A secret: grants full device access. */
     pairRecordPath: text,
@@ -131,6 +147,21 @@ const ConfigFileSchema = z.strictObject(
     sidecar: z
       .strictObject(
         { pythonPath: text.optional(), scriptPath: text.optional() },
+        { error: "must be an object" },
+      )
+      .prefault({}),
+    discovery: z
+      .strictObject(
+        {
+          /**
+           * The network ranges the phones live on, e.g. ["192.168.1.0/24"].
+           * Swept for the lockdown port when a phone is not where it was
+           * last reached.
+           */
+          ranges: z.array(range, { error: "must be an array" }).default([]),
+          /** A sweep is not repeated more often than this. */
+          scanIntervalSeconds: number({ min: 30 }).default(300),
+        },
         { error: "must be an object" },
       )
       .prefault({}),
@@ -190,6 +221,14 @@ export function parseConfig(document: unknown, baseDir: string): NightstandConfi
       policy: layer(defaultPolicy, policy),
     }),
   );
+  if (rest.discovery.ranges.length === 0) {
+    const unfindable = devices.find((device) => device.host === undefined);
+    if (unfindable) {
+      throw new ConfigError(
+        `devices "${unfindable.id}" has no host, and discovery.ranges is empty, so it could never be found`,
+      );
+    }
+  }
   for (const field of ["id", "udid"] as const) {
     const values = devices.map((device) => device[field]);
     const repeated = values.find((value, index) => values.indexOf(value) !== index);
