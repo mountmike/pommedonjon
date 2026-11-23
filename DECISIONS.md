@@ -457,6 +457,19 @@ the example config, and the default names `pommedonjon.json` and
 Not renamed: commit messages before this point, and the throwaway image
 used by the reachability script from the first night's spike.
 
+### D22. Public from the first day, under GPL-3.0
+
+*Decided by the owner, 2026-11-24.* The repository is public at
+`github.com/mountmike/pommedonjon` and the project is licensed GPL-3.0.
+
+GPL-3.0 because the image ships pymobiledevice3, which is GPL-3.0, and the
+project cannot work without it. Using the same licence makes publishing the
+image straightforward. This is a practical choice, not legal advice.
+
+Commits are published under the owner's GitHub no-reply address, not a
+personal one. The history was rewritten once, before the first push, to make
+that so; nothing else about the commits changed.
+
 ## Open
 
 ### O1. Notification channel
@@ -584,9 +597,7 @@ waited on. Nothing alerts until the backup goes stale.
 
 ### O13. Licence
 
-*Later.* pymobiledevice3 is GPL-3.0. Running it as a separate process keeps
-this repo's code separate, but that should be checked before the image is
-published (D18).
+*Closed by the owner, 2026-11-24.* See D22.
 
 ### O14. Onboarding the second phone
 

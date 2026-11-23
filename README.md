@@ -282,3 +282,9 @@ Versions are managed with [Changesets](https://github.com/changesets/changesets)
    `<major>.<minor>` and `latest`.
 
 The pipeline is [.github/workflows/pipeline.yml](.github/workflows/pipeline.yml).
+
+## Licence
+
+[GPL-3.0](LICENSE). The container image includes
+[pymobiledevice3](https://github.com/doronz88/pymobiledevice3), which is also
+GPL-3.0 and does the talking to the phone.
