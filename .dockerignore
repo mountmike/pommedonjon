@@ -1,0 +1,15 @@
+# Keep secrets, backups and local state out of the build context entirely.
+local/
+*.plist
+.env
+.env.*
+
+.git/
+node_modules/
+dist/
+coverage/
+**/__pycache__/
+*.md
+scripts/
+compose*.yaml
+pommedonjon.example.json
