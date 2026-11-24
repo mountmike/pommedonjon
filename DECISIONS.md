@@ -800,12 +800,37 @@ as soon as the daemon has decided. A GET starts nothing, so a browser or a
 link preview cannot set off a prompt. An unencrypted backup is still never
 taken, asked for or not.
 
-What the proof of concept has to find out:
+What the proof of concept had to find out:
 
 - whether the charger automation runs by itself or asks first each time;
 - whether the phone can reach the server from its own network without more
   firewall work;
 - how long it takes from the tap to the prompt.
+
+What it found, on the owner's phone the same evening:
+
+- **The button works.** One tap, and the passcode prompt appeared.
+- **The charger automation runs by itself.** Two requests arrived at the
+  server as the owner replugged the charger, with no confirmation asked on
+  the phone. Both were refused, correctly, because the backup from the
+  button was still running, so the owner saw nothing happen. The Shortcut
+  gives no sign of a refusal.
+- **The phone reaches the server with no more firewall work** on the
+  owner's network.
+- **Tap to prompt took 10.6 s.** About 1.8 s finding the phone, 5 s of
+  deliberate pause (`headsUpLeadSeconds`, there for a heads-up notification
+  that does not exist yet, D9), and 3.9 s connecting and starting the
+  backup service. Without the pause it would be under 6 s.
+
+What that leaves to decide:
+
+- **A request ignores whether a backup is due**, which is right for a
+  button and wrong for an automation: left on, the charger automation would
+  prompt at every plug-in. Proposed: a second request meaning "this phone
+  has just been plugged in", which starts a backup only if one is due and
+  the owner has not recently dismissed a prompt. Not built.
+- **The 5 s pause** serves nothing on a requested backup. Proposed: skip it
+  for requests. Not built.
 
 Without authentication, anything that can reach the port can make a phone
 show a passcode prompt. It cannot read or change a backup. That is the
