@@ -613,10 +613,10 @@ messages cite them.
 | O16 | Plugged in, or on a charger? To be settled by the field trial | the field trial decides |
 | O18 | Which phone goes to which environment | needs the owner |
 | O21 | Getting the config and pair records in without copying files | now O24 and O25 |
-| O23 | The design brief: theme, component kit, screens | the owner's review of DESIGN.md |
+| O23 | The design brief: theme, component kit, screens | agreed; nothing waiting |
 | O24 | Settings without a config file | the owner's yes to the proposal |
 | O25 | Adding a phone from the app | a test of pairing from the browser |
-| O26 | What starts a backup: a button or a schedule | decided by the owner; the automatic mode's rules are for the design brief |
+| O26 | What starts a backup: a button or a schedule | decided, rules agreed; to be built |
 | O27 | Sign-in | later; direction proposed |
 
 ### O8. Remote backups over the tailnet
@@ -732,9 +732,12 @@ has been changed for this.
 *Asked for by the owner, 2026-11-24*, before any screens are built: a plan
 for the look, the component library and the way it is used.
 
-**Written, and with the owner for review:** [DESIGN.md](DESIGN.md). It ends
-with six questions for the owner, among them the rules of the automatic
-mode (O26) and the choice of component kit.
+**Written, reviewed and agreed, 2026-11-24:** [DESIGN.md](DESIGN.md). The
+owner's choices in it: the System theme, which looks like the iPhone's own
+apps; Expo's UI kit; an icon of a phone that is a keep with an apple's
+leaf; quiet hours from 10 pm to 7 am; the rules of the automatic mode
+(O26); and that the app works out which phone it is on from the pairing,
+not from an address.
 
 To be written for the owner's review: the principles (a phone's state at a
 glance, one main action, honest about the passcode), the list of screens
@@ -830,11 +833,13 @@ What it could use:
 | When prompts were answered before | The run history (O16) | Recorded since the trial began |
 | A cancel | The transport (O17) | Yes; already buys a long pause (D8) |
 
-A first shape for it, to be designed properly with the brief (O23): once a
-backup is due, wait for the best moment on offer, in this order: the app
-is opened; the phone has just been unlocked at home; it has just been
-plugged in. If none comes within a set time, fall back to asking on the
-charger, inside any hours the owner allows.
+**The rules, agreed by the owner on 2026-11-24** (DESIGN.md, "Automatic
+mode"): once a backup is wanted, start when the phone is plugged in at
+home or its owner opens the app; after four hours, also at the next unlock
+at home; after a day, also any time it is on a charger. Never in quiet
+hours, four hours' peace after a cancel, and no more than three unanswered
+prompts a day. Plug-in comes before unlock because someone plugging in has
+finished with the phone and someone unlocking is about to use it.
 
 So the automatic mode can time a prompt to the moment its owner unlocks
 the phone. What that costs is not known yet: hearing it as it happens means

@@ -1,8 +1,8 @@
 # Design brief
 
 How the app should look, read and behave, before any screen is built.
-A proposal for the owner's review ([DECISIONS.md](DECISIONS.md) O23); nothing
-here is built. Where something rests on a measurement it says so and points
+Reviewed and agreed with the owner on 2026-11-24 ([DECISIONS.md](DECISIONS.md)
+O23); nothing here is built yet. Where something rests on a measurement it says so and points
 at [FINDINGS.md](FINDINGS.md).
 
 One app, for the web and the iPhone, from one codebase (D23).
@@ -90,7 +90,7 @@ When it does not work, the reason and what to do, in a sentence:
 The owner's idea (O26): the schedule says roughly how often, and the service
 picks the moment, waiting past the due time until its owner is at the phone.
 
-**A proposal for the rules.** A backup is *wanted* once the last good one is
+**The rules, agreed by the owner on 2026-11-24.** A backup is *wanted* once the last good one is
 older than "how often" (daily by default). From then on the service gets
 steadily less choosy about the moment:
 
@@ -272,10 +272,13 @@ Answered on 2026-11-24:
 - **The icon:** a phone that is a keep, with an apple's leaf. See
   [Icon](#icon).
 
-Still open:
+- **The ladder:** agreed as proposed. Plug-in or opening the app first,
+  unlock after four hours, any time on the charger after a day. See
+  [Automatic mode](#automatic-mode).
 
-1. **The ladder.** Is plug-in first, unlock after four hours, any time on
-   the charger after a day the right order and the right waits?
+Nothing in this brief is waiting on the owner now. The waits and limits in
+the ladder are first guesses; the field trial's record (O16) is what they
+get tuned against.
 
 ### Which phone is the app running on?
 
