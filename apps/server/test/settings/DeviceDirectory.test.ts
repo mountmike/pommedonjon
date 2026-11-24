@@ -20,9 +20,12 @@ const LAUREL: DeviceConfig = { ...MIKE, id: "laurel", name: "Laurel's iPhone", h
 /** What the app sends: everything it shows, changed or not. */
 const WANTED: DeviceSettings = {
   name: "Mike's iPhone",
+  automatic: true,
   dueAfterHours: 44,
-  trigger: "on-charger",
+  startWhenPluggedIn: false,
   pluggedInWindowMinutes: 15,
+  startWhenUnlockedAfterHours: null,
+  startOnChargerAfterHours: 0,
   quietHours: { start: "22:00", end: "07:00" },
   staleAfterHours: 120,
 };
@@ -50,9 +53,12 @@ describe("DeviceDirectory", () => {
     const settings = directory().settingsOf("mike");
     expect(settings).toEqual({
       name: "mike",
+      automatic: true,
       dueAfterHours: 20,
-      trigger: "plugged-in",
+      startWhenPluggedIn: true,
       pluggedInWindowMinutes: 30,
+      startWhenUnlockedAfterHours: 4,
+      startOnChargerAfterHours: 24,
       quietHours: null,
       staleAfterHours: 72,
     });
@@ -81,8 +87,10 @@ describe("DeviceDirectory", () => {
       policy: {
         ...DEFAULT_POLICY,
         dueAfterHours: 44,
-        trigger: "on-charger",
+        startWhenPluggedIn: false,
         pluggedInWindowMinutes: 15,
+        startWhenUnlockedAfterHours: null,
+        startOnChargerAfterHours: 0,
         // Quiet from 22:00 to 07:00: backups allowed from 07:00 to 22:00.
         window: { startMinutes: 7 * 60, endMinutes: 22 * 60 },
         staleAfterHours: 120,
@@ -121,7 +129,12 @@ describe("DeviceDirectory", () => {
   it.each([
     ["an empty name", { name: "  " }, "name must not be empty"],
     ["a backup every zero hours", { dueAfterHours: 0 }, "dueAfterHours must be at least 1"],
-    ["a trigger that does not exist", { trigger: "whenever" }, "trigger"],
+    ["a switch that is neither on nor off", { startWhenPluggedIn: "sometimes" }, "startWhenPluggedIn"],
+    [
+      "automatic backups with no moment to start at",
+      { startOnChargerAfterHours: null },
+      "automatic needs at least one moment at which a backup may start",
+    ],
     ["quiet hours that are no time at all", { quietHours: { start: "25:00", end: "07:00" } }, "quietHours.start"],
     ["quiet hours that start and end together", { quietHours: { start: "07:00", end: "07:00" } }, "quietHours start and end must differ"],
     ["an overdue warning sooner than the backup is wanted", { staleAfterHours: 44 }, "staleAfterHours must be longer than dueAfterHours"],
@@ -137,6 +150,13 @@ describe("DeviceDirectory", () => {
   it("refuses something that is not settings at all", () => {
     expect(directory().change("mike", "back up more", NOW)).toMatchObject({ ok: false });
     expect(directory().change("mike", { name: "Mike" }, NOW)).toMatchObject({ ok: false });
+  });
+
+  it("can switch automatic backups off, with or without moments set", () => {
+    const phones = directory();
+    const manual = { ...WANTED, automatic: false, startOnChargerAfterHours: null };
+    expect(phones.change("mike", manual, NOW)).toMatchObject({ ok: true });
+    expect(phones.get("mike")?.policy.automatic).toBe(false);
   });
 
   it("has nothing to change for a phone that is not configured", () => {

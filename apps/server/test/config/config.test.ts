@@ -32,7 +32,7 @@ describe("the example config in the repo", () => {
     ]);
     expect(config.devices[0]?.policy).toEqual(DEFAULT_POLICY);
     expect(config.devices[1]?.policy).toMatchObject({
-      trigger: "on-charger",
+      startOnChargerAfterHours: 0,
       window: { startMinutes: 420, endMinutes: 1320 },
     });
   });
@@ -64,8 +64,12 @@ describe("parseConfig", () => {
   it("by default backs up shortly after plug-in, once a backup is 20 hours old, at any hour", () => {
     expect(DEFAULT_POLICY).toMatchObject({
       dueAfterHours: 20,
-      trigger: "plugged-in",
+      automatic: true,
+      startWhenPluggedIn: true,
       pluggedInWindowMinutes: 30,
+      startWhenUnlockedAfterHours: 4,
+      startOnChargerAfterHours: 24,
+      maxUnansweredPerDay: 3,
       window: null,
     });
   });
@@ -80,7 +84,7 @@ describe("parseConfig", () => {
             udid: UDID,
             host: "h",
             pairRecordPath: "/p",
-            policy: { trigger: "on-charger", retryAfterTimeoutMinutes: 3 },
+            policy: { startOnChargerAfterHours: 0, retryAfterTimeoutMinutes: 3 },
           },
         ],
       }),
@@ -90,7 +94,7 @@ describe("parseConfig", () => {
       ...DEFAULT_POLICY,
       dueAfterHours: 12,
       window: { startMinutes: 18 * 60, endMinutes: 23 * 60 + 30 },
-      trigger: "on-charger",
+      startOnChargerAfterHours: 0,
       retryAfterTimeoutMinutes: 3,
     });
   });
@@ -172,7 +176,9 @@ describe("parseConfig", () => {
     [{ defaultPolicy: { window: { start: "25:00", end: "01:00" } } }, /window.start/],
     [{ defaultPolicy: { window: { start: "09:00", end: "09:00" } } }, /must differ/],
     [{ headsUpLeadSeconds: 5 }, /headsUpLeadSeconds is not a recognised setting/],
-    [{ defaultPolicy: { trigger: "on-unlock" } }, /trigger must be "plugged-in" or "on-charger"/],
+    [{ defaultPolicy: { trigger: "on-charger" } }, /trigger is not a recognised setting/],
+    [{ defaultPolicy: { automatic: "yes" } }, /automatic must be true or false/],
+    [{ defaultPolicy: { startWhenUnlockedAfterHours: -1 } }, /startWhenUnlockedAfterHours must be at least 0/],
     [{ defaultPolicy: { dueAfterHours: 0 } }, /dueAfterHours must be at least 1/],
     [{ defaultPolicy: { minIntervalHours: 20 } }, /minIntervalHours is not a recognised setting/],
   ])("rejects %j", (overrides, message) => {

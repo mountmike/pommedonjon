@@ -367,3 +367,34 @@ describe("StateStore device settings", () => {
     }
   });
 });
+
+describe("StateStore settings from before the moments", () => {
+  it("turns a saved trigger into the moments that replaced it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-state-"));
+    const file = path.join(dir, "state.sqlite");
+    try {
+      new StateStore(file).close();
+      // Wind it back to schema 6, with settings as that version saved them.
+      const raw = new DatabaseSync(file);
+      const save = raw.prepare(
+        "INSERT INTO device_settings (device_id, settings, updated_at) VALUES (?, ?, 0)",
+      );
+      save.run("mike", JSON.stringify({ name: "Mike", policy: { trigger: "on-charger", dueAfterHours: 44 } }));
+      save.run("laurel", JSON.stringify({ policy: { trigger: "plugged-in" } }));
+      save.run("spare", JSON.stringify({ name: "Spare" }));
+      raw.exec("PRAGMA user_version = 6;");
+      raw.close();
+
+      const upgraded = new StateStore(file);
+      expect(upgraded.deviceSettings("mike")).toEqual({
+        name: "Mike",
+        policy: { dueAfterHours: 44, startOnChargerAfterHours: 0 },
+      });
+      expect(upgraded.deviceSettings("laurel")).toEqual({ policy: {} });
+      expect(upgraded.deviceSettings("spare")).toEqual({ name: "Spare" });
+      upgraded.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

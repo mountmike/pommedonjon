@@ -52,6 +52,11 @@ export const DeviceStatusSchema = z.object({
   battery: BatteryStatusSchema,
   /** Whether the device will encrypt its backups. */
   backupEncryptionEnabled: z.boolean(),
+  /**
+   * Whether the phone is locked right now: false once it has recognised
+   * its owner. Missing or null when the phone does not say.
+   */
+  locked: z.boolean().nullish(),
 });
 export type DeviceStatus = Readonly<
   Omit<z.infer<typeof DeviceStatusSchema>, "battery"> & { battery: BatteryStatus }

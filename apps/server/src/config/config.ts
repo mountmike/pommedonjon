@@ -63,24 +63,44 @@ const DevicePolicySchema = z.strictObject(
     /** A backup is due once the last good one is older than this. */
     dueAfterHours: number({ min: 1 }),
     /**
-     * What "on a charger" has to mean before a due backup starts.
-     *
-     * - "plugged-in": only in the minutes after the phone goes onto power,
-     *   while its owner is likely still holding it.
-     * - "on-charger": any time the phone is on power.
+     * Whether backups start by themselves. False means only when someone
+     * asks for one.
      */
-    trigger: z.enum(["plugged-in", "on-charger"], {
-      error: 'must be "plugged-in" or "on-charger"',
-    }),
-    /** With "plugged-in": how long after going onto power a backup may start. */
+    automatic: flag,
+    /**
+     * The moments at which a wanted backup may start. Every backup needs
+     * the passcode typed on the phone, so each is a moment its owner is
+     * likely to be holding it. The longer a backup has been wanted, the
+     * less choosy the service gets (DESIGN.md, "Automatic mode").
+     *
+     * In the minutes after the phone goes onto a charger.
+     */
+    startWhenPluggedIn: flag,
+    /** With `startWhenPluggedIn`: how long after going onto power a backup may start. */
     pluggedInWindowMinutes: number({ min: 1 }),
+    /**
+     * Once a backup has been wanted for this long: also when the phone is
+     * found unlocked. Null means never.
+     */
+    startWhenUnlockedAfterHours: number({ min: 0 }).nullable(),
+    /**
+     * Once a backup has been wanted for this long: also any time the phone
+     * is on a charger. Null means never; 0 means from the start.
+     */
+    startOnChargerAfterHours: number({ min: 0 }).nullable(),
     /**
      * Only start backups inside these hours; null means any time of day.
      * Starting a backup wakes the phone and shows a passcode prompt.
      */
     window: TimeWindowSchema.nullable(),
-    /** How soon to ask again after a passcode prompt went unanswered. */
+    /**
+     * The least time between a passcode prompt that went unanswered and the
+     * next one. A fresh moment is needed as well: the plug-in or unlock
+     * that led to the unanswered prompt is not used twice.
+     */
     retryAfterTimeoutMinutes: number({ min: 1 }),
+    /** After this many unanswered prompts in 24 hours, no more are shown that day. */
+    maxUnansweredPerDay: number({ min: 1 }),
     /** How long to leave the phone alone after its owner dismissed the prompt. */
     retryAfterCancelMinutes: number({ min: 1 }),
     /** How soon to try again after a run failed for any other reason. */
@@ -100,10 +120,16 @@ export const DEFAULT_POLICY: DevicePolicy = {
   // Not 24: with a daily habit, plugging in ten minutes earlier than
   // yesterday would otherwise skip a day.
   dueAfterHours: 20,
-  trigger: "plugged-in",
+  automatic: true,
+  startWhenPluggedIn: true,
   pluggedInWindowMinutes: 30,
+  // An unlock interrupts someone about to use the phone, so it is held
+  // back until the backup has waited a while.
+  startWhenUnlockedAfterHours: 4,
+  startOnChargerAfterHours: 24,
   window: null,
   retryAfterTimeoutMinutes: 10,
+  maxUnansweredPerDay: 3,
   // A cancel is the owner saying "not now", so it buys a much longer pause.
   retryAfterCancelMinutes: 240,
   retryAfterFailureMinutes: 10,

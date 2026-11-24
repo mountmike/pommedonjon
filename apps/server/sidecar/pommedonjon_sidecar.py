@@ -189,6 +189,13 @@ async def probe(args: argparse.Namespace) -> int:
                 values = await lockdown.get_value()
                 battery = await lockdown.get_value(domain="com.apple.mobile.battery")
                 backup = await lockdown.get_value(domain="com.apple.mobile.backup")
+                # Follows the lock on iOS 26: true while locked, false once the
+                # phone has recognised its owner (FINDINGS.md, "Lock state, seen
+                # from the server"). Asked for by name, as it was measured.
+                try:
+                    locked = await lockdown.get_value(key="PasswordProtected")
+                except Exception:  # noqa: BLE001 - not every phone need say
+                    locked = None
             finally:
                 await lockdown.close()
     except Exception as error:  # noqa: BLE001 - every failure becomes one object
@@ -217,6 +224,7 @@ async def probe(args: argparse.Namespace) -> int:
                 "fullyCharged": battery.get("FullyCharged"),
             },
             "backupEncryptionEnabled": bool(backup.get("WillEncrypt")),
+            "locked": locked if isinstance(locked, bool) else None,
         }
     )
     return 0

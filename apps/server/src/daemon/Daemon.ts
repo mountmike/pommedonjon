@@ -1,7 +1,17 @@
 import type { DeviceConfig, PommedonjonConfig } from "../config/config.js";
 import type { DeviceSource } from "../settings/DeviceDirectory.js";
 import type { Logger } from "../log.js";
-import { isStale, readyToStart, schedule, type WaitReason } from "../policy/policy.js";
+import { INITIAL_LOCK_STATE, observeLock, type LockState } from "../policy/lock.js";
+import {
+  isStale,
+  lastUnansweredAt,
+  momentsInPlay,
+  readyToStart,
+  schedule,
+  wantedForMs,
+  type Moment,
+  type WaitReason,
+} from "../policy/policy.js";
 import {
   INITIAL_POWER_STATE,
   observe,
@@ -26,6 +36,8 @@ export type DeviceOutcome =
        */
       readonly reason: string;
       readonly until?: Date;
+      /** The moments that would start a backup, where it is waiting for one. */
+      readonly moments?: readonly Moment[];
     }
   | {
       readonly deviceId: string;
@@ -64,6 +76,8 @@ type RequestSource =
 export interface WaitingFor {
   readonly reason: string;
   readonly until?: Date;
+  /** The moments that would start a backup, where it is waiting for one. */
+  readonly moments?: readonly Moment[];
 }
 
 /**
@@ -115,6 +129,8 @@ export class Daemon {
   readonly #lastLogged = new Map<string, string>();
   /** What recent probes say about each phone's power, to spot a plug-in. */
   readonly #power = new Map<string, PowerState>();
+  /** What recent probes say about each phone being unlocked. */
+  readonly #lock = new Map<string, LockState>();
   /** Devices with a backup in hand, whichever way it was started. */
   readonly #busy = new Set<string>();
   /** Backups started on request that have not finished yet. */
@@ -301,6 +317,7 @@ export class Daemon {
       this.#waiting.set(device.id, {
         reason: outcome.reason,
         ...(outcome.until && { until: outcome.until }),
+        ...(outcome.moments && { moments: outcome.moments }),
       });
     } else {
       this.#waiting.delete(device.id);
@@ -350,12 +367,9 @@ export class Daemon {
       return { deviceId: device.id, action: "waited", reason: "already-running" };
     }
 
-    const plan = schedule({
-      now,
-      policy: device.policy,
-      lastSuccessAt,
-      recentAttempts: state.attemptsSince(device.id, new Date(now.getTime() - HISTORY_MS)),
-    });
+    const recentAttempts = state.attemptsSince(device.id, new Date(now.getTime() - HISTORY_MS));
+    const plan = schedule({ now, policy: device.policy, lastSuccessAt, recentAttempts });
+    const wantedMs = wantedForMs(device.policy, lastSuccessAt, now);
     const blocked = (): DeviceOutcome | undefined =>
       plan.start.allowed
         ? undefined
@@ -377,10 +391,13 @@ export class Daemon {
     } catch (error) {
       if (!(error instanceof DeviceError)) throw error;
       this.#observe(device, "unreachable", now);
+      this.#observeLock(device, undefined, now);
       return {
         deviceId: device.id,
         action: "waited",
         reason: error.reason === "failed" ? "probe-failed" : error.reason,
+        // What it will be waiting for once the phone is back.
+        moments: momentsInPlay(device.policy, wantedMs),
       };
     }
     const { status, host } = located;
@@ -389,6 +406,7 @@ export class Daemon {
       status.battery.externalPowerConnected ? "on-power" : "on-battery",
       now,
     );
+    const lock = this.#observeLock(device, status.locked, now);
 
     const waiting = blocked();
     if (waiting) return waiting;
@@ -398,9 +416,21 @@ export class Daemon {
       // off on the phone. Turning it back on is the owner's decision.
       return { deviceId: device.id, action: "waited", reason: "encryption-off" };
     }
-    const readiness = readyToStart(device.policy, power, now);
+    const readiness = readyToStart({
+      policy: device.policy,
+      power,
+      lock,
+      wantedMs,
+      lastUnansweredAt: lastUnansweredAt(recentAttempts),
+      now,
+    });
     if (!readiness.ready) {
-      return { deviceId: device.id, action: "waited", reason: readiness.reason };
+      return {
+        deviceId: device.id,
+        action: "waited",
+        reason: readiness.reason,
+        moments: readiness.moments,
+      };
     }
 
     // A request may have arrived while this pass was finding the phone.
@@ -408,6 +438,10 @@ export class Daemon {
       return { deviceId: device.id, action: "waited", reason: "already-running" };
     }
     this.#busy.add(device.id);
+    this.deps.log("info", "a good moment for a backup", {
+      device: device.id,
+      moment: readiness.moment,
+    });
     try {
       const report = await runner.run(device, host, signal);
       return { deviceId: device.id, action: "backed-up", report };
@@ -429,6 +463,29 @@ export class Daemon {
       };
       this.deps.log("info", "phone power state changed", { device: device.id, ...change });
       this.deps.state.recordDeviceEvent(device.id, at, "power", change);
+    }
+    return after;
+  }
+
+  /**
+   * Fold what a probe said about the lock into what is known. `locked` is
+   * undefined when the phone did not answer, and null or undefined when it
+   * did not say.
+   */
+  #observeLock(device: DeviceConfig, locked: boolean | null | undefined, at: Date): LockState {
+    const before = this.#lock.get(device.id) ?? INITIAL_LOCK_STATE;
+    const after = observeLock(
+      before,
+      locked === true ? "locked" : locked === false ? "unlocked" : "unknown",
+      at,
+    );
+    this.#lock.set(device.id, after);
+    if (after.kind !== before.kind) {
+      this.deps.log("info", "phone lock state changed", {
+        device: device.id,
+        from: before.kind,
+        to: after.kind,
+      });
     }
     return after;
   }

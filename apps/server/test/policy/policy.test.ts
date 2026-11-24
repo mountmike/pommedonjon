@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_POLICY, type DevicePolicy } from "../../src/config/config.js";
+import type { LockState } from "../../src/policy/lock.js";
 import {
   inWindow,
   isStale,
+  lastUnansweredAt,
+  momentsInPlay,
   readyToStart,
   schedule,
+  wantedForMs,
   type AttemptSummary,
 } from "../../src/policy/policy.js";
 import type { PowerState } from "../../src/policy/power.js";
@@ -106,16 +110,47 @@ describe("schedule", () => {
     ).toEqual(GO);
   });
 
-  it("sets no limit on how many prompts may go unanswered", () => {
+  it("stops for the day after three prompts went unanswered, until the oldest is a day old", () => {
     const recentAttempts = [
+      failed(at(9, 0), "device-locked"),
+      failed(at(13, 0), "device-locked"),
       failed(at(18, 0), "device-locked"),
-      failed(at(18, 15), "device-locked"),
-      failed(at(18, 30), "device-locked"),
-      failed(at(18, 45), "device-locked"),
+    ];
+    expect(schedule({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts })).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "backing-off", until: at(9, 1, 1) },
+    });
+    // Two is not three.
+    expect(
+      schedule({
+        now: at(19),
+        policy,
+        lastSuccessAt: undefined,
+        recentAttempts: recentAttempts.slice(1),
+      }),
+    ).toEqual(GO);
+  });
+
+  it("does not count prompts that were answered or dismissed towards that limit", () => {
+    const recentAttempts = [
+      failed(at(9, 0), "device-locked"),
+      failed(at(10, 0), "passcode-cancelled"),
+      failed(at(18, 0), "device-locked"),
     ];
     expect(schedule({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts })).toEqual(
       GO,
     );
+  });
+
+  it("starts nothing, and does not even look, when backups are only on request", () => {
+    expect(
+      schedule({
+        now: at(19),
+        policy: { ...policy, automatic: false },
+        lastSuccessAt: at(19, 0, -3),
+        recentAttempts: [],
+      }),
+    ).toEqual({ observe: false, start: { allowed: false, reason: "manual-only" } });
   });
 
   it("leaves the phone alone for hours after its owner dismissed the prompt", () => {
@@ -174,70 +209,219 @@ describe("schedule", () => {
   });
 });
 
+describe("wantedForMs", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it("is zero until the last good backup is older than how often", () => {
+    expect(wantedForMs(policy, at(19, 0, -1), at(14))).toBe(0);
+    expect(wantedForMs(policy, at(19, 0, -1), at(15))).toBe(0);
+  });
+
+  it("then counts from the moment the backup became wanted", () => {
+    // Backed up at 19:00 yesterday, so wanted from 15:00 today.
+    expect(wantedForMs(policy, at(19, 0, -1), at(19))).toBe(4 * HOUR);
+  });
+
+  it("is zero for a phone that has never been backed up: there is nothing to count from", () => {
+    expect(wantedForMs(policy, undefined, at(19))).toBe(0);
+  });
+});
+
+describe("lastUnansweredAt", () => {
+  it("is when the most recent prompt went unanswered", () => {
+    const attempts = [
+      failed(at(9), "device-locked"),
+      failed(at(13), "device-locked"),
+      failed(at(18), "passcode-cancelled"),
+    ];
+    expect(lastUnansweredAt(attempts)).toEqual(at(13, 1));
+  });
+
+  it("is nothing when none did", () => {
+    expect(lastUnansweredAt([failed(at(18), "passcode-cancelled")])).toBeUndefined();
+    expect(lastUnansweredAt([])).toBeUndefined();
+  });
+});
+
+describe("momentsInPlay", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it("gets less choosy the longer a backup has been wanted", () => {
+    expect(momentsInPlay(policy, 0)).toEqual(["plugged-in"]);
+    expect(momentsInPlay(policy, 4 * HOUR - 1)).toEqual(["plugged-in"]);
+    expect(momentsInPlay(policy, 4 * HOUR)).toEqual(["plugged-in", "unlocked"]);
+    expect(momentsInPlay(policy, 24 * HOUR)).toEqual(["plugged-in", "unlocked", "on-charger"]);
+  });
+
+  it("leaves out a moment that is switched off, however long the wait", () => {
+    const fussy = {
+      ...policy,
+      startWhenPluggedIn: false,
+      startWhenUnlockedAfterHours: null,
+      startOnChargerAfterHours: 0,
+    };
+    expect(momentsInPlay(fussy, 0)).toEqual(["on-charger"]);
+    expect(momentsInPlay({ ...fussy, startOnChargerAfterHours: null }, 99 * HOUR)).toEqual([]);
+  });
+});
+
 describe("readyToStart", () => {
+  const HOUR = 60 * 60 * 1000;
   const pluggedIn = (since: Date): PowerState => ({ kind: "on-power", since, pluggedIn: true });
   const alreadyCharging = (since: Date): PowerState => ({
     kind: "on-power",
     since,
     pluggedIn: false,
   });
+  const LOCKED: LockState = { kind: "locked" };
+  const unlocked = (since: Date): LockState => ({ kind: "unlocked", since });
 
-  it("never starts on battery, whichever trigger is set", () => {
-    for (const trigger of ["plugged-in", "on-charger"] as const) {
-      expect(readyToStart({ ...policy, trigger }, { kind: "on-battery" }, at(19))).toEqual({
-        ready: false,
-        reason: "on-battery",
-      });
-    }
-  });
+  /** Ask with everything quiet unless a test says otherwise. */
+  const ask = (input: Partial<Parameters<typeof readyToStart>[0]> & { now: Date }) =>
+    readyToStart({
+      policy,
+      power: { kind: "on-battery" },
+      lock: LOCKED,
+      wantedMs: 0,
+      lastUnansweredAt: undefined,
+      ...input,
+    });
 
-  describe('trigger "plugged-in"', () => {
-    const plugged = { ...policy, trigger: "plugged-in" as const, pluggedInWindowMinutes: 30 };
-
+  describe("a backup that has only just become wanted", () => {
     it("starts in the minutes after the phone goes onto power", () => {
-      expect(readyToStart(plugged, pluggedIn(at(19)), at(19, 0))).toEqual({ ready: true });
-      expect(readyToStart(plugged, pluggedIn(at(19)), at(19, 30))).toEqual({ ready: true });
+      const go = { ready: true, moment: "plugged-in" };
+      expect(ask({ power: pluggedIn(at(19)), now: at(19, 0) })).toEqual(go);
+      expect(ask({ power: pluggedIn(at(19)), now: at(19, 30) })).toEqual(go);
     });
 
     it("does not start once the phone has been on power longer than the window", () => {
-      expect(readyToStart(plugged, pluggedIn(at(19)), at(19, 31))).toEqual({
-        ready: false,
-        reason: "plug-in-window-passed",
-      });
+      const passed = { ready: false, reason: "plug-in-window-passed", moments: ["plugged-in"] };
+      expect(ask({ power: pluggedIn(at(19)), now: at(19, 31) })).toEqual(passed);
       // So a phone left charging overnight is not prompted at 3 a.m. when its
       // backup falls due.
-      expect(readyToStart(plugged, pluggedIn(at(22, 0, -1)), at(3))).toEqual({
-        ready: false,
-        reason: "plug-in-window-passed",
-      });
+      expect(ask({ power: pluggedIn(at(22, 0, -1)), now: at(3) })).toEqual(passed);
     });
 
     it("does not start on a phone that was already charging when first seen", () => {
-      expect(readyToStart(plugged, alreadyCharging(at(19)), at(19))).toEqual({
+      expect(ask({ power: alreadyCharging(at(19)), now: at(19) })).toEqual({
         ready: false,
         reason: "waiting-for-plug-in",
+        moments: ["plugged-in"],
+      });
+    });
+
+    it("does not start on battery, even with the phone unlocked in its owner's hand", () => {
+      expect(ask({ lock: unlocked(at(19)), now: at(19) })).toEqual({
+        ready: false,
+        reason: "on-battery",
+        moments: ["plugged-in"],
+      });
+    });
+
+    it("does not start when the phone's power is unknown or it is not answering", () => {
+      expect(ask({ power: { kind: "unknown" }, now: at(19) }).ready).toBe(false);
+      expect(
+        ask({
+          power: { kind: "unreachable", since: at(19), before: { kind: "on-battery" } },
+          now: at(19),
+        }).ready,
+      ).toBe(false);
+    });
+  });
+
+  describe("a backup that has been wanted for four hours", () => {
+    const waited = { wantedMs: 4 * HOUR };
+
+    it("also starts when the phone is found unlocked, on battery or not", () => {
+      expect(ask({ ...waited, lock: unlocked(at(19)), now: at(19) })).toEqual({
+        ready: true,
+        moment: "unlocked",
+      });
+    });
+
+    it("does not start while the phone is locked, or will not say", () => {
+      const waiting = {
+        ready: false,
+        reason: "on-battery",
+        moments: ["plugged-in", "unlocked"],
+      };
+      expect(ask({ ...waited, now: at(19) })).toEqual(waiting);
+      expect(ask({ ...waited, lock: { kind: "unknown" }, now: at(19) })).toEqual(waiting);
+    });
+
+    it("still does not start just because the phone sits on a charger", () => {
+      expect(ask({ ...waited, power: alreadyCharging(at(12)), now: at(19) }).ready).toBe(false);
+    });
+  });
+
+  describe("a backup that has been wanted for a day", () => {
+    const waited = { wantedMs: 24 * HOUR };
+
+    it("also starts any time the phone is on a charger, however long it has been there", () => {
+      const go = { ready: true, moment: "on-charger" };
+      expect(ask({ ...waited, power: pluggedIn(at(22, 0, -1)), now: at(3) })).toEqual(go);
+      expect(ask({ ...waited, power: alreadyCharging(at(19)), now: at(19) })).toEqual(go);
+    });
+  });
+
+  describe("after a prompt nobody answered", () => {
+    const waited = { wantedMs: 30 * HOUR, lastUnansweredAt: at(19, 3) };
+
+    it("does not use the same plug-in twice", () => {
+      expect(ask({ power: pluggedIn(at(19)), lastUnansweredAt: at(19, 3), now: at(19, 15) })).toEqual({
+        ready: false,
+        reason: "moment-used",
+        moments: ["plugged-in"],
+      });
+    });
+
+    it("starts at the next plug-in", () => {
+      expect(
+        ask({ power: pluggedIn(at(20)), lastUnansweredAt: at(19, 3), now: at(20, 1) }),
+      ).toEqual({ ready: true, moment: "plugged-in" });
+    });
+
+    it("does not use the same stretch of being unlocked twice, but does use the next", () => {
+      expect(ask({ ...waited, lock: unlocked(at(19)), now: at(19, 15) })).toMatchObject({
+        ready: false,
+        reason: "moment-used",
+      });
+      expect(ask({ ...waited, lock: unlocked(at(19, 40)), now: at(19, 41) })).toEqual({
+        ready: true,
+        moment: "unlocked",
+      });
+    });
+
+    it("on a charger with no moment to wait for, asks again only after four hours", () => {
+      const charging = alreadyCharging(at(12));
+      expect(ask({ ...waited, power: charging, now: at(23, 2) })).toMatchObject({
+        ready: false,
+        reason: "moment-used",
+      });
+      expect(ask({ ...waited, power: charging, now: at(23, 3) })).toEqual({
+        ready: true,
+        moment: "on-charger",
       });
     });
   });
 
-  describe('trigger "on-charger"', () => {
-    const charger = { ...policy, trigger: "on-charger" as const };
-
-    it("starts whenever the phone is on power, however long it has been", () => {
-      expect(readyToStart(charger, pluggedIn(at(22, 0, -1)), at(3))).toEqual({ ready: true });
-      expect(readyToStart(charger, alreadyCharging(at(19)), at(19))).toEqual({ ready: true });
+  describe("with moments switched off", () => {
+    it("any time on a charger from the start, if that is what is set", () => {
+      const charger = { ...policy, startOnChargerAfterHours: 0 };
+      expect(ask({ policy: charger, power: alreadyCharging(at(19)), now: at(19) })).toEqual({
+        ready: true,
+        moment: "on-charger",
+      });
     });
-  });
 
-  it("does not start when the phone's state is unknown or it is not answering", () => {
-    expect(readyToStart(policy, { kind: "unknown" }, at(19)).ready).toBe(false);
-    expect(
-      readyToStart(
-        policy,
-        { kind: "unreachable", since: at(19), before: { kind: "on-battery" } },
-        at(19),
-      ).ready,
-    ).toBe(false);
+    it("ignores a plug-in when plug-ins are switched off", () => {
+      const noPlugIn = { ...policy, startWhenPluggedIn: false };
+      expect(ask({ policy: noPlugIn, power: pluggedIn(at(19)), now: at(19, 1) })).toEqual({
+        ready: false,
+        reason: "waiting-for-moment",
+        moments: [],
+      });
+    });
   });
 });
 

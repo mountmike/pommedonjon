@@ -8,10 +8,14 @@
   },
   "defaultPolicy": {
     "dueAfterHours": 20,
-    "trigger": "plugged-in",
+    "automatic": true,
+    "startWhenPluggedIn": true,
     "pluggedInWindowMinutes": 30,
+    "startWhenUnlockedAfterHours": 4,
+    "startOnChargerAfterHours": 24,
     "window": null,
     "retryAfterTimeoutMinutes": 10,
+    "maxUnansweredPerDay": 3,
     "retryAfterCancelMinutes": 240,
     "retryAfterFailureMinutes": 10,
     "staleAfterHours": 72
@@ -29,7 +33,7 @@
       "udid": "00000000-0000000000000001",
       "pairRecordPath": "/run/secrets/phone-two.plist",
       "host": "192.0.2.11",
-      "policy": { "trigger": "on-charger", "window": { "start": "07:00", "end": "22:00" } }
+      "policy": { "startOnChargerAfterHours": 0, "window": { "start": "07:00", "end": "22:00" } }
     }
   ]
 }

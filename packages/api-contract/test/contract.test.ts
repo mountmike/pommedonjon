@@ -65,6 +65,11 @@ describe("the device summary", () => {
     expect(DeviceSummarySchema.parse(older).lastAttempt).toBeNull();
   });
 
+  it("says which moments a waiting phone would start at", () => {
+    const waiting = { reason: "on-battery", moments: ["plugged-in", "unlocked"] };
+    expect(DeviceSummarySchema.parse({ ...backedUp, waiting }).waiting).toEqual(waiting);
+  });
+
   it("accepts a waiting reason it has not heard of, so a newer server does not break an older app", () => {
     const parsed = DeviceSummarySchema.parse({ ...backedUp, waiting: { reason: "something-new" } });
     expect(parsed.waiting?.reason).toBe("something-new");
@@ -119,9 +124,12 @@ describe("the replies", () => {
 describe("a phone's settings", () => {
   const settings = {
     name: "Mike's iPhone",
+    automatic: true,
     dueAfterHours: 20,
-    trigger: "plugged-in",
+    startWhenPluggedIn: true,
     pluggedInWindowMinutes: 30,
+    startWhenUnlockedAfterHours: 4,
+    startOnChargerAfterHours: 24,
     quietHours: { start: "22:00", end: "07:00" },
     staleAfterHours: 72,
   };
@@ -138,6 +146,17 @@ describe("a phone's settings", () => {
     expect(DeviceSettingsChangeSchema.safeParse(odd).success).toBe(false);
   });
 
+  it("may have every moment off when backups are only on request", () => {
+    const manual = {
+      ...settings,
+      automatic: false,
+      startWhenPluggedIn: false,
+      startWhenUnlockedAfterHours: null,
+      startOnChargerAfterHours: null,
+    };
+    expect(DeviceSettingsChangeSchema.safeParse(manual).success).toBe(true);
+  });
+
   it("are accepted as a change, with the name tidied", () => {
     expect(DeviceSettingsChangeSchema.parse({ ...settings, name: "  Mike  " }).name).toBe("Mike");
   });
@@ -149,7 +168,12 @@ describe("a phone's settings", () => {
     ["a time that is not a time", { quietHours: { start: "7am", end: "22:00" } }],
     ["quiet hours of no length", { quietHours: { start: "07:00", end: "07:00" } }],
     ["an overdue warning no later than the backup", { staleAfterHours: 20 }],
-    ["a missing setting", { trigger: undefined }],
+    ["a missing setting", { automatic: undefined }],
+    ["a negative wait", { startWhenUnlockedAfterHours: -1 }],
+    [
+      "automatic backups with no moment to start at",
+      { startWhenPluggedIn: false, startWhenUnlockedAfterHours: null, startOnChargerAfterHours: null },
+    ],
   ])("refuses a change with %s", (_what, change) => {
     expect(DeviceSettingsChangeSchema.safeParse({ ...settings, ...change }).success).toBe(false);
   });

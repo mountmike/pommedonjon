@@ -117,6 +117,7 @@ export function describeDevice(facts: DeviceFacts): DeviceSummary {
         : {
             reason: waiting.reason,
             ...(waiting.until && { until: waiting.until.toISOString() }),
+            ...(waiting.moments && { moments: [...waiting.moments] }),
           },
     run: running
       ? describeRun(running, runningEvents)

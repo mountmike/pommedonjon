@@ -60,9 +60,12 @@ function describe(device: DeviceConfig): DeviceSettings {
   const { policy } = device;
   return {
     name: device.name,
+    automatic: policy.automatic,
     dueAfterHours: policy.dueAfterHours,
-    trigger: policy.trigger,
+    startWhenPluggedIn: policy.startWhenPluggedIn,
     pluggedInWindowMinutes: policy.pluggedInWindowMinutes,
+    startWhenUnlockedAfterHours: policy.startWhenUnlockedAfterHours,
+    startOnChargerAfterHours: policy.startOnChargerAfterHours,
     quietHours: quietHours(policy.window),
     staleAfterHours: policy.staleAfterHours,
   };

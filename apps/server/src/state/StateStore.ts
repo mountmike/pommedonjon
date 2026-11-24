@@ -47,7 +47,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -258,6 +258,20 @@ export class StateStore {
     }
     if (version < 6) {
       this.#db.exec(`BEGIN; ${DEVICE_SETTINGS} PRAGMA user_version = 6; COMMIT;`);
+    }
+    if (version < 7) {
+      // The "trigger" setting became the moments a backup may start at.
+      // "on-charger" meant any time on a charger, from the start; the other
+      // value was the default, which the moments' own defaults now cover.
+      this.#db.exec(`
+        BEGIN;
+        UPDATE device_settings
+           SET settings = json_set(settings, '$.policy.startOnChargerAfterHours', 0)
+         WHERE json_extract(settings, '$.policy.trigger') = 'on-charger';
+        UPDATE device_settings SET settings = json_remove(settings, '$.policy.trigger');
+        PRAGMA user_version = 7;
+        COMMIT;
+      `);
     }
   }
 

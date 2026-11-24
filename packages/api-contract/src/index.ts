@@ -70,6 +70,12 @@ export const WaitingSchema = z.object({
   reason: z.string(),
   /** When that could change, where it is knowable. */
   until: timestamp.optional(),
+  /**
+   * The moments that would start a backup, where it is waiting for one:
+   * "plugged-in" (just after going onto a charger), "unlocked", "on-charger"
+   * (any time on one). Not a closed list.
+   */
+  moments: z.array(z.string()).optional(),
 });
 export type Waiting = z.infer<typeof WaitingSchema>;
 
@@ -150,16 +156,28 @@ export type QuietHours = z.infer<typeof QuietHoursSchema>;
 export const DeviceSettingsSchema = z.object({
   /** Name to show, e.g. "Mike's iPhone". */
   name: z.string(),
+  /** Whether backups start by themselves. False: only when asked for. */
+  automatic: z.boolean(),
   /** A backup is wanted once the last good one is older than this. */
   dueAfterHours: z.number(),
   /**
-   * When a wanted backup may start: "plugged-in" is only in the minutes
-   * after the phone goes onto a charger, while its owner is likely holding
-   * it; "on-charger" is any time it is on one.
+   * The moments at which a wanted backup may start; each is a time the
+   * phone's owner is likely holding it, because every backup needs the
+   * passcode. First: in the minutes after it goes onto a charger.
    */
-  trigger: z.enum(["plugged-in", "on-charger"]),
-  /** With "plugged-in": how long after going onto a charger. */
+  startWhenPluggedIn: z.boolean(),
+  /** With `startWhenPluggedIn`: how long after going onto a charger. */
   pluggedInWindowMinutes: z.number(),
+  /**
+   * Once a backup has been wanted this long: also when the phone is found
+   * unlocked. Null for never.
+   */
+  startWhenUnlockedAfterHours: z.number().nullable(),
+  /**
+   * Once a backup has been wanted this long: also any time the phone is on
+   * a charger. Null for never; 0 for from the start.
+   */
+  startOnChargerAfterHours: z.number().nullable(),
   /** Null for none. */
   quietHours: QuietHoursSchema.nullable(),
   /** The phone is shown as overdue once its last good backup is older than this. */
@@ -185,6 +203,16 @@ export const DeviceSettingsChangeSchema = DeviceSettingsSchema.extend({
     .number()
     .min(1, { error: "must be at least 1" })
     .max(24 * 60, { error: "must be a day or less" }),
+  startWhenUnlockedAfterHours: z
+    .number()
+    .min(0, { error: "must not be negative" })
+    .max(24 * 60, { error: "must be 60 days or less" })
+    .nullable(),
+  startOnChargerAfterHours: z
+    .number()
+    .min(0, { error: "must not be negative" })
+    .max(24 * 60, { error: "must be 60 days or less" })
+    .nullable(),
   quietHours: QuietHoursSchema.refine((hours) => hours.start !== hours.end, {
     error: "start and end must differ",
   }).nullable(),
@@ -192,10 +220,19 @@ export const DeviceSettingsChangeSchema = DeviceSettingsSchema.extend({
     .number()
     .min(1, { error: "must be at least 1" })
     .max(24 * 365, { error: "must be a year or less" }),
-}).refine((settings) => settings.staleAfterHours > settings.dueAfterHours, {
-  path: ["staleAfterHours"],
-  error: "must be longer than dueAfterHours",
-});
+})
+  .refine((settings) => settings.staleAfterHours > settings.dueAfterHours, {
+    path: ["staleAfterHours"],
+    error: "must be longer than dueAfterHours",
+  })
+  .refine(
+    (settings) =>
+      !settings.automatic ||
+      settings.startWhenPluggedIn ||
+      settings.startWhenUnlockedAfterHours !== null ||
+      settings.startOnChargerAfterHours !== null,
+    { path: ["automatic"], error: "needs at least one moment at which a backup may start" },
+  );
 
 /** `POST /api/devices/<id>/backup-now`, when a backup was started (202). */
 export const BackupStartedSchema = z.object({

@@ -38,9 +38,12 @@ const MIKE: DeviceDetail = {
 
 const SETTINGS: DeviceSettings = {
   name: "Mike's iPhone",
+  automatic: true,
   dueAfterHours: 20,
-  trigger: "plugged-in",
+  startWhenPluggedIn: true,
   pluggedInWindowMinutes: 30,
+  startWhenUnlockedAfterHours: 4,
+  startOnChargerAfterHours: 24,
   quietHours: { start: "22:00", end: "07:00" },
   staleAfterHours: 72,
 };
