@@ -445,6 +445,13 @@ Komodo. So:
 - Komodo has no notion of one stack with several environments. Both
   environments are the same compose file (`deploy/compose.yaml`) deployed
   as two stacks with different variables.
+- **Nothing is prepared on the server.** The owner's other stacks keep
+  their settings in named volumes and never in folders made by hand on the
+  host, and asked for the same here. So the config and the pair records
+  each live in a named volume that Docker creates on the first deploy; only
+  the backups directory is a path on the host, because it is the NAS. A new
+  volume is empty, so both have to be put in once. How that should happen
+  without a copy command is open (O21).
 - The stacks are defined from this repository, not from the owner's stacks
   repository, because the compose file has to travel with the code it
   builds. That is a departure from how the owner's other stacks are kept.
@@ -715,3 +722,17 @@ files on the mounted share. The unprivileged container of D15 stands.
 Worth carrying into the README when storage gets its own section: a share
 that maps all writes to one account is the simplest way to give the
 container somewhere to write on a NAS.
+
+### O21. Getting the config and pair records in without copying files
+
+The deploy stack keeps them in named volumes (D20), which start empty. The
+owner asked whether pommedonjon could create its config on demand, and
+expects a web UI to manage it eventually.
+
+Most of the config has a sensible default or is fixed by the image: where
+backups and state go, the schedule. Two things cannot be invented: which
+phones to back up, which comes down to having a pair record for each, and
+which network range to look for them in.
+
+Not decided. No code has been changed for this.
+
