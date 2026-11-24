@@ -5,7 +5,9 @@ import {
   BackupStartedSchema,
   DeviceDetailSchema,
   DeviceListSchema,
+  DeviceSettingsSchema,
   type DeviceDetail,
+  type DeviceSettings,
 } from "@pommedonjon/api-contract";
 import { afterEach, describe, expect, it } from "vitest";
 import { startApiServer, type ApiServer } from "../../src/api/ApiServer.js";
@@ -34,6 +36,15 @@ const MIKE: DeviceDetail = {
   recentRuns: [],
 };
 
+const SETTINGS: DeviceSettings = {
+  name: "Mike's iPhone",
+  dueAfterHours: 20,
+  trigger: "plugged-in",
+  pluggedInWindowMinutes: 30,
+  quietHours: { start: "22:00", end: "07:00" },
+  staleAfterHours: 72,
+};
+
 /** A stand-in for the built web app. */
 async function fakeWebApp(): Promise<string> {
   webDir = await mkdtemp(path.join(tmpdir(), "pommedonjon-web-"));
@@ -50,6 +61,7 @@ async function harness(
   web?: string,
 ) {
   const asked: string[] = [];
+  const changed: { deviceId: string; wanted: unknown }[] = [];
   const pluggedIn: string[] = [];
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   server = await startApiServer({
@@ -61,6 +73,17 @@ async function harness(
         return [summary];
       },
       get: (deviceId) => (deviceId === "mike" ? MIKE : undefined),
+    },
+    settings: {
+      get: (deviceId) => (deviceId === "mike" ? SETTINGS : undefined),
+      change: (deviceId, wanted) => {
+        if (deviceId !== "mike") return undefined;
+        changed.push({ deviceId, wanted });
+        const name = (wanted as { name?: unknown }).name;
+        return name === ""
+          ? { ok: false, problems: ["name must not be empty"] }
+          : { ok: true, settings: { ...SETTINGS, ...(wanted as Partial<DeviceSettings>) } };
+      },
     },
     ...(web !== undefined && { webDir: web }),
     requestBackup: (deviceId) => {
@@ -97,7 +120,7 @@ async function harness(
       text: await response.text(),
     };
   };
-  return { asked, pluggedIn, logs, send, fetchRaw };
+  return { asked, changed, pluggedIn, logs, send, fetchRaw };
 }
 
 describe("the API", () => {
@@ -324,6 +347,76 @@ describe("the API for the app", () => {
       });
     },
   );
+});
+
+describe("the API for a phone's settings", () => {
+  it("gives what can be changed about a phone, in the shape the contract promises", async () => {
+    const h = await harness();
+    const answer = await h.send("GET", "/api/devices/mike/settings");
+    expect(answer.status).toBe(200);
+    expect(DeviceSettingsSchema.parse(answer.body)).toEqual(SETTINGS);
+  });
+
+  it("changes them to what was sent, and answers with them as saved", async () => {
+    const h = await harness();
+    const wanted = { ...SETTINGS, name: "Mike's phone", dueAfterHours: 44 };
+    const answer = await h.send("PUT", "/api/devices/mike/settings", JSON.stringify(wanted));
+    expect(answer).toMatchObject({ status: 200, body: wanted });
+    expect(h.changed).toEqual([{ deviceId: "mike", wanted }]);
+    expect(h.logs).toContainEqual({
+      level: "info",
+      message: "settings changed",
+      fields: { device: "mike", settings: wanted },
+    });
+  });
+
+  it("says what is wrong with settings it will not take", async () => {
+    const h = await harness();
+    const answer = await h.send("PUT", "/api/devices/mike/settings", JSON.stringify({ ...SETTINGS, name: "" }));
+    expect(answer).toMatchObject({
+      status: 400,
+      body: { error: "invalid-settings", problems: ["name must not be empty"] },
+    });
+  });
+
+  it("refuses a body that is not JSON, without asking for any change", async () => {
+    const h = await harness();
+    expect(await h.send("PUT", "/api/devices/mike/settings", "back up more")).toMatchObject({
+      status: 400,
+      body: { error: "invalid-json" },
+    });
+    expect(await h.send("PUT", "/api/devices/mike/settings")).toMatchObject({ status: 400 });
+    expect(h.changed).toEqual([]);
+  });
+
+  it("refuses a body far too large to be settings", async () => {
+    const h = await harness();
+    const huge = JSON.stringify({ ...SETTINGS, name: "x".repeat(20_000) });
+    expect(await h.send("PUT", "/api/devices/mike/settings", huge)).toMatchObject({
+      status: 413,
+      body: { error: "too-large" },
+    });
+    expect(h.changed).toEqual([]);
+  });
+
+  it("answers 404 for a phone it does not have, reading or changing", async () => {
+    const h = await harness();
+    const missing = { status: 404, body: { error: "unknown-device" } };
+    expect(await h.send("GET", "/api/devices/nobody/settings")).toMatchObject(missing);
+    expect(
+      await h.send("PUT", "/api/devices/nobody/settings", JSON.stringify(SETTINGS)),
+    ).toMatchObject(missing);
+  });
+
+  it("changes nothing for a POST or a DELETE", async () => {
+    const h = await harness();
+    expect(await h.send("POST", "/api/devices/mike/settings", "{}")).toMatchObject({
+      status: 405,
+      allow: "GET, PUT",
+    });
+    expect(await h.send("DELETE", "/api/devices/mike/settings")).toMatchObject({ status: 405 });
+    expect(h.changed).toEqual([]);
+  });
 });
 
 describe("serving the web app", () => {

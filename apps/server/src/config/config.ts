@@ -93,8 +93,8 @@ const DevicePolicySchema = z.strictObject(
 export type DevicePolicy = Readonly<z.infer<typeof DevicePolicySchema>>;
 
 /** What a config file may say about policy: any subset of the settings. */
-const PolicyOverridesSchema = DevicePolicySchema.partial();
-type PolicyOverrides = z.infer<typeof PolicyOverridesSchema>;
+export const PolicyOverridesSchema = DevicePolicySchema.partial();
+export type PolicyOverrides = z.infer<typeof PolicyOverridesSchema>;
 
 export const DEFAULT_POLICY: DevicePolicy = {
   // Not 24: with a daily habit, plugging in ten minutes earlier than
@@ -204,7 +204,8 @@ export class ConfigError extends Error {
   override readonly name = "ConfigError";
 }
 
-function layer(base: DevicePolicy, overrides: PolicyOverrides | undefined): DevicePolicy {
+/** A policy with some settings replaced: what is left out keeps the base's value. */
+export function layer(base: DevicePolicy, overrides: PolicyOverrides | undefined): DevicePolicy {
   // A setting that was left out inherits; an explicit null (window) does not.
   const stated = Object.fromEntries(
     Object.entries(overrides ?? {}).filter(([, value]) => value !== undefined),

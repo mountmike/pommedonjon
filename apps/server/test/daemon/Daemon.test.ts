@@ -7,6 +7,7 @@ import {
 import type { LogLevel } from "../../src/log.js";
 import type { RunReport } from "../../src/runner/BackupRunner.js";
 import { DeviceLocator } from "../../src/discovery/DeviceLocator.js";
+import { fixedDevices, type DeviceSource } from "../../src/settings/DeviceDirectory.js";
 import { StateStore } from "../../src/state/StateStore.js";
 import { FAKE_UDID, FakeTransport, fakeStatus } from "../support/fakeTransport.js";
 import { DeviceError } from "../../src/transport/DeviceTransport.js";
@@ -40,7 +41,10 @@ afterEach(() => {
   state.close();
 });
 
-function harness(devices: DeviceConfig[] = [deviceConfig()]) {
+function harness(
+  devices: DeviceConfig[] = [deviceConfig()],
+  source: DeviceSource = fixedDevices(devices),
+) {
   const transport = new FakeTransport();
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   const ran: string[] = [];
@@ -75,6 +79,7 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
   const hosts: string[] = [];
   const daemon = new Daemon({
     config,
+    devices: source,
     locator: new DeviceLocator({
       transport,
       addresses: state,
@@ -463,6 +468,68 @@ describe("Daemon.waitingFor", () => {
     await h.daemon.tick();
     expect(h.ran).toEqual(["mike"]);
     expect(h.daemon.waitingFor("mike")).toBeUndefined();
+  });
+});
+
+describe("Daemon and changed settings", () => {
+  /** Phones whose settings can be changed under the daemon, as the app does. */
+  function changeable(first: DeviceConfig) {
+    let current = first;
+    const source: DeviceSource = {
+      all: () => [current],
+      get: (id) => (id === current.id ? current : undefined),
+    };
+    return { source, change: (next: DeviceConfig) => (current = next) };
+  }
+
+  it("uses a phone's settings as they are on each pass, not as they were at the start", async () => {
+    // Backed up an hour ago: with the default 20 hours, nothing is due.
+    const phones = changeable(deviceConfig());
+    const h = harness([], phones.source);
+    const earlier = state.startRun("mike", at(18));
+    state.finishRun(earlier, at(18, 5), { outcome: "succeeded", durationMs: 1 });
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "not-due" }]);
+
+    // Its owner now asks for a backup every half hour.
+    phones.change(deviceConfig({ policy: { ...DEFAULT_POLICY, trigger: "on-charger", dueAfterHours: 0.5 } }));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
+    expect(h.ran).toEqual(["mike"]);
+  });
+
+  it("follows changed settings while running, without a restart", async () => {
+    const phones = changeable(deviceConfig());
+    const h = harness([], phones.source);
+    const earlier = state.startRun("mike", at(18));
+    state.finishRun(earlier, at(18, 5), { outcome: "succeeded", durationMs: 1 });
+    const controller = new AbortController();
+    let passes = 0;
+    h.onSleep(() => {
+      passes += 1;
+      if (passes === 1) {
+        phones.change(
+          deviceConfig({ policy: { ...DEFAULT_POLICY, trigger: "on-charger", dueAfterHours: 0.5 } }),
+        );
+      } else {
+        controller.abort();
+      }
+    });
+
+    await h.daemon.run(controller.signal);
+    expect(h.ran).toEqual(["mike"]);
+  });
+
+  it("forgets why a phone was waiting when its settings change, until it has looked again", async () => {
+    const h = harness();
+    const earlier = state.startRun("mike", at(18));
+    state.finishRun(earlier, at(18, 5), { outcome: "succeeded", durationMs: 1 });
+    await h.daemon.tick();
+    expect(h.daemon.waitingFor("mike")).toMatchObject({ reason: "not-due" });
+
+    h.daemon.settingsChanged("mike");
+    expect(h.daemon.waitingFor("mike")).toBeUndefined();
+
+    await h.daemon.tick();
+    expect(h.daemon.waitingFor("mike")).toMatchObject({ reason: "not-due" });
   });
 });
 
@@ -984,14 +1051,8 @@ describe("Daemon.run", () => {
     controller.abort();
     const logs: { message: string; fields: unknown }[] = [];
     const daemon = new Daemon({
-      config: {
-        backupRoot: "/backups",
-        stateDir: "/state",
-        pollIntervalSeconds: 120,
-        sidecar: {},
-        discovery: { ranges: [], scanIntervalSeconds: 300 },
-        devices: [],
-      },
+      config: { pollIntervalSeconds: 120 },
+      devices: fixedDevices([]),
       locator: { locate: () => Promise.reject(new Error("unused")) },
       runner: { run: () => Promise.reject(new Error("unused")) },
       state,

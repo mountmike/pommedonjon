@@ -328,3 +328,42 @@ describe("StateStore on disk", () => {
     second.close();
   });
 });
+
+describe("StateStore device settings", () => {
+  it("has none for a phone until some are saved", () => {
+    expect(store.deviceSettings("mike")).toBeUndefined();
+  });
+
+  it("gives back what was saved, and replaces it on the next save", () => {
+    store.saveDeviceSettings("mike", { name: "Mike's iPhone" }, t("2026-11-25T08:00:00Z"));
+    expect(store.deviceSettings("mike")).toEqual({ name: "Mike's iPhone" });
+
+    store.saveDeviceSettings("mike", { policy: { dueAfterHours: 44 } }, t("2026-11-25T09:00:00Z"));
+    expect(store.deviceSettings("mike")).toEqual({ policy: { dueAfterHours: 44 } });
+  });
+
+  it("keeps each phone's settings apart", () => {
+    store.saveDeviceSettings("mike", { name: "Mike" }, t("2026-11-25T08:00:00Z"));
+    expect(store.deviceSettings("laurel")).toBeUndefined();
+  });
+
+  it("is added to a database from before settings were kept", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-state-"));
+    const file = path.join(dir, "state.sqlite");
+    try {
+      const first = new StateStore(file);
+      first.close();
+      // Wind it back to how schema 5 left it.
+      const raw = new DatabaseSync(file);
+      raw.exec("DROP TABLE device_settings; PRAGMA user_version = 5;");
+      raw.close();
+
+      const upgraded = new StateStore(file);
+      upgraded.saveDeviceSettings("mike", { name: "Mike" }, t("2026-11-25T08:00:00Z"));
+      expect(upgraded.deviceSettings("mike")).toEqual({ name: "Mike" });
+      upgraded.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

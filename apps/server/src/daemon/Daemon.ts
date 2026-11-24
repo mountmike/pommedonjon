@@ -1,4 +1,5 @@
 import type { DeviceConfig, PommedonjonConfig } from "../config/config.js";
+import type { DeviceSource } from "../settings/DeviceDirectory.js";
 import type { Logger } from "../log.js";
 import { isStale, readyToStart, schedule, type WaitReason } from "../policy/policy.js";
 import {
@@ -82,7 +83,12 @@ export interface RequestState {
 }
 
 export interface DaemonDeps {
-  readonly config: PommedonjonConfig;
+  readonly config: Pick<PommedonjonConfig, "pollIntervalSeconds">;
+  /**
+   * The phones, looked at afresh on every pass, so a setting changed from
+   * the app takes effect without a restart.
+   */
+  readonly devices: DeviceSource;
   readonly locator: Pick<DeviceLocator, "locate">;
   readonly runner: Pick<BackupRunner, "run">;
   readonly state: StateStore;
@@ -126,7 +132,7 @@ export class Daemon {
 
   /** Run until the signal aborts. */
   async run(signal: AbortSignal): Promise<void> {
-    const { config, state, log, clock } = this.deps;
+    const { config, devices, state, log, clock } = this.deps;
     this.#signal = signal;
     const interrupted = state.failInterruptedRuns(clock());
     if (interrupted > 0) {
@@ -136,11 +142,11 @@ export class Daemon {
     }
     log("info", "pommedonjon started", {
       ...(this.deps.version !== undefined && { version: this.deps.version }),
-      devices: config.devices.map((device) => device.id),
+      devices: devices.all().map((device) => device.id),
       pollIntervalSeconds: config.pollIntervalSeconds,
     });
 
-    await Promise.all(config.devices.map((device) => this.#cycle(device, signal)));
+    await Promise.all(devices.all().map((device) => this.#cycle(device.id, signal)));
     await Promise.all(this.#requested);
     log("info", "pommedonjon stopped");
   }
@@ -157,7 +163,7 @@ export class Daemon {
    * background and reports through the log and the history like any other.
    */
   requestBackup(deviceId: string): BackupRequestResult {
-    const device = this.deps.config.devices.find((candidate) => candidate.id === deviceId);
+    const device = this.deps.devices.get(deviceId);
     if (!device) return "unknown-device";
     if (this.#busy.has(device.id)) return "already-running";
 
@@ -177,8 +183,8 @@ export class Daemon {
    * dismissed prompt.
    */
   reportPlugIn(deviceId: string): PlugInReportResult {
-    const { config, state, log, clock } = this.deps;
-    const device = config.devices.find((candidate) => candidate.id === deviceId);
+    const { devices, state, log, clock } = this.deps;
+    const device = devices.get(deviceId);
     if (!device) return { outcome: "unknown-device" };
     if (this.#busy.has(device.id)) return { outcome: "already-running" };
 
@@ -261,9 +267,12 @@ export class Daemon {
   }
 
   /** One device's cycle: consider it, pause, repeat, until told to stop. */
-  async #cycle(device: DeviceConfig, signal: AbortSignal): Promise<void> {
-    const { config, sleep } = this.deps;
+  async #cycle(deviceId: string, signal: AbortSignal): Promise<void> {
+    const { config, devices, sleep } = this.deps;
     while (!signal.aborted) {
+      // Looked up each time: its settings may have been changed since.
+      const device = devices.get(deviceId);
+      if (!device) return;
       await this.#pass(device, signal);
       await sleep(config.pollIntervalSeconds * 1000, signal);
     }
@@ -271,7 +280,7 @@ export class Daemon {
 
   /** Consider every configured device once, all at the same time. */
   tick(signal?: AbortSignal): Promise<DeviceOutcome[]> {
-    return Promise.all(this.deps.config.devices.map((device) => this.#pass(device, signal)));
+    return Promise.all(this.deps.devices.all().map((device) => this.#pass(device, signal)));
   }
 
   /** Consider one device once. Never rejects. */
@@ -308,6 +317,16 @@ export class Daemon {
    */
   waitingFor(deviceId: string): WaitingFor | undefined {
     return this.#waiting.get(deviceId);
+  }
+
+  /**
+   * A phone's settings have been changed. What was last worked out about
+   * why it is waiting came from the old ones, so it is forgotten until the
+   * next pass works it out again.
+   */
+  settingsChanged(deviceId: string): void {
+    this.#waiting.delete(deviceId);
+    this.#lastLogged.delete(deviceId);
   }
 
   /**

@@ -4,12 +4,21 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import type { BackupRequestResult, PlugInReportResult } from "../daemon/Daemon.js";
+import type { DeviceSettings } from "@pommedonjon/api-contract";
 import type { Logger } from "../log.js";
+import type { ChangeResult } from "../settings/DeviceDirectory.js";
 import type { DeviceReader } from "./DeviceReader.js";
 
 export interface ApiDeps {
   /** What is known about each phone, for the app's screens. */
   readonly devices: DeviceReader;
+  /** What can be changed about each phone from the app. */
+  readonly settings: {
+    /** Undefined for a phone that is not configured. */
+    get(deviceId: string): DeviceSettings | undefined;
+    /** Undefined for a phone that is not configured. */
+    change(deviceId: string, wanted: unknown): ChangeResult | undefined;
+  };
   /** Ask for a phone to be backed up now. */
   readonly requestBackup: (deviceId: string) => BackupRequestResult;
   /** Tell the daemon a phone has just been plugged in. */
@@ -33,6 +42,10 @@ const DEVICE_ID = "[a-z0-9][a-z0-9-]{0,31}";
 const API_DEVICE = new RegExp(`^/api/devices/(${DEVICE_ID})/?$`);
 /** `/api/devices/<id>/backup-now`: the app's "Back up now". */
 const API_BACKUP_NOW = new RegExp(`^/api/devices/(${DEVICE_ID})/backup-now/?$`);
+/** `/api/devices/<id>/settings`: what the app can change about a phone. */
+const API_SETTINGS = new RegExp(`^/api/devices/(${DEVICE_ID})/settings/?$`);
+/** Settings are a few hundred bytes; anything much larger is not settings. */
+const MAX_BODY_BYTES = 16 * 1024;
 /** `/devices/<id>/<action>`: the requests the proof of concept's Shortcuts send. */
 const DEVICE_ACTION = new RegExp(`^/devices/(${DEVICE_ID})/(backup-now|plugged-in)/?$`);
 
@@ -69,6 +82,24 @@ function reply(
     ...headers,
   });
   res.end(text);
+}
+
+/** The request's body as JSON, or why it could not be read. */
+async function readJson(
+  req: IncomingMessage,
+): Promise<{ ok: true; body: unknown } | { ok: false; status: number; error: string }> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) return { ok: false, status: 413, error: "too-large" };
+    chunks.push(chunk);
+  }
+  try {
+    return { ok: true, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown };
+  } catch {
+    return { ok: false, status: 400, error: "invalid-json" };
+  }
 }
 
 async function isFile(file: string): Promise<boolean> {
@@ -142,6 +173,10 @@ async function serveWeb(
  * - `GET /api/devices`: every phone and its state.
  * - `GET /api/devices/<id>`: one phone, with its recent runs. 404
  *   `{"error":"unknown-device"}` for a phone that is not configured.
+ * - `GET /api/devices/<id>/settings`: what can be changed about a phone.
+ * - `PUT /api/devices/<id>/settings`: change it, sending all of it. 200
+ *   with the settings as saved, 400 `{"error":"invalid-settings",
+ *   "problems":[...]}`, 404 `{"error":"unknown-device"}`.
  * - `POST /api/devices/<id>/backup-now`: back the phone up now, whatever
  *   the schedule says. 202 `{"status":"started"}`, 404
  *   `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`.
@@ -164,12 +199,28 @@ async function serveWeb(
  */
 export function createApiHandler(deps: ApiDeps) {
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // Nothing is read from the body; let it drain so the socket can be reused.
-    req.resume();
-
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
     const reading = method === "GET" || method === "HEAD";
+
+    const settingsOf = API_SETTINGS.exec(pathname)?.[1];
+    if (settingsOf !== undefined && method === "PUT") {
+      await changeSettings(req, res, settingsOf);
+      return;
+    }
+    // Nothing else reads the body; let it drain so the socket can be reused.
+    req.resume();
+
+    if (settingsOf !== undefined) {
+      if (!reading) {
+        reply(res, 405, { error: "method-not-allowed" }, { allow: "GET, PUT" });
+        return;
+      }
+      const settings = deps.settings.get(settingsOf);
+      if (settings) reply(res, 200, settings);
+      else reply(res, 404, { error: "unknown-device" });
+      return;
+    }
 
     if (pathname === "/api" || pathname.startsWith("/api/")) {
       const backupNow = API_BACKUP_NOW.exec(pathname)?.[1];
@@ -208,6 +259,29 @@ export function createApiHandler(deps: ApiDeps) {
       if (await serveWeb(deps.webDir, pathname, method, res)) return;
     }
     reply(res, 404, { error: "not-found" });
+  }
+
+  async function changeSettings(
+    req: IncomingMessage,
+    res: ServerResponse,
+    deviceId: string,
+  ): Promise<void> {
+    const sent = await readJson(req);
+    if (!sent.ok) {
+      // Whatever is left of the body is not wanted.
+      req.resume();
+      reply(res, sent.status, { error: sent.error });
+      return;
+    }
+    const result = deps.settings.change(deviceId, sent.body);
+    if (result === undefined) {
+      reply(res, 404, { error: "unknown-device" });
+    } else if (!result.ok) {
+      reply(res, 400, { error: "invalid-settings", problems: result.problems });
+    } else {
+      deps.log("info", "settings changed", { device: deviceId, settings: result.settings });
+      reply(res, 200, result.settings);
+    }
   }
 
   function act(res: ServerResponse, deviceId: string, action: string): void {

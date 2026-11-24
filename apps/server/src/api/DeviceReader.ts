@@ -1,6 +1,7 @@
 import type { DeviceDetail, DeviceSummary } from "@pommedonjon/api-contract";
-import type { PommedonjonConfig } from "../config/config.js";
+import type { DeviceConfig } from "../config/config.js";
 import type { Daemon } from "../daemon/Daemon.js";
+import type { DeviceSource } from "../settings/DeviceDirectory.js";
 import type { StateStore } from "../state/StateStore.js";
 import { describeDevice, describeDeviceDetail, type DeviceFacts } from "./describeDevice.js";
 
@@ -13,16 +14,16 @@ export interface DeviceReader {
   get(deviceId: string): DeviceDetail | undefined;
 }
 
-/** Gathers what the config, the run history and the daemon know about each phone. */
+/** Gathers what the settings, the run history and the daemon know about each phone. */
 export function createDeviceReader(deps: {
-  readonly config: Pick<PommedonjonConfig, "devices">;
+  readonly devices: DeviceSource;
   readonly state: Pick<StateStore, "lastSuccessAt" | "recentRuns" | "eventsFor">;
   readonly daemon: Pick<Daemon, "waitingFor" | "requestFor">;
   readonly clock: () => Date;
 }): DeviceReader {
-  const { config, state, daemon, clock } = deps;
+  const { devices, state, daemon, clock } = deps;
 
-  function facts(device: PommedonjonConfig["devices"][number]): DeviceFacts {
+  function facts(device: DeviceConfig): DeviceFacts {
     const recentRuns = state.recentRuns(device.id, RECENT_RUNS);
     const running = recentRuns.find((run) => run.outcome === "running");
     return {
@@ -37,9 +38,9 @@ export function createDeviceReader(deps: {
   }
 
   return {
-    list: () => config.devices.map((device) => describeDevice(facts(device))),
+    list: () => devices.all().map((device) => describeDevice(facts(device))),
     get: (deviceId) => {
-      const device = config.devices.find((candidate) => candidate.id === deviceId);
+      const device = devices.get(deviceId);
       return device ? describeDeviceDetail(facts(device)) : undefined;
     },
   };

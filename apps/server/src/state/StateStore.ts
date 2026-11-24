@@ -47,7 +47,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -87,6 +87,19 @@ const DEVICE_EVENTS = `
     detail    TEXT    NOT NULL
   ) STRICT;
   CREATE INDEX device_events_by_device ON device_events (device_id, at);
+`;
+
+/**
+ * Added in schema 6: what has been changed about a phone from the app, as
+ * a JSON document. What it may hold is the settings layer's business, not
+ * this store's.
+ */
+const DEVICE_SETTINGS = `
+  CREATE TABLE device_settings (
+    device_id  TEXT    PRIMARY KEY,
+    settings   TEXT    NOT NULL,
+    updated_at INTEGER NOT NULL
+  ) STRICT;
 `;
 
 /** Added in schema 3: where each phone was last reached. */
@@ -222,7 +235,7 @@ export class StateStore {
     }
     if (version === 0) {
       this.#db.exec(
-        `BEGIN; ${SCHEMA} ${ADDRESSES} ${DEVICE_EVENTS} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`,
+        `BEGIN; ${SCHEMA} ${ADDRESSES} ${DEVICE_EVENTS} ${DEVICE_SETTINGS} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`,
       );
       return;
     }
@@ -242,6 +255,9 @@ export class StateStore {
     if (version < 5) {
       // Stale-backup alerts are no longer remembered between restarts.
       this.#db.exec("BEGIN; DROP TABLE IF EXISTS alerts; PRAGMA user_version = 5; COMMIT;");
+    }
+    if (version < 6) {
+      this.#db.exec(`BEGIN; ${DEVICE_SETTINGS} PRAGMA user_version = 6; COMMIT;`);
     }
   }
 
@@ -398,5 +414,34 @@ export class StateStore {
          ON CONFLICT (device_id) DO UPDATE SET host = excluded.host, seen_at = excluded.seen_at`,
       )
       .run(deviceId, host, at.getTime());
+  }
+
+  /**
+   * What has been changed about a phone from the app, as it was saved.
+   * Undefined if nothing has. The caller checks what it holds.
+   */
+  deviceSettings(deviceId: string): unknown {
+    const row = this.#db
+      .prepare("SELECT settings FROM device_settings WHERE device_id = ?")
+      .get(deviceId);
+    if (row === undefined) return undefined;
+    const { settings } = read(z.object({ settings: z.string() }), "a phone's settings", row);
+    try {
+      return JSON.parse(settings) as unknown;
+    } catch {
+      throw new Error(
+        "the state database holds a phone's settings this version cannot read: not JSON",
+      );
+    }
+  }
+
+  saveDeviceSettings(deviceId: string, settings: object, at: Date): void {
+    this.#db
+      .prepare(
+        `INSERT INTO device_settings (device_id, settings, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT (device_id) DO UPDATE
+           SET settings = excluded.settings, updated_at = excluded.updated_at`,
+      )
+      .run(deviceId, JSON.stringify(settings), at.getTime());
   }
 }

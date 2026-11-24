@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   BackupStartedSchema,
   DeviceDetailSchema,
+  DeviceSettingsChangeSchema,
+  DeviceSettingsSchema,
   DeviceListSchema,
   DeviceSummarySchema,
   type DeviceSummary,
@@ -111,5 +113,44 @@ describe("the replies", () => {
       ],
     };
     expect(DeviceDetailSchema.parse(detail)).toEqual(detail);
+  });
+});
+
+describe("a phone's settings", () => {
+  const settings = {
+    name: "Mike's iPhone",
+    dueAfterHours: 20,
+    trigger: "plugged-in",
+    pluggedInWindowMinutes: 30,
+    quietHours: { start: "22:00", end: "07:00" },
+    staleAfterHours: 72,
+  };
+
+  it("are read as they stand, with or without quiet hours", () => {
+    expect(DeviceSettingsSchema.parse(settings)).toEqual(settings);
+    expect(DeviceSettingsSchema.parse({ ...settings, quietHours: null }).quietHours).toBeNull();
+  });
+
+  it("are read even when a config file set something the app would not offer", () => {
+    // The file allows an overdue warning sooner than the backup is wanted.
+    const odd = { ...settings, dueAfterHours: 30.5, staleAfterHours: 24 };
+    expect(DeviceSettingsSchema.safeParse(odd).success).toBe(true);
+    expect(DeviceSettingsChangeSchema.safeParse(odd).success).toBe(false);
+  });
+
+  it("are accepted as a change, with the name tidied", () => {
+    expect(DeviceSettingsChangeSchema.parse({ ...settings, name: "  Mike  " }).name).toBe("Mike");
+  });
+
+  it.each([
+    ["an empty name", { name: " " }],
+    ["a name that goes on and on", { name: "x".repeat(61) }],
+    ["a backup every zero hours", { dueAfterHours: 0 }],
+    ["a time that is not a time", { quietHours: { start: "7am", end: "22:00" } }],
+    ["quiet hours of no length", { quietHours: { start: "07:00", end: "07:00" } }],
+    ["an overdue warning no later than the backup", { staleAfterHours: 20 }],
+    ["a missing setting", { trigger: undefined }],
+  ])("refuses a change with %s", (_what, change) => {
+    expect(DeviceSettingsChangeSchema.safeParse({ ...settings, ...change }).success).toBe(false);
   });
 });

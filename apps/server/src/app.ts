@@ -6,6 +6,7 @@ import { DeviceLocator } from "./discovery/DeviceLocator.js";
 import { PortScanner } from "./discovery/PortScanner.js";
 import type { Logger } from "./log.js";
 import { BackupRunner } from "./runner/BackupRunner.js";
+import { DeviceDirectory } from "./settings/DeviceDirectory.js";
 import { Sidecar } from "./sidecar/Sidecar.js";
 import { StateStore } from "./state/StateStore.js";
 import { BackupStore } from "./storage/BackupStore.js";
@@ -36,6 +37,8 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 export interface App {
   readonly config: PommedonjonConfig;
+  /** The phones, with what has been changed from the app applied. */
+  readonly devices: DeviceDirectory;
   readonly transport: DeviceTransport;
   readonly locator: DeviceLocator;
   readonly state: StateStore;
@@ -61,6 +64,8 @@ export function createApp(
 
   mkdirSync(config.stateDir, { recursive: true });
   const state = new StateStore(path.join(config.stateDir, "pommedonjon.sqlite"));
+
+  const devices = new DeviceDirectory({ devices: config.devices, state });
 
   const store = new BackupStore(config.backupRoot);
   const clock = () => new Date();
@@ -88,6 +93,7 @@ export function createApp(
   });
   const daemon = new Daemon({
     config,
+    devices,
     locator,
     runner,
     state,
@@ -99,6 +105,7 @@ export function createApp(
 
   return {
     config,
+    devices,
     transport,
     locator,
     state,

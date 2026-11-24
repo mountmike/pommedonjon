@@ -42,10 +42,10 @@ variable.
 class UsageError extends Error {}
 
 function pickDevices(app: App, id: string | undefined): readonly DeviceConfig[] {
-  if (id === undefined) return app.config.devices;
-  const device = app.config.devices.find((candidate) => candidate.id === id);
+  if (id === undefined) return app.devices.all();
+  const device = app.devices.all().find((candidate) => candidate.id === id);
   if (!device) {
-    const known = app.config.devices.map((candidate) => candidate.id).join(", ");
+    const known = app.devices.all().map((candidate) => candidate.id).join(", ");
     throw new UsageError(`no device "${id}" in the config (known: ${known})`);
   }
   return [device];
@@ -100,7 +100,7 @@ async function backup(app: App, deviceId: string | undefined, signal: AbortSigna
 }
 
 function status(app: App): number {
-  for (const device of app.config.devices) {
+  for (const device of app.devices.all()) {
     const last = app.state.lastSuccessAt(device.id);
     print(`${device.id}: last good backup ${last ? last.toISOString() : "never"}`);
     for (const run of app.state.recentRuns(device.id, 5)) {
@@ -182,7 +182,7 @@ async function main(argv: readonly string[]): Promise<number> {
   try {
     if (command !== "status" && command !== "report") {
       // Said once at start-up, before anything depends on it.
-      for (const device of app.config.devices) {
+      for (const device of app.devices.all()) {
         const finding = await inspectPairRecord(device.pairRecordPath);
         if (finding) jsonLogger(finding.level, finding.problem, { device: device.id });
       }
@@ -196,11 +196,20 @@ async function main(argv: readonly string[]): Promise<number> {
             : await startApiServer({
                 port: app.config.api.port,
                 devices: createDeviceReader({
-                  config: app.config,
+                  devices: app.devices,
                   state: app.state,
                   daemon: app.daemon,
                   clock: () => new Date(),
                 }),
+                settings: {
+                  get: (deviceId) => app.devices.settingsOf(deviceId),
+                  change: (deviceId, wanted) => {
+                    const result = app.devices.change(deviceId, wanted, new Date());
+                    // What the daemon last worked out came from the old settings.
+                    if (result?.ok) app.daemon.settingsChanged(deviceId);
+                    return result;
+                  },
+                },
                 ...(webDir !== undefined && { webDir }),
                 requestBackup: (deviceId) => app.daemon.requestBackup(deviceId),
                 reportPlugIn: (deviceId) => app.daemon.reportPlugIn(deviceId),

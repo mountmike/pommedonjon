@@ -133,6 +133,70 @@ export const DeviceDetailSchema = DeviceSummarySchema.extend({
 });
 export type DeviceDetail = z.infer<typeof DeviceDetailSchema>;
 
+/** A time of day on a 24-hour clock, in the server's time zone: "22:00". */
+const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
+/**
+ * Hours in which no backup is started, because starting one wakes the
+ * phone and asks for its passcode. May run past midnight: 22:00 to 07:00.
+ */
+export const QuietHoursSchema = z.object({ start: timeOfDay, end: timeOfDay });
+export type QuietHours = z.infer<typeof QuietHoursSchema>;
+
+/**
+ * What can be changed about one phone from the app.
+ * `GET /api/devices/<id>/settings`
+ */
+export const DeviceSettingsSchema = z.object({
+  /** Name to show, e.g. "Mike's iPhone". */
+  name: z.string(),
+  /** A backup is wanted once the last good one is older than this. */
+  dueAfterHours: z.number(),
+  /**
+   * When a wanted backup may start: "plugged-in" is only in the minutes
+   * after the phone goes onto a charger, while its owner is likely holding
+   * it; "on-charger" is any time it is on one.
+   */
+  trigger: z.enum(["plugged-in", "on-charger"]),
+  /** With "plugged-in": how long after going onto a charger. */
+  pluggedInWindowMinutes: z.number(),
+  /** Null for none. */
+  quietHours: QuietHoursSchema.nullable(),
+  /** The phone is shown as overdue once its last good backup is older than this. */
+  staleAfterHours: z.number(),
+});
+export type DeviceSettings = z.infer<typeof DeviceSettingsSchema>;
+
+/**
+ * The same, as the server will accept it: the body of
+ * `PUT /api/devices/<id>/settings`. Everything is sent, changed or not.
+ */
+export const DeviceSettingsChangeSchema = DeviceSettingsSchema.extend({
+  name: z
+    .string()
+    .trim()
+    .min(1, { error: "must not be empty" })
+    .max(60, { error: "must be 60 characters or fewer" }),
+  dueAfterHours: z
+    .number()
+    .min(1, { error: "must be at least 1" })
+    .max(24 * 60, { error: "must be 60 days or less" }),
+  pluggedInWindowMinutes: z
+    .number()
+    .min(1, { error: "must be at least 1" })
+    .max(24 * 60, { error: "must be a day or less" }),
+  quietHours: QuietHoursSchema.refine((hours) => hours.start !== hours.end, {
+    error: "start and end must differ",
+  }).nullable(),
+  staleAfterHours: z
+    .number()
+    .min(1, { error: "must be at least 1" })
+    .max(24 * 365, { error: "must be a year or less" }),
+}).refine((settings) => settings.staleAfterHours > settings.dueAfterHours, {
+  path: ["staleAfterHours"],
+  error: "must be longer than dueAfterHours",
+});
+
 /** `POST /api/devices/<id>/backup-now`, when a backup was started (202). */
 export const BackupStartedSchema = z.object({
   status: z.literal("started"),
@@ -146,5 +210,7 @@ export const ApiErrorSchema = z.object({
    * "not-found".
    */
   error: z.string(),
+  /** With "invalid-settings": what is wrong, one sentence each. */
+  problems: z.array(z.string()).optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
