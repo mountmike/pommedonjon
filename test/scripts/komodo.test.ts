@@ -94,21 +94,13 @@ describe("createKomodoClient", () => {
     ]);
   });
 
-  it("reads an update and a stack's log through the read endpoint", async () => {
-    const { calls, fetchFn } = recorder({ stdout: "hello\n", stderr: "" });
+  it("reads an update through the read endpoint", async () => {
+    const { calls, fetchFn } = recorder({ id: "u1" });
     const client = createKomodoClient(creds, fetchFn);
     await client.getUpdate("u1");
-    expect(await client.stackLog("pommedonjon-test", 20)).toEqual({ stdout: "hello\n", stderr: "" });
 
     expect(calls.map((call) => [call.url, call.body])).toEqual([
       ["https://komodo.example.ts.net/read", { type: "GetUpdate", params: { id: "u1" } }],
-      [
-        "https://komodo.example.ts.net/read",
-        {
-          type: "GetStackLog",
-          params: { stack: "pommedonjon-test", services: [], tail: 20, timestamps: false },
-        },
-      ],
     ]);
   });
 

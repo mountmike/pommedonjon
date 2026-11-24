@@ -1,12 +1,14 @@
 /**
  * Deploy the current commit to the test environment.
  *
- *   pnpm deploy:test          push HEAD to the `test` branch, have Komodo
- *                             build and deploy it, show the result and logs
- *   pnpm deploy:test logs     show the test stack's recent logs
+ *   pnpm deploy:test    push HEAD to the `test` branch, have Komodo build
+ *                       and deploy it, and show how each stage went
  *
  * The test stack in Komodo follows the `test` branch and builds from source,
  * so "deploy" means: move that branch here, then ask Komodo to deploy.
+ *
+ * It does not show the service's own log. Read that on the server, with
+ * `docker logs`, or in Komodo.
  *
  * Needs KOMODO_URL, KOMODO_API_KEY and KOMODO_API_SECRET, from the
  * environment or from local/komodo.env (which git ignores).
@@ -31,18 +33,12 @@ function git(...args: string[]): string {
 }
 
 async function main(): Promise<number> {
-  const [command = "deploy", ...rest] = process.argv.slice(2);
+  const [command = "deploy"] = process.argv.slice(2);
   const file = existsSync(ENV_FILE) ? parseEnvFile(readFileSync(ENV_FILE, "utf8")) : {};
   const komodo = createKomodoClient(resolveCredentials(process.env, file));
 
-  if (command === "logs") {
-    const lines = Number(rest[0] ?? 100);
-    const log = await komodo.stackLog(STACK, Number.isInteger(lines) && lines > 0 ? lines : 100);
-    process.stdout.write(`${log.stdout}${log.stderr}`);
-    return 0;
-  }
   if (command !== "deploy") {
-    process.stderr.write(`unknown command "${command}"; use "deploy" or "logs"\n`);
+    process.stderr.write(`unknown command "${command}"; the only one is "deploy"\n`);
     return 2;
   }
 
@@ -61,17 +57,6 @@ async function main(): Promise<number> {
   const update = await waitForUpdate(komodo, await komodo.deployStack(STACK), { sleep });
   process.stdout.write(`${describeUpdate(update)}\n`);
   if (!update.success) return 1;
-
-  // The deploy has succeeded by now. Not being allowed to read the log is
-  // worth saying, but it must not turn a good deploy into a failed command.
-  try {
-    const log = await komodo.stackLog(STACK, 20);
-    process.stdout.write(`\n--- ${STACK} log\n${log.stdout}${log.stderr}`);
-  } catch (error) {
-    process.stderr.write(
-      `note: could not read the log: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
-  }
   return 0;
 }
 

@@ -462,7 +462,7 @@ Komodo. So:
 - The test stack follows a branch called `test` and **builds the image on
   the server** from that commit (`--build`). No CI run, no registry.
 - `pnpm deploy:test` moves `test` to the current commit, asks Komodo over
-  its API to deploy, waits, and prints the result and the log. The branch
+  its API to deploy, waits, and prints the result. The branch
   is only a pointer to "what is on test now", so it is force-moved.
 - Production still runs released images from the registry.
 - Komodo has no notion of one stack with several environments. Both
@@ -480,9 +480,9 @@ Komodo. So:
   builds. That is a departure from how the owner's other stacks are kept.
 
 Verified against the owner's Komodo (2.2.0): a deploy from a development
-session takes about 75 seconds. Reading the stack's log through the API
-needs a permission the key was not given, so `pnpm deploy:test logs` does
-not work there yet; the log is read on the server instead.
+session takes about 75 seconds. The deploy command once also fetched the
+stack's log through the API; the key was never given that permission and
+the log was being read on the server anyway, so that part was removed.
 
 One constraint the environments must respect: **a phone may be watched by
 only one daemon.** Two would each prompt it. So test and production cannot

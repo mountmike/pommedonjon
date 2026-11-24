@@ -345,11 +345,8 @@ pnpm deploy:test
 ```
 
 That pushes your current commit to `test`, asks Komodo to deploy the stack,
-waits for the result and prints the stack's log. To read the log later:
-
-```bash
-pnpm deploy:test logs
-```
+waits, and prints how each stage went. The service's own log is read on the
+server (`docker logs`) or in Komodo.
 
 It needs Komodo's address and an API key, from the environment or from
 `local/komodo.env`; see [deploy/komodo.env.example](deploy/komodo.env.example).

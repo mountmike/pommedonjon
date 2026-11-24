@@ -27,11 +27,6 @@ export interface Update {
   readonly logs: readonly UpdateLog[];
 }
 
-export interface StackLog {
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
 export type FetchFn = (
   url: string,
   init: { method: string; headers: Record<string, string>; body: string },
@@ -96,7 +91,6 @@ export function resolveCredentials(
 export interface KomodoClient {
   deployStack(stack: string): Promise<Update>;
   getUpdate(id: string): Promise<Update>;
-  stackLog(stack: string, tail: number): Promise<StackLog>;
 }
 
 export function createKomodoClient(
@@ -123,8 +117,6 @@ export function createKomodoClient(
   return {
     deployStack: (stack) => call<Update>("execute", "DeployStack", { stack }),
     getUpdate: (id) => call<Update>("read", "GetUpdate", { id }),
-    stackLog: (stack, tail) =>
-      call<StackLog>("read", "GetStackLog", { stack, services: [], tail, timestamps: false }),
   };
 }
 
