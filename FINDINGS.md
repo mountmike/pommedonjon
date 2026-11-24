@@ -74,7 +74,7 @@ built for arm64 here.
 | 2 | On iOS 17+ classic lockdown no longer works over WiFi, so the RemotePairing tunnel is the only network path | **Wrong for iOS 26.6.1** | Measured: an incremental backup completed over WiFi through lockdown on port 62078 |
 | 3 | iOS prompts for the passcode when a backup starts | Confirmed | Measured on all four attempts over USB with encryption on. Reported: every local backup since iOS 16.1, no bypass found |
 | 4 | iOS 26.4 broke WiFi backup for iTunes on Windows | Partly | Reported: 26.4 removed the stable MAC from the Bonjour advert; hosts must match an `authTag` derived from the pair record. Apple's Windows tools are still reported broken; pymobiledevice3 added the matching in Sept 2026 |
-| 5 | Bonjour does not cross Tailscale; a spoof-and-relay workaround exists | Partly | Reported: mDNS over Tailscale is a long-open issue. The spoof is one blog post, for app installs over RemotePairing, not backups. Port 62078 is reported to refuse connections from outside the phone's subnet. *Not tested here* |
+| 5 | Bonjour does not cross Tailscale; a spoof-and-relay workaround exists | Partly | Reported: mDNS over Tailscale is a long-open issue. The spoof is one blog post, for app installs over RemotePairing, not backups. Port 62078 is reported to refuse connections from outside the phone's subnet; confirmed for the lockdown session, see [From another subnet](#from-another-subnet-2026-11-24) |
 | 6 | Reference projects are worth studying | Confirmed | See [Reference projects](#reference-projects) |
 
 ## What was measured
@@ -296,7 +296,7 @@ The test server is on a different VLAN (`192.168.40.0/24`) from the phone
 |---|---|---|
 | Firewall allow rule only | opens | dropped by the phone, every attempt |
 | Allow rule and masquerade onto the phone's network | opens | works; probe answered in 2 s |
-| Tailscale, from the Mac | opens | dropped by the phone |
+| The phone's Tailscale address | opens | dropped by the phone |
 
 - The phone accepts the TCP connection in all three cases. What it refuses
   is the lockdown session, when the source address is not on its own subnet.
