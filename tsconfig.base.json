@@ -17,6 +17,5 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "allowImportingTsExtensions": true
-  },
-  "include": ["src", "test", "scripts"]
+  }
 }

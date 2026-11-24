@@ -26,7 +26,8 @@ import {
 
 const STACK = process.env["KOMODO_STACK"] ?? "pommedonjon-test";
 const BRANCH = "test";
-const ENV_FILE = new URL("../local/komodo.env", import.meta.url);
+// The repository root is three levels up from this file.
+const ENV_FILE = new URL("../../../local/komodo.env", import.meta.url);
 
 function git(...args: string[]): string {
   return execFileSync("git", args, { encoding: "utf8" }).trim();

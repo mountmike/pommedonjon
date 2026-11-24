@@ -5,11 +5,10 @@ local/
 .env.*
 
 .git/
-node_modules/
-dist/
-coverage/
+**/node_modules/
+**/dist/
+**/coverage/
 **/__pycache__/
 *.md
-scripts/
 compose*.yaml
-pommedonjon.example.json
+deploy/

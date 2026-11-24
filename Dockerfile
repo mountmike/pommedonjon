@@ -1,16 +1,22 @@
 # syntax=docker/dockerfile:1
 
-# --- Build the TypeScript daemon -------------------------------------------
+# --- Build the server from the workspace -------------------------------------
 FROM node:26-alpine AS build
-WORKDIR /app
+WORKDIR /repo
 RUN npm install --global pnpm@12
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY tsconfig.json tsconfig.build.json ./
-COPY src ./src
-RUN pnpm build
-# Leave only what the daemon needs at run time for the next stage to copy.
-RUN pnpm prune --prod
+# Dependencies first, from the manifests alone, so that changing the source
+# does not install them again. Every workspace's package.json has to be here
+# for the lockfile to be accepted: add a line when a workspace is added.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/server/package.json apps/server/
+COPY tools/deploy/package.json tools/deploy/
+RUN pnpm install --frozen-lockfile --filter "pommedonjon..."
+COPY tsconfig.base.json ./
+COPY apps/server apps/server
+RUN pnpm --filter pommedonjon build
+# A self-contained copy of the server: its build output, the sidecar, and
+# only the dependencies it needs at run time.
+RUN pnpm --filter pommedonjon deploy --prod /out
 
 # --- Runtime: Node for the daemon, Python for the device sidecar -----------
 FROM node:26-alpine
@@ -23,10 +29,7 @@ RUN apk add --no-cache python3 tini \
  && /opt/sidecar/bin/pip install --no-cache-dir "pymobiledevice3==${PYMOBILEDEVICE3_VERSION}"
 
 WORKDIR /app
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-COPY package.json ./
-COPY sidecar ./sidecar
+COPY --from=build /out ./
 
 # The commit this image was built from, shown by --version and in the
 # start-up log. Set by the build pipeline; "dev" for a local build.
@@ -44,7 +47,7 @@ ENV HOME=/tmp \
     PYTHONUNBUFFERED=1
 
 # /config        pommedonjon.json (mount read-only)
-# /run/secrets   one pair record per phone, as Compose secrets
+# /run/secrets   one pair record per phone (mount read-only)
 # /state         the SQLite database; a local disk
 # /backups       where backups live
 # Owned by the user the image runs as, so that a fresh named volume, which

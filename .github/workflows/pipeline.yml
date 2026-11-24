@@ -6,7 +6,10 @@
 #   image tags, always:        edge, sha-<commit>
 #   image tags, on a release:  <version>, <major>.<minor>, latest
 #
-# The test environment follows `edge`. Production follows a version.
+# Production follows a version. The test environment does not come through
+# here: it is built on its server from the `test` branch.
+#
+# The product's version and changelog are the server's, in apps/server.
 name: Pipeline
 
 on:
@@ -65,7 +68,7 @@ jobs:
       - name: Decide what this push is
         id: plan
         run: |
-          version=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json)
+          version=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' apps/server/package.json)
           pending=$(find .changeset -name '*.md' ! -name README.md | wc -l)
           if [ "$pending" -gt 0 ]; then
             echo "mode=version" >> "$GITHUB_OUTPUT"
@@ -103,7 +106,7 @@ jobs:
             $0 == heading { found = 1; next }
             found && /^## / { exit }
             found { print }
-          ' CHANGELOG.md > release-notes.md
+          ' apps/server/CHANGELOG.md > release-notes.md
           git tag "v$VERSION"
           git push origin "v$VERSION"
           gh release create "v$VERSION" --title "v$VERSION" --notes-file release-notes.md

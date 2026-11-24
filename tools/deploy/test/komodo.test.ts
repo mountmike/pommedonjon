@@ -8,7 +8,7 @@ import {
   waitForUpdate,
   type FetchFn,
   type Update,
-} from "../../scripts/komodo.ts";
+} from "../src/komodo.ts";
 
 const creds = { url: "https://komodo.example.ts.net", key: "K", secret: "S" };
 

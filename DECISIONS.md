@@ -575,6 +575,14 @@ Proposed layout, by judgement:
 
 One image is still published: the server with the web build inside it.
 
+**Built, as far as there is anything to put in it** (2026-11-24): the
+repository is a workspace with `apps/server` and, for the deploy command,
+`tools/deploy`. Nothing about how the service behaves changed, and the
+image has the same contents in the same places. The app and the two shared
+packages are added when there is something to put in them, not as empty
+folders. The product's version and changelog are the server's; when the
+app arrives, the two will be versioned together.
+
 ### D25. No sign-in in the proof of concept
 
 *Decided by the owner, 2026-11-24:* the first version of the app has no

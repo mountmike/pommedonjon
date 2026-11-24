@@ -29,7 +29,7 @@ open.
 ## How it fits together
 
 ```
-TypeScript daemon (src/)                  Python sidecar (sidecar/)
+TypeScript daemon (apps/server/src)       Python sidecar (apps/server/sidecar)
   discovery: where is the phone?    --->    probe   read-only device status
   policy:    is a backup due, and
              was it just plugged in?
@@ -84,7 +84,7 @@ starts and warns if anyone else can read it.
 
 ## Configuration
 
-Start from [pommedonjon.example.json](pommedonjon.example.json). Unknown settings are errors, and every problem in
+Start from [pommedonjon.example.json](apps/server/pommedonjon.example.json). Unknown settings are errors, and every problem in
 the file is reported at once.
 
 | Setting | Meaning |
@@ -207,7 +207,7 @@ POMMEDONJON_BACKUPS_DIR=/mnt/backups/iphones docker compose -f deploy/compose.ya
 Copying files in by hand is a stopgap until there is a web UI to do it.
 
 Commands (`docker compose run --rm pommedonjon <command>`, or
-`node dist/cli.js <command>` after `pnpm build`):
+`node apps/server/dist/cli.js <command>` after `pnpm build`):
 
 | Command | What it does |
 |---|---|
@@ -280,8 +280,17 @@ pnpm test
 pnpm typecheck
 ```
 
-Source is under `src/` and tests under `test/`, in the same folder layout.
-The tests use fakes for the phone and the sidecar (`test/support/`); none of
+The repository is a pnpm workspace, and those commands run in every part of
+it:
+
+| Workspace | Holds |
+|---|---|
+| `apps/server` | The daemon, its API and the Python sidecar. The product's version and changelog live here |
+| `tools/deploy` | The command that deploys to the test environment |
+
+In each, source is under `src/` and tests under `test/`, in the same folder
+layout. The server's tests use fakes for the phone and the sidecar
+(`apps/server/test/support/`); none of
 them touch a real device.
 
 ### Running it on your own machine
