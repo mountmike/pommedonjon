@@ -6,6 +6,7 @@ import {
   type BackupResult,
   type BackupRun,
   type BatteryStatus,
+  type DeviceEndpoint,
   type DeviceStatus,
   type DeviceTarget,
   type DeviceTransport,
@@ -91,6 +92,18 @@ export class FakeTransport implements DeviceTransport {
     return this.probeResult instanceof DeviceError
       ? Promise.reject(this.probeResult)
       : Promise.resolve(this.probeResult);
+  }
+
+  /** What answers at each address, for a phone being added. Others refuse. */
+  readonly identities = new Map<string, DeviceStatus>();
+  readonly identified: DeviceEndpoint[] = [];
+
+  identify(endpoint: DeviceEndpoint): Promise<DeviceStatus> {
+    this.identified.push(endpoint);
+    const found = this.identities.get(endpoint.host);
+    return found
+      ? Promise.resolve(found)
+      : Promise.reject(new DeviceError("no answer", "unreachable"));
   }
 
   startBackup(options: BackupOptions): BackupRun {

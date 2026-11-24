@@ -28,12 +28,20 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function setUp(options: { problem?: string; located?: DeviceStatus | Error } = {}) {
+function setUp(
+  options: {
+    problem?: string;
+    located?: DeviceStatus | Error;
+    /** The phone the pairing belongs to, if it can be found on the network. */
+    findable?: { udid: string; name: string; host: string };
+  } = {},
+) {
   const pairRecords = new PairRecordStore(path.join(dir, "pairings"));
   const directory = new DeviceDirectory({ state, pairRecords });
   const serverSettings = new ServerSettingsStore(state);
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   const inspected: string[] = [];
+  const searched: { file: string; host: string | undefined }[] = [];
   const busy = new Set<string>();
   let changes = 0;
   const manager = createPhoneManager({
@@ -53,6 +61,13 @@ function setUp(options: { problem?: string; located?: DeviceStatus | Error } = {
           : Promise.resolve({ host: "10.0.0.7", status: located });
       },
     },
+    finder: {
+      find: (file, host) => {
+        searched.push({ file, host });
+        return Promise.resolve(options.findable);
+      },
+    },
+    addresses: state,
     daemon: { devicesChanged: () => void (changes += 1), isBusy: (id) => busy.has(id) },
     serverSettings,
     version: "0.3.0 (build test)",
@@ -61,7 +76,18 @@ function setUp(options: { problem?: string; located?: DeviceStatus | Error } = {
     clock: () => NOW,
   });
   const phone = { name: "Mike's iPhone", udid: UDID, host: "10.0.0.7", pairRecord: encoded(SECRET) };
-  return { manager, pairRecords, directory, serverSettings, logs, inspected, busy, phone, changes: () => changes };
+  return {
+    manager,
+    pairRecords,
+    directory,
+    serverSettings,
+    logs,
+    inspected,
+    searched,
+    busy,
+    phone,
+    changes: () => changes,
+  };
 }
 
 /** Whatever is left in the pair record directory. */
@@ -115,7 +141,7 @@ describe("adding a phone", () => {
 
   it.each([
     ["nothing at all", null],
-    ["no pair record", { name: "Mike", udid: UDID }],
+    ["no pair record", { name: "Mike", udid: UDID, host: "h" }],
     ["a pair record that is not base64", { name: "Mike", udid: UDID, host: "h", pairRecord: "<plist>" }],
     ["an empty pair record", { name: "Mike", udid: UDID, host: "h", pairRecord: "" }],
     ["a file far too large", { name: "Mike", udid: UDID, host: "h", pairRecord: encoded("x".repeat(70_000)) }],
@@ -124,6 +150,48 @@ describe("adding a phone", () => {
     const h = setUp();
     expect(await h.manager.add(wanted)).toMatchObject({ outcome: "invalid" });
     expect(leftBehind()).toEqual([]);
+  });
+
+  it("needs only the pairing when the phone can be found: it asks the phone the rest", async () => {
+    const h = setUp({ findable: { udid: UDID, name: "Mike's iPhone", host: "10.0.0.42" } });
+    h.serverSettings.change({ discoveryRanges: ["10.0.0.0/24"] });
+
+    expect(await h.manager.add({ pairRecord: encoded(SECRET) })).toEqual({
+      outcome: "added",
+      id: "mikes-iphone",
+    });
+    expect(h.directory.get("mikes-iphone")).toMatchObject({
+      name: "Mike's iPhone",
+      udid: UDID,
+      host: undefined,
+    });
+    expect(h.searched).toHaveLength(1);
+    // Where it answered is where it is looked for first from now on.
+    expect(state.lastAddress("mikes-iphone")).toBe("10.0.0.42");
+  });
+
+  it("keeps a name that was given, and asks the phone only for what is missing", async () => {
+    const h = setUp({ findable: { udid: UDID, name: "iPhone", host: "10.0.0.7" } });
+    await h.manager.add({ name: "Mike's phone", host: "10.0.0.7", pairRecord: encoded(SECRET) });
+    expect(h.directory.all()[0]).toMatchObject({ id: "mikes-phone", name: "Mike's phone", udid: UDID });
+    expect(h.searched[0]?.host).toBe("10.0.0.7");
+  });
+
+  it("does not go looking when the name and identifier are both given", async () => {
+    const h = setUp();
+    await h.manager.add(h.phone);
+    expect(h.searched).toEqual([]);
+  });
+
+  it("says what to do when the phone cannot be found to ask", async () => {
+    const h = setUp();
+    const result = await h.manager.add({ host: "10.0.0.7", pairRecord: encoded(SECRET) });
+    expect(result).toMatchObject({ outcome: "invalid" });
+    expect(result.outcome === "invalid" ? result.problems[0] : "").toContain(
+      "the phone could not be found",
+    );
+    expect(leftBehind()).toEqual([]);
+    expect(h.directory.all()).toEqual([]);
   });
 
   it("will not add the same phone twice", async () => {

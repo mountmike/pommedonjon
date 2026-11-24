@@ -5,6 +5,7 @@ describe("readServerOptions", () => {
   it("uses the image's places and port when nothing is set", () => {
     expect(readServerOptions({})).toEqual({
       stateDir: "/state",
+      pairingsDir: "/state/pairings",
       backupRoot: "/backups",
       port: 8377,
       sidecar: { pythonPath: undefined, scriptPath: undefined },
@@ -24,6 +25,7 @@ describe("readServerOptions", () => {
       }),
     ).toEqual({
       stateDir: "/srv/state",
+      pairingsDir: "/srv/state/pairings",
       backupRoot: "/mnt/backups",
       port: 9000,
       sidecar: {
@@ -38,6 +40,12 @@ describe("readServerOptions", () => {
     const options = readServerOptions({ POMMEDONJON_STATE_DIR: "local/state", POMMEDONJON_PORT: " " });
     expect(options.stateDir).toBe(`${process.cwd()}/local/state`);
     expect(options.port).toBe(8377);
+  });
+
+  it("keeps the pair records somewhere else if told to", () => {
+    const options = readServerOptions({ POMMEDONJON_PAIRINGS_DIR: "/run/pairings" });
+    expect(options.pairingsDir).toBe("/run/pairings");
+    expect(options.stateDir).toBe("/state");
   });
 
   it("listens on nothing when the port is off", () => {

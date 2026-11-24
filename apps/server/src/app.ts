@@ -5,6 +5,7 @@ import { SidecarPairRecordInspector, type PairRecordInspector } from "./credenti
 import { PairRecordStore } from "./credentials/PairRecordStore.js";
 import { Daemon } from "./daemon/Daemon.js";
 import { DeviceLocator } from "./discovery/DeviceLocator.js";
+import { createPhoneFinder, type PhoneFinder } from "./discovery/PhoneFinder.js";
 import { PortScanner } from "./discovery/PortScanner.js";
 import type { Logger } from "./log.js";
 import { BackupRunner } from "./runner/BackupRunner.js";
@@ -48,6 +49,8 @@ export interface App {
   readonly pairRecordInspector: PairRecordInspector;
   readonly transport: DeviceTransport;
   readonly locator: DeviceLocator;
+  /** Finds a phone from its pair record alone. */
+  readonly finder: PhoneFinder;
   readonly state: StateStore;
   readonly runner: BackupRunner;
   readonly daemon: Daemon;
@@ -71,25 +74,20 @@ export function createApp(
   mkdirSync(options.stateDir, { recursive: true });
   const state = new StateStore(path.join(options.stateDir, "pommedonjon.sqlite"));
   const serverSettings = new ServerSettingsStore(state);
-  const pairRecords = new PairRecordStore(path.join(options.stateDir, "pairings"));
+  const pairRecords = new PairRecordStore(options.pairingsDir);
   const devices = new DeviceDirectory({ state, pairRecords });
 
   const store = new BackupStore(options.backupRoot);
   const clock = () => new Date();
 
-  const locator = new DeviceLocator({
-    transport,
-    addresses: state,
-    scanner: new PortScanner({
-      // Read at each sweep, so a range set in the app applies without a restart.
-      ranges: () => serverSettings.get().discoveryRanges,
-      port: LOCKDOWN_PORT,
-      minIntervalMs: serverSettings.get().scanIntervalSeconds * 1000,
-      clock,
-    }),
-    log,
+  const scanner = new PortScanner({
+    // Read at each sweep, so a range set in the app applies without a restart.
+    ranges: () => serverSettings.get().discoveryRanges,
+    port: LOCKDOWN_PORT,
+    minIntervalMs: serverSettings.get().scanIntervalSeconds * 1000,
     clock,
   });
+  const locator = new DeviceLocator({ transport, addresses: state, scanner, log, clock });
 
   const runner = new BackupRunner({
     transport,
@@ -125,6 +123,7 @@ export function createApp(
     pairRecordInspector: new SidecarPairRecordInspector(sidecar),
     transport,
     locator,
+    finder: createPhoneFinder({ transport, scanner }),
     state,
     runner,
     daemon,

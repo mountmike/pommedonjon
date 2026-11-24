@@ -8,9 +8,11 @@ import type { PairRecordInspector } from "../credentials/PairRecordInspector.js"
 import type { PairRecordStore } from "../credentials/PairRecordStore.js";
 import type { Daemon } from "../daemon/Daemon.js";
 import type { DeviceLocator } from "../discovery/DeviceLocator.js";
+import type { PhoneFinder } from "../discovery/PhoneFinder.js";
 import type { Logger } from "../log.js";
 import type { DeviceDirectory } from "../settings/DeviceDirectory.js";
 import type { ServerSettingsStore } from "../settings/ServerSettings.js";
+import type { StateStore } from "../state/StateStore.js";
 import { DeviceError } from "../transport/DeviceTransport.js";
 
 /** A pair record is a few kilobytes. Anything far larger is not one. */
@@ -59,6 +61,10 @@ export function createPhoneManager(deps: {
   readonly pairRecords: Pick<PairRecordStore, "receive" | "discard">;
   readonly inspector: PairRecordInspector;
   readonly locator: Pick<DeviceLocator, "locate">;
+  /** Finds a phone from its pair record alone, when it is added without a UDID. */
+  readonly finder: PhoneFinder;
+  /** Where a phone was found, kept so it is looked for there first. */
+  readonly addresses: Pick<StateStore, "rememberAddress">;
   readonly daemon: Pick<Daemon, "devicesChanged" | "isBusy">;
   readonly serverSettings: Pick<ServerSettingsStore, "get" | "change">;
   readonly version: string;
@@ -67,6 +73,7 @@ export function createPhoneManager(deps: {
   readonly clock: () => Date;
 }): PhoneManager {
   const { directory, pairRecords, inspector, locator, daemon, serverSettings, log, clock } = deps;
+  const { finder, addresses } = deps;
 
   const shownSettings = (): ServerSettings => {
     const { discoveryRanges, pollIntervalSeconds } = serverSettings.get();
@@ -77,12 +84,15 @@ export function createPhoneManager(deps: {
     async add(wanted) {
       const parsed = NewDeviceSchema.safeParse(wanted);
       if (!parsed.success) {
-        return { outcome: "invalid", problems: ["a name, a UDID and a pair record are needed"] };
+        return { outcome: "invalid", problems: ["a pair record is needed"] };
       }
-      const { name, udid, pairRecord } = parsed.data;
-      const host = parsed.data.host?.trim() === "" ? undefined : parsed.data.host?.trim();
+      const stated = (text: string | undefined) =>
+        text === undefined || text.trim() === "" ? undefined : text.trim();
+      const host = stated(parsed.data.host);
+      let name = stated(parsed.data.name);
+      let udid = stated(parsed.data.udid);
 
-      const bytes = decodeBase64(pairRecord);
+      const bytes = decodeBase64(parsed.data.pairRecord);
       if (!bytes) return { outcome: "invalid", problems: ["the pair record could not be read"] };
       if (bytes.length > MAX_PAIR_RECORD_BYTES) {
         return { outcome: "invalid", problems: ["that file is too large to be a pair record"] };
@@ -97,16 +107,34 @@ export function createPhoneManager(deps: {
       }
 
       const received = pairRecords.receive(bytes);
-      let problem: string | undefined;
+      let foundAt: string | undefined;
       try {
-        problem = await inspector.problemWith(received);
+        const problem = await inspector.problemWith(received);
+        if (problem !== undefined) {
+          pairRecords.discard(received);
+          return { outcome: "invalid", problems: [`that file is not usable: ${problem}`] };
+        }
+        if (udid === undefined || name === undefined) {
+          // The pairing says which phone it is for only to that phone: so
+          // find the phone that accepts it, and ask.
+          const found = await finder.find(received, host);
+          if (!found) {
+            pairRecords.discard(received);
+            return {
+              outcome: "invalid",
+              problems: [
+                "the phone could not be found to ask its name and identifier: " +
+                  "have it at home and awake and try again, or give both yourself",
+              ],
+            };
+          }
+          udid ??= found.udid;
+          name ??= found.name;
+          foundAt = found.host;
+        }
       } catch (error) {
         pairRecords.discard(received);
         throw error;
-      }
-      if (problem !== undefined) {
-        pairRecords.discard(received);
-        return { outcome: "invalid", problems: [`that file is not usable: ${problem}`] };
       }
 
       const result = directory.add({ name, udid, host, receivedPairRecord: received }, clock());
@@ -115,6 +143,7 @@ export function createPhoneManager(deps: {
           ? { outcome: "already-added" }
           : { outcome: "invalid", problems: result.problems };
       }
+      if (foundAt !== undefined) addresses.rememberAddress(result.device.id, foundAt, clock());
       // Never the pair record, nor anything read from it.
       log("info", "phone added", { device: result.device.id, name: result.device.name });
       daemon.devicesChanged();

@@ -49,6 +49,7 @@ Phones and settings are managed in the web app and kept in the state
 directory. Where things are comes from the environment:
 
   POMMEDONJON_STATE_DIR    the database and pair records   (default /state)
+  POMMEDONJON_PAIRINGS_DIR the pair records, if elsewhere  (default <state>/pairings)
   POMMEDONJON_BACKUP_ROOT  where backups are kept          (default /backups)
   POMMEDONJON_PORT         the web app and API, or "off"   (default 8377)
 `;
@@ -257,6 +258,8 @@ async function main(argv: readonly string[]): Promise<number> {
                   pairRecords: app.pairRecords,
                   inspector: app.pairRecordInspector,
                   locator: app.locator,
+                  finder: app.finder,
+                  addresses: app.state,
                   daemon: app.daemon,
                   serverSettings: app.serverSettings,
                   version: app.version,

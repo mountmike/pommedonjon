@@ -404,8 +404,12 @@ def verify(args: argparse.Namespace) -> int:
 # --- command line ----------------------------------------------------------
 
 
-def add_device_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--udid", required=True)
+def add_device_arguments(parser: argparse.ArgumentParser, udid_required: bool) -> None:
+    parser.add_argument(
+        "--udid",
+        required=udid_required,
+        help="The phone expected there. A probe without one says which phone answered.",
+    )
     parser.add_argument(
         "--host", required=True, help="The phone's address or resolvable name."
     )
@@ -420,10 +424,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     commands = parser.add_subparsers(dest="command", required=True)
 
     probe_parser = commands.add_parser("probe", help="Describe a reachable device.")
-    add_device_arguments(probe_parser)
+    add_device_arguments(probe_parser, udid_required=False)
 
     backup_parser = commands.add_parser("backup", help="Run one backup.")
-    add_device_arguments(backup_parser)
+    add_device_arguments(backup_parser, udid_required=True)
     backup_parser.add_argument(
         "--backup-root",
         required=True,

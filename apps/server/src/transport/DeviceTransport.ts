@@ -170,5 +170,11 @@ export interface BackupRun {
 export interface DeviceTransport {
   /** Ask a device about itself. Rejects with {@link DeviceError}. */
   probe(target: DeviceTarget): Promise<DeviceStatus>;
+  /**
+   * Ask whatever answers at an address, and accepts this pair record, what
+   * it is. For a phone that is being added, before its UDID is known.
+   * Read-only; never prompts. Rejects with {@link DeviceError}.
+   */
+  identify(endpoint: DeviceEndpoint): Promise<DeviceStatus>;
   startBackup(options: BackupOptions): BackupRun;
 }

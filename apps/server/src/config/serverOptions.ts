@@ -8,6 +8,11 @@ import path from "node:path";
 export interface ServerOptions {
   /** Where the SQLite database and the pair records are kept. */
   readonly stateDir: string;
+  /**
+   * Where the phones' pair records are kept. Inside the state directory
+   * unless set, for anyone who wants the secrets on a volume of their own.
+   */
+  readonly pairingsDir: string;
   /** Where backups live: one directory per phone underneath. */
   readonly backupRoot: string;
   /**
@@ -48,8 +53,12 @@ const stated = (value: string | undefined) =>
 
 /** Read the server's options from the environment, with the image's defaults. */
 export function readServerOptions(env: NodeJS.ProcessEnv): ServerOptions {
+  const stateDir = path.resolve(stated(env["POMMEDONJON_STATE_DIR"]) ?? "/state");
   return {
-    stateDir: path.resolve(stated(env["POMMEDONJON_STATE_DIR"]) ?? "/state"),
+    stateDir,
+    pairingsDir: path.resolve(
+      stated(env["POMMEDONJON_PAIRINGS_DIR"]) ?? path.join(stateDir, "pairings"),
+    ),
     backupRoot: path.resolve(stated(env["POMMEDONJON_BACKUP_ROOT"]) ?? "/backups"),
     port: port(env["POMMEDONJON_PORT"]),
     sidecar: {

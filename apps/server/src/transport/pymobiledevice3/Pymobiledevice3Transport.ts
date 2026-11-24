@@ -8,10 +8,12 @@ import {
   type BackupResult,
   type BackupRun,
   type DeviceStatus,
+  type DeviceEndpoint,
   type DeviceTarget,
   type DeviceTransport,
 } from "../DeviceTransport.js";
 import {
+  addressArgs,
   endpointArgs,
   parseProbeResult,
   parseSidecarLine,
@@ -43,10 +45,11 @@ export class Pymobiledevice3Transport implements DeviceTransport {
     this.#now = options.now ?? Date.now;
   }
 
-  async probe(target: DeviceTarget): Promise<DeviceStatus> {
+  /** Run the sidecar's probe and read what the device said about itself. */
+  async #ask(args: readonly string[]): Promise<DeviceStatus> {
     let result;
     try {
-      result = await this.#sidecar.runJson(["probe", ...endpointArgs(target)], {
+      result = await this.#sidecar.runJson(["probe", ...args], {
         timeoutMs: this.#probeTimeoutMs,
       });
     } catch (cause) {
@@ -66,7 +69,15 @@ export class Pymobiledevice3Transport implements DeviceTransport {
         "failed",
       );
     }
-    const status = parseProbeResult(result.value);
+    return parseProbeResult(result.value);
+  }
+
+  identify(endpoint: DeviceEndpoint): Promise<DeviceStatus> {
+    return this.#ask(addressArgs(endpoint));
+  }
+
+  async probe(target: DeviceTarget): Promise<DeviceStatus> {
+    const status = await this.#ask(endpointArgs(target));
     if (status.udid !== target.udid) {
       // The address answered, but it is a different device. Never back up
       // one phone into another phone's directory.

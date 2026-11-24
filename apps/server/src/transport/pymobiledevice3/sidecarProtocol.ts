@@ -6,6 +6,7 @@ import {
   type BackupEvent,
   type BackupFailureReason,
   type DeviceStatus,
+  type DeviceEndpoint,
   type DeviceTarget,
 } from "../DeviceTransport.js";
 
@@ -65,18 +66,15 @@ const ProbeReplySchema = z.discriminatedUnion("ok", [
 ]);
 
 /** The sidecar's arguments for reaching a device. */
-export function endpointArgs(target: DeviceTarget): string[] {
-  const { endpoint } = target;
-  const args = [
-    "--udid",
-    target.udid,
-    "--host",
-    endpoint.host,
-    "--pair-record",
-    endpoint.pairRecordPath,
-  ];
+/** How to reach whatever is at an address, without saying which phone is expected. */
+export function addressArgs(endpoint: DeviceEndpoint): string[] {
+  const args = ["--host", endpoint.host, "--pair-record", endpoint.pairRecordPath];
   if (endpoint.port !== undefined) args.push("--port", String(endpoint.port));
   return args;
+}
+
+export function endpointArgs(target: DeviceTarget): string[] {
+  return ["--udid", target.udid, ...addressArgs(target.endpoint)];
 }
 
 /**

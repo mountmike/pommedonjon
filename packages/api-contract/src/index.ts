@@ -241,10 +241,16 @@ export const DeviceSettingsChangeSchema = DeviceSettingsSchema.extend({
  * and never comes back out: no reply carries one.
  */
 export const NewDeviceSchema = z.object({
-  /** Name to show, e.g. "Mike's iPhone". */
-  name: z.string(),
-  /** The phone's UDID. A Mac names a phone's pair record file after it. */
-  udid: z.string(),
+  /**
+   * Name to show, e.g. "Mike's iPhone". Left out, the phone's own name is
+   * used, which means the server has to find the phone first.
+   */
+  name: z.string().optional(),
+  /**
+   * The phone's UDID. Left out, the server finds the phone the pair record
+   * belongs to and asks it, so the phone has to be at home.
+   */
+  udid: z.string().optional(),
   /** A fixed address or name for the phone, if it is not to be found by looking. */
   host: z.string().optional(),
   /** The pair record file's bytes, in base64. */
