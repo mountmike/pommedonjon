@@ -547,14 +547,23 @@ phones.
   network, TCP 62078, the phone sees the gateway's address on its own
   subnet and answers normally. The first probe took 20 s, because it had to
   sweep for the phone; the second took 2 s.
+- **Both have to cover more than port 62078.** A backup opens a second
+  connection, to a port the phone picks afresh each time (64435 to 64448
+  were seen). Limited to 62078, the probe passed and the backup timed out.
+  The owner's rule and NAT policy now cover TCP 49152 to 65535.
 - The firewall rule is still what decides which devices the server may
   reach. The NAT policy only changes the address the phone sees.
 - Nothing in the image or the Compose example changes. The alternative,
   giving the container an address on the phones' network, was not needed.
 
 Worth carrying into the README: a server on another subnet needs both an
-allow rule and source NAT towards the phones, and without the second the
-symptom is a connection that opens and is then closed by the phone.
+allow rule and source NAT towards the phones, on TCP 49152 to 65535. Without
+the NAT the symptom is a connection that opens and is then closed by the
+phone; with only 62078 allowed it is a probe that works and a backup that
+times out as it starts.
+
+A probe that passes while a backup cannot start is a trap for whoever sets
+this up. A check that also opens a service port would catch it; not built.
 
 ### O6. Where pair records live
 

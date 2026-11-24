@@ -303,8 +303,16 @@ The test server is on a different VLAN (`192.168.40.0/24`) from the phone
 - With the masquerade policy the phone sees the gateway's address on its
   own network. Nothing else was changed between the failing and the working
   probe.
-- Tested with the phone awake and on battery. Not yet tested overnight or
-  for a whole backup.
+- Tested with the phone awake and on battery. Not yet tested overnight.
+- **62078 is not the only port.** A backup opens a second connection: the
+  lockdown session on 62078 asks the phone to start the backup service, and
+  the phone answers with a port for it that is different every time. Asked
+  four times, it gave 64435, 64437, 64447 and 64448. With the firewall rule
+  and the NAT policy limited to 62078, a probe worked (it only uses the
+  lockdown session) while the first backup the daemon started failed after
+  8 s with a timeout. With both widened to TCP 49152 to 65535 the service
+  ports were reachable. The range is the usual one for dynamic ports, not
+  something the phone states; only those four values have been seen.
 
 ### Writing a backup to an NFS share (2026-11-24)
 
