@@ -62,20 +62,27 @@ time comes; it is not part of the design or the build plan.
    were mostly for, with a status screen that shows when a phone has gone
    too long without a good backup, and it replaces both the config file
    (O24) and the Shortcuts of the proof of concept (O22). Planned as steps,
-   each usable by itself. Steps 1 to 3 are done; step 3 has run on the test
-   stack since 2026-11-25, where a deploy now takes about 100 seconds with
-   the web app's build in it, up from about 75:
+   each usable by itself.
+
+   Reordered by the owner on 2026-11-25, after seeing step 3: the web app
+   first, to a complete state, and the iPhone app after it. My first order
+   put "back up now" with the iPhone build and left the history without a
+   screen, so the first thing on the test stack was a single read-only
+   card. The web app is still built so the iPhone app reuses it whole (D23).
 
    1. Restructure the repository into workspaces, with no change in
-      behaviour.
-   2. A design brief: theme, component kit and the screens (O23).
+      behaviour. *Done.*
+   2. A design brief: theme, component kit and the screens (O23). *Done.*
    3. The API contract and a status screen, in the web app the container
-      serves.
-   4. The same app on the iPhone, and "back up now" in it.
-   5. A schedule for each phone, set in the app (O26).
-   6. Settings in the database; the config file goes (O24).
-   7. Adding a phone from the app (O25).
-   8. Sign-in (O27).
+      serves. *Done; on the test stack since 2026-11-25, where a deploy
+      takes about 100 seconds with the web app's build in it, up from 75.*
+   4. "Back up now" and each phone's history, in the web app. *Done.*
+   5. Settings changed in the app, kept in the database; the config file
+      goes (O24).
+   6. A schedule for each phone, set in the app (O26).
+   7. Adding and removing a phone from the app (O25).
+   8. The same app on the iPhone.
+   9. Sign-in (O27).
 4. **Later:** push or email notifications (O1); O8 to O15.
 
 ## Decided

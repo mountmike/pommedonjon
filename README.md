@@ -143,11 +143,29 @@ already charging when the service starts waits for its next plug-in.
 ### The web app
 
 With `api.port` set, the server also serves a web app at that address, for
-example `http://<server>:8377`. It shows every phone and its state, what
-each is waiting for, and a running backup step by step. It is read-only so
-far; [DESIGN.md](DESIGN.md) describes where it is going. The same
-information is available as JSON from `GET /api/devices` and
-`GET /api/devices/<id>`.
+example `http://<server>:8377`. It shows:
+
+- every phone and its state, and what each is waiting for;
+- a **Back up now** button for each phone;
+- a running backup step by step, from "connecting" through the passcode
+  prompt to "checking";
+- how the last try went if it did not work, and why;
+- on each phone's own page, its past backups day by day.
+
+Changing settings and adding phones from the app are still to come;
+[DESIGN.md](DESIGN.md) describes where it is going.
+
+The app talks to the server through a JSON API, which anything else may use
+too:
+
+| Request | Answer |
+|---|---|
+| `GET /api/devices` | Every phone and its state. |
+| `GET /api/devices/<id>` | One phone, with its last 50 backups. |
+| `POST /api/devices/<id>/backup-now` | Backs the phone up now. 202 `{"status":"started"}`, 404 `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`. |
+
+"Started" means the server has begun looking for the phone. If it cannot be
+reached, no backup runs, and the phone's state says so.
 
 ### Backing up on request
 
