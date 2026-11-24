@@ -613,7 +613,7 @@ messages cite them.
 | O16 | Plugged in, or on a charger? To be settled by the field trial | the field trial decides |
 | O18 | Which phone goes to which environment | needs the owner |
 | O21 | Getting the config and pair records in without copying files | now O24 and O25 |
-| O23 | The design brief: theme, component kit, screens | next, before any screens |
+| O23 | The design brief: theme, component kit, screens | the owner's review of DESIGN.md |
 | O24 | Settings without a config file | the owner's yes to the proposal |
 | O25 | Adding a phone from the app | a test of pairing from the browser |
 | O26 | What starts a backup: a button or a schedule | decided by the owner; the automatic mode's rules are for the design brief |
@@ -731,6 +731,10 @@ has been changed for this.
 
 *Asked for by the owner, 2026-11-24*, before any screens are built: a plan
 for the look, the component library and the way it is used.
+
+**Written, and with the owner for review:** [DESIGN.md](DESIGN.md). It ends
+with six questions for the owner, among them the rules of the automatic
+mode (O26) and the choice of component kit.
 
 To be written for the owner's review: the principles (a phone's state at a
 glance, one main action, honest about the passcode), the list of screens

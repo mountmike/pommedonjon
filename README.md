@@ -10,7 +10,7 @@ phone can ask for a backup itself. A backup has not yet been proven to
 decrypt and restore, there is no web UI, and the interface for requests
 has no authentication. [FINDINGS.md](FINDINGS.md) is what has been measured;
 [DECISIONS.md](DECISIONS.md) is what has been decided and what is still
-open.
+open; [DESIGN.md](DESIGN.md) is the brief for the app that comes next.
 
 ## What to know first
 
