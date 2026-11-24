@@ -210,6 +210,20 @@ describe("parseConfig", () => {
     ).toThrow(/share the udid/);
   });
 
+  it("does not listen on the network unless a port is given", () => {
+    expect(parseConfig(minimal(), "/").api).toBeUndefined();
+    expect(parseConfig(minimal({ api: { port: 8377 } }), "/").api).toEqual({ port: 8377 });
+  });
+
+  it.each([
+    [{}, /api\.port must be a number/],
+    [{ port: 0 }, /api\.port must be between 1 and 65535/],
+    [{ port: 70000 }, /api\.port must be between 1 and 65535/],
+    [{ port: 8377, token: "x" }, /api/],
+  ])("rejects the api setting %j", (api, message) => {
+    expect(() => parseConfig(minimal({ api }), "/")).toThrow(message);
+  });
+
   it("lets a phone have no address when there are ranges to find it in", () => {
     const config = parseConfig(
       minimal({

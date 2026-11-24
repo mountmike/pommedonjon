@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { startApiServer } from "./api/ApiServer.js";
 import { createApp, type App } from "./app.js";
 import { ConfigError, loadConfig, type DeviceConfig } from "./config/config.js";
 import { jsonLogger } from "./notify/Notifier.js";
@@ -185,9 +186,22 @@ async function main(argv: readonly string[]): Promise<number> {
       }
     }
     switch (command) {
-      case "daemon":
-        await app.daemon.run(controller.signal);
+      case "daemon": {
+        const api =
+          app.config.api === undefined
+            ? undefined
+            : await startApiServer({
+                port: app.config.api.port,
+                requestBackup: (deviceId) => app.daemon.requestBackup(deviceId),
+                log: jsonLogger,
+              });
+        try {
+          await app.daemon.run(controller.signal);
+        } finally {
+          await api?.close();
+        }
         return 0;
+      }
       case "probe":
         return await probe(app, values.device);
       case "backup":
