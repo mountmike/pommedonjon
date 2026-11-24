@@ -51,12 +51,19 @@ time comes; it is not part of the design or the build plan.
 
 1. **First build:** discovery, the charger trigger, phones in parallel,
    runtime-validated data, pair-record handling, published image and Compose
-   example.
+   example. Done; released as 0.1.0.
 2. **Field trial:** run it on the owner's phone for a week or two and watch
    how the schedule and the process behave in ordinary use. Added by the
-   owner, 2026-11-24. See O16 for what it has to settle.
-3. **Notifications:** its own phase, not designed yet (O1).
-4. **Later:** O8 to O15.
+   owner, 2026-11-24. Started that evening on the test stack, with the first
+   backup the daemon began by itself. See O16 for what it has to settle.
+3. **Web UI and service interface:** the next phase, by the owner,
+   2026-11-24, provided the proof of concept in O22 works. It takes over
+   what notifications were mostly for: a status page that shows when a
+   phone has gone too long without a good backup. It is also where adding
+   phones and settings without copying files belongs (O21), and where
+   authentication comes in.
+4. **Later:** push or email notifications (O1); a native iOS app, which the
+   owner wants once the concept is proven; O8 to O15.
 
 ## Decided
 
@@ -499,15 +506,19 @@ that so; nothing else about the commits changed.
 
 ### O1. Notification channel
 
-*Deferred by the owner, 2026-11-24, to its own phase.* Not designed. It
-covers the heads-up before a backup and alerts for failures and stale
-backups.
+*Deferred by the owner, 2026-11-24, and narrowed the same day.* Push or
+email notifications are a future feature, not a phase.
 
-One idea from the owner to carry into that phase: the phone itself tells the
-server it is ready, from a small iOS app or a Shortcut, either on a button
-or on a nightly timer that shows its own "backup about to start"
-notification. That would make the phone the trigger and the heads-up at
-once.
+What they were for, and where each part went:
+
+- **A heads-up before a backup.** Not needed. The passcode prompt is the
+  notice, and with the plug-in trigger the owner is holding the phone.
+- **"Backup finished."** Nobody acts on it.
+- **"No good backup for days."** The one that matters, because the usual
+  way a backup system fails is by stopping quietly. It goes on the status
+  page of the web UI (phase 3). A push can follow later.
+
+The owner's idea of the phone telling the server it is ready is now O22.
 
 ### O2. Prompt on unlock
 
@@ -756,3 +767,41 @@ UI that does it. The idea of the app building its own config from the pair
 records it finds, needing only a network range, is kept for then. No code
 has been changed for this.
 
+### O22. "Back up now", sent from the phone
+
+The owner's idea (first raised under O1): the phone tells the server to
+start, from a button or when it goes on charge. Pressed with the phone
+unlocked and in hand, the passcode prompt cannot be missed, and the server
+no longer has to infer a plug-in from polling.
+
+*Decided by the owner, 2026-11-24:*
+
+- Try it first as a proof of concept using an Apple Shortcut. If that
+  works, the web UI and service interface become the next phase.
+- The proof of concept has **no token or other authentication**. It is a
+  temporary measure; authentication arrives with the service interface.
+- A native iOS app is wanted, later, once enough has been proven.
+
+*Proposed for the proof of concept; nothing is built until the owner
+approves:*
+
+- The daemon listens for HTTP on a port named in the config. With no port
+  configured it does not listen at all, so the published image behaves as
+  it does today.
+- One request: start a backup of a named phone now. It skips the checks
+  for "is one due" and "was it just plugged in" and any pause after a
+  failure. It is refused if that phone is already being backed up.
+- On the phone, a Shortcut that sends that request, as a home-screen
+  button and as an automation when the charger is connected.
+- The test stack publishes the port on the server.
+
+What the proof of concept has to find out:
+
+- whether the charger automation runs by itself or asks first each time;
+- whether the phone can reach the server from its own network without more
+  firewall work;
+- how long it takes from the tap to the prompt.
+
+Without authentication, anything that can reach the port can make a phone
+show a passcode prompt. It cannot read or change a backup. That is the
+accepted cost for the proof of concept.
