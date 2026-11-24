@@ -77,10 +77,12 @@ time comes; it is not part of the design or the build plan.
       serves. *Done; on the test stack since 2026-11-25, where a deploy
       takes about 100 seconds with the web app's build in it, up from 75.*
    4. "Back up now" and each phone's history, in the web app. *Done.*
-   5. Settings changed in the app, kept in the database; the config file
-      goes (O24).
+   5. A phone's name and schedule changed in the app, kept in the database
+      (D26). *Done.* The config file is not gone yet: it still says which
+      phones there are and where things are kept, until step 7.
    6. A schedule for each phone, set in the app (O26).
-   7. Adding and removing a phone from the app (O25).
+   7. Adding and removing a phone from the app (O25); the config file goes
+      (O24).
    8. The same app on the iPhone.
    9. Sign-in (O27).
 4. **Later:** push or email notifications (O1); O8 to O15.
@@ -603,6 +605,34 @@ in pair records, with nothing checking who is asking. It belongs on a
 trusted network only. Two rules hold regardless: the API never hands a
 pair record back out, and it never serves the contents of a backup.
 
+### D26. What the app changes is kept in the database, and wins over the file
+
+*By judgement, 2026-11-25.* The app can change a phone's name, how often it
+is backed up, when a backup may start, its quiet hours and when it counts
+as overdue. Those are saved in the state database as a layer over the
+config file: the built-in defaults, then the file, then what the app saved.
+
+- **The app saves everything it shows, changed or not.** So a phone keeps
+  what its owner saw on the screen, whatever the file says later.
+- **The daemon looks the phones up afresh on every pass,** so a change takes
+  effect within one poll, with no restart.
+- **Quiet hours are the policy's window seen from the other side.** The
+  policy allows backups from 07:00 to 22:00; the app says quiet from 10 pm
+  to 7 am. One setting, two ways of saying it. "Back up now" ignores it,
+  as it ignores the rest of the schedule.
+- **The app's rules are stricter than the file's.** It will not save an
+  overdue warning that comes before the backup is wanted. The file still
+  can, and the app reads that without complaint.
+- **Not in the app:** the pauses after a failed try, the poll interval, the
+  network ranges, the port. They stay in the file.
+
+Rejected: importing the file into the database once and ignoring it
+afterwards. The file would then be silently dead while still looking
+live. Layering keeps it honest until step 7 removes it (O24).
+
+This is on the unauthenticated API (D25): anyone who can reach the port can
+change a phone's schedule.
+
 ## Open
 
 Still needing a decision or a test. Items settled since the first review are
@@ -622,7 +652,7 @@ messages cite them.
 | O18 | Which phone goes to which environment | needs the owner |
 | O21 | Getting the config and pair records in without copying files | now O24 and O25 |
 | O23 | The design brief: theme, component kit, screens | agreed; nothing waiting |
-| O24 | Settings without a config file | the owner's yes to the proposal |
+| O24 | Settings without a config file | partly built (D26); the rest with adding a phone |
 | O25 | Adding a phone from the app | a test of pairing from the browser |
 | O26 | What starts a backup: a button or a schedule | decided, rules agreed; to be built |
 | O27 | Sign-in | later; direction proposed |

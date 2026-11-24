@@ -98,7 +98,7 @@ the file is reported at once.
 | `devices[].udid` | The phone's UDID. |
 | `devices[].pairRecordPath` | Where its pair record is mounted. |
 | `devices[].host` | Optional. Pins the phone to one address or name; nothing else is tried. |
-| `defaultPolicy`, `devices[].policy` | When to back up; see below. A phone's own policy overrides the default. |
+| `defaultPolicy`, `devices[].policy` | When to back up; see below. A phone's own policy overrides the default, and what is changed in the web app overrides both. |
 
 ### Finding the phone
 
@@ -150,10 +150,14 @@ example `http://<server>:8377`. It shows:
 - a running backup step by step, from "connecting" through the passcode
   prompt to "checking";
 - how the last try went if it did not work, and why;
-- on each phone's own page, its past backups day by day.
+- on each phone's own page, its past backups day by day;
+- a phone's name and schedule, to change: how often, when a backup may
+  start, quiet hours, and when it counts as overdue.
 
-Changing settings and adding phones from the app are still to come;
-[DESIGN.md](DESIGN.md) describes where it is going.
+What is changed in the app is kept in the state database and wins over the
+config file from then on. It takes effect within one poll, with no restart.
+Adding phones from the app is still to come; [DESIGN.md](DESIGN.md)
+describes where it is going.
 
 The app talks to the server through a JSON API, which anything else may use
 too:
@@ -162,6 +166,8 @@ too:
 |---|---|
 | `GET /api/devices` | Every phone and its state. |
 | `GET /api/devices/<id>` | One phone, with its last 50 backups. |
+| `GET /api/devices/<id>/settings` | What can be changed about a phone. |
+| `PUT /api/devices/<id>/settings` | Changes it; send all of it. 200 with the settings as saved, 400 `{"error":"invalid-settings","problems":[...]}`. |
 | `POST /api/devices/<id>/backup-now` | Backs the phone up now. 202 `{"status":"started"}`, 404 `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`. |
 
 "Started" means the server has begun looking for the phone. If it cannot be
