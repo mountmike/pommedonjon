@@ -834,6 +834,14 @@ What followed from that, approved by the owner and built the same evening:
 - **No heads-up pause on a requested backup**, of either kind. The owner is
   at the phone.
 
+Checked on the owner's phone straight after:
+
+- Tap to prompt fell from 10.6 s to 5.4 s.
+- With no backup due, replugging the charger sent the plug-in request, the
+  server answered "not now, not due", and nothing appeared on the phone.
+- Not yet seen: a plug-in request that does start a backup. The first
+  chance is the owner's first plug-in after the next backup falls due.
+
 Still open: the Shortcut shows nothing when the server says no. Left for
 the web UI phase.
 
