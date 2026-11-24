@@ -23,7 +23,8 @@ export default function PhoneScreen() {
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Link href="/" asChild>
+        {/* Back to the screen that is already there, not a new copy on top. */}
+        <Link href="/" dismissTo asChild>
           <Pressable accessibilityRole="link" style={styles.back}>
             <Text style={[styles.backText, { color: theme.tint }]}>‹ Phones</Text>
           </Pressable>

@@ -177,6 +177,23 @@ describe("adding a phone", () => {
     expect(h.searched[0]?.host).toBe("10.0.0.7");
   });
 
+  it("refuses a pairing that belongs to a different phone than the identifier given", async () => {
+    const h = setUp({
+      findable: { udid: "00000000-0000000000000009", name: "Other", host: "10.0.0.7" },
+    });
+    const result = await h.manager.add({ udid: UDID, host: "10.0.0.7", pairRecord: encoded(SECRET) });
+    expect(result).toMatchObject({ outcome: "invalid" });
+    expect(result.outcome === "invalid" ? result.problems[0] : "").toContain("a different phone");
+    expect(leftBehind()).toEqual([]);
+  });
+
+  it("takes an identifier typed in the wrong case as the same phone, and keeps the phone's own", async () => {
+    const real = "00008140-000A1B2C3D4E001C";
+    const h = setUp({ findable: { udid: real, name: "Mike's iPhone", host: "10.0.0.7" } });
+    await h.manager.add({ udid: real.toLowerCase(), host: "10.0.0.7", pairRecord: encoded(SECRET) });
+    expect(h.directory.all()[0]?.udid).toBe(real);
+  });
+
   it("does not go looking when the name and identifier are both given", async () => {
     const h = setUp();
     await h.manager.add(h.phone);
@@ -251,7 +268,7 @@ describe("checking a phone", () => {
 
   it.each([
     ["with backup encryption off", fakeStatus({ udid: UDID, backupEncryptionEnabled: false }), { reachable: true, paired: true, problem: "encryption-off" }],
-    ["that turns out to be a different phone", fakeStatus({ udid: "00000000-0000000000000009" }), { reachable: true, problem: "wrong-phone" }],
+    ["that turns out to be a different phone", new DeviceError("another", "wrong-device"), { reachable: true, paired: true, problem: "wrong-phone" }],
     ["that is not at home", new DeviceError("no answer", "unreachable"), { reachable: false, paired: null, problem: "unreachable" }],
     ["that refuses its pairing", new DeviceError("refused", "not-paired"), { reachable: true, paired: false, problem: "not-paired" }],
     ["that could not be asked", new DeviceError("garbled", "failed"), { reachable: false, problem: "probe-failed" }],

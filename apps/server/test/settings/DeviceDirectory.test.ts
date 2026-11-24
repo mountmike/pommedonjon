@@ -5,7 +5,12 @@ import { DeviceSettingsSchema, type DeviceSettings } from "@pommedonjon/api-cont
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_POLICY } from "../../src/config/config.js";
 import { PairRecordStore } from "../../src/credentials/PairRecordStore.js";
-import { DeviceDirectory, fixedDevices, idFromName } from "../../src/settings/DeviceDirectory.js";
+import {
+  canonicalUdid,
+  DeviceDirectory,
+  fixedDevices,
+  idFromName,
+} from "../../src/settings/DeviceDirectory.js";
 import { StateStore } from "../../src/state/StateStore.js";
 
 const NOW = new Date("2026-11-25T08:00:00.000Z");
@@ -175,14 +180,43 @@ describe("DeviceDirectory", () => {
     expect(phones.remove("mikes-iphone")).toBe(false);
   });
 
-  it("picks a phone's backups up again when it is added back under the same name", () => {
+  it("picks a phone's backups up again when the same handset is added back, whatever it is called now", () => {
     const phones = withMike();
     phones.remove("mikes-iphone");
     const again = phones.add(
-      { name: "Mike's iPhone", udid: MIKE_UDID, receivedPairRecord: record() },
+      { name: "Mike's new name", udid: MIKE_UDID, receivedPairRecord: record() },
       NOW,
     );
-    expect(again).toMatchObject({ ok: true, device: { id: "mikes-iphone" } });
+    expect(again).toMatchObject({
+      ok: true,
+      device: { id: "mikes-iphone", name: "Mike's new name" },
+    });
+  });
+
+  it("does not let a replacement phone of the same name inherit the old one's backups", () => {
+    const phones = withMike();
+    const run = state.startRun("mikes-iphone", NOW);
+    state.finishRun(run, NOW, { outcome: "succeeded", durationMs: 1 });
+    phones.remove("mikes-iphone");
+
+    const replacement = phones.add(
+      { name: "Mike's iPhone", udid: LAUREL_UDID, receivedPairRecord: record() },
+      NOW,
+    );
+    expect(replacement).toMatchObject({ ok: true, device: { id: "mikes-iphone-2" } });
+    // The new handset has never been backed up, and says so.
+    expect(state.lastSuccessAt("mikes-iphone-2")).toBeUndefined();
+  });
+
+  it("keeps a UDID the way the phone itself writes it, however it was typed", () => {
+    const added = directory().add(
+      { name: "Mike", udid: " 00008140-000a1b2c3d4e001c ", receivedPairRecord: record() },
+      NOW,
+    );
+    expect(added.ok && added.device.udid).toBe("00008140-000A1B2C3D4E001C");
+    expect(canonicalUdid("0123456789ABCDEF0123456789ABCDEF01234567")).toBe(
+      "0123456789abcdef0123456789abcdef01234567",
+    );
   });
 
   it("describes what the app can change about a phone, in the contract's shape", () => {

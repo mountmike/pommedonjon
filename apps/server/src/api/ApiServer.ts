@@ -398,10 +398,16 @@ export function createApiHandler(deps: ApiDeps) {
   async function whoAsks(req: IncomingMessage): Promise<string | undefined> {
     if (!deps.whoIsAt) return undefined;
     const forwarded = req.headers["x-forwarded-for"];
-    const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
+    // A proxy adds the address it saw to the end of the list. Everything
+    // before that is whatever the caller chose to send, so only the last
+    // entry is the proxy's own word.
+    const seenByProxy = (Array.isArray(forwarded) ? forwarded.join(",") : forwarded)
+      ?.split(",")
+      .at(-1)
+      ?.trim();
     const address =
-      deps.trustForwardedFor && first !== undefined && first !== ""
-        ? first
+      deps.trustForwardedFor && seenByProxy !== undefined && seenByProxy !== ""
+        ? seenByProxy
         : plainAddress(req.socket.remoteAddress);
     return address === undefined ? undefined : deps.whoIsAt(address);
   }

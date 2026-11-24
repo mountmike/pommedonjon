@@ -62,6 +62,8 @@ function waitingWords(waiting: Waiting | null, now: Date, style: TimeStyle): str
       return until ? `Quiet hours. Waiting until ${until}.` : "Quiet hours.";
     case "unreachable":
       return "Will start when the phone is back at home.";
+    case "wrong-device":
+      return "A different phone answered at this phone's address.";
     case "probe-failed":
     case "error":
       return "Couldn't check on the phone just now. It will keep trying.";
@@ -207,6 +209,11 @@ function failureWords(run: RunSummary): { readonly sentence: string; readonly sh
       return { sentence: "The phone did not accept its pairing.", short: "Pairing not accepted" };
     case "interrupted":
       return { sentence: "The server stopped part-way.", short: "Server stopped part-way" };
+    case "wrong-device":
+      return {
+        sentence: "A different phone answered at this phone's address.",
+        short: "A different phone answered",
+      };
     case "stopped":
       return { sentence: "You stopped it.", short: "Stopped from the app" };
     case "cancelled":

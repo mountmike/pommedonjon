@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_POLICY, type DevicePolicy } from "../../src/config/config.js";
-import type { LockState } from "../../src/policy/lock.js";
+import { INITIAL_LOCK_STATE, observeLock, type LockState } from "../../src/policy/lock.js";
 import {
   inWindow,
   isStale,
@@ -193,7 +193,33 @@ describe("schedule", () => {
     });
   });
 
-  it("paces itself by the most recent failure, not an earlier one", () => {
+  it("keeps a Cancel's pause when something else fails during it", () => {
+    // Cancelled at noon: left alone until 16:01. An hour in, a backup that
+    // was asked for went unanswered, which by itself is a ten-minute pause.
+    const recentAttempts = [
+      failed(at(12), "passcode-cancelled"),
+      failed(at(13), "device-locked"),
+    ];
+    expect(
+      schedule({ now: at(13, 15), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual({
+      observe: true,
+      start: { allowed: false, reason: "backing-off", until: at(16, 1) },
+    });
+    expect(
+      schedule({ now: at(16, 1), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toEqual(GO);
+  });
+
+  it("takes a limit on unanswered prompts that is not a whole number as the one below", () => {
+    const recentAttempts = [failed(at(9), "device-locked"), failed(at(13), "device-locked")];
+    const fussy = { ...policy, maxUnansweredPerDay: 2.5 };
+    expect(
+      schedule({ now: at(19), policy: fussy, lastSuccessAt: undefined, recentAttempts }),
+    ).toMatchObject({ start: { allowed: false, reason: "backing-off" } });
+  });
+
+  it("paces itself by whichever pause ends last, not by an earlier one that has run out", () => {
     const recentAttempts = [
       failed(at(19, 10), "device-locked"),
       failed(at(18), "unreachable"),
@@ -213,6 +239,44 @@ describe("schedule", () => {
     expect(
       schedule({ now: at(19), policy, lastSuccessAt: undefined, recentAttempts: [running] }),
     ).toEqual({ observe: false, start: { allowed: false, reason: "already-running" } });
+  });
+});
+
+describe("observeLock", () => {
+  const unlockedAt = (since: Date): LockState => ({ kind: "unlocked", since });
+
+  it("counts a run of unlocked readings as one stretch, from the first", () => {
+    const first = observeLock(INITIAL_LOCK_STATE, "unlocked", at(19));
+    expect(first).toEqual(unlockedAt(at(19)));
+    expect(observeLock(first, "unlocked", at(19, 2))).toEqual(unlockedAt(at(19)));
+  });
+
+  it("starts a new stretch once the phone has been seen locked", () => {
+    const locked = observeLock(unlockedAt(at(19)), "locked", at(19, 4));
+    expect(locked).toEqual({ kind: "locked" });
+    expect(observeLock(locked, "unlocked", at(19, 6))).toEqual(unlockedAt(at(19, 6)));
+  });
+
+  it("does not make a new stretch of one missed reading", () => {
+    const missed = observeLock(unlockedAt(at(19)), "unknown", at(19, 2));
+    expect(missed.kind).toBe("unknown");
+    expect(observeLock(missed, "unlocked", at(19, 4))).toEqual(unlockedAt(at(19)));
+  });
+
+  it("keeps counting the gap from the first missed reading, not the latest", () => {
+    let state = observeLock(unlockedAt(at(19)), "unknown", at(19, 2));
+    state = observeLock(state, "unknown", at(19, 10));
+    state = observeLock(state, "unknown", at(19, 16));
+    // Fourteen minutes of silence is a gap; sixteen is the phone put down.
+    expect(observeLock(state, "unlocked", at(19, 16))).toEqual(unlockedAt(at(19)));
+    expect(observeLock(state, "unlocked", at(19, 18))).toEqual(unlockedAt(at(19, 18)));
+  });
+
+  it("does not resume a stretch across a reading of locked", () => {
+    let state = observeLock(unlockedAt(at(19)), "unknown", at(19, 2));
+    state = observeLock(state, "locked", at(19, 4));
+    state = observeLock(state, "unknown", at(19, 6));
+    expect(observeLock(state, "unlocked", at(19, 8))).toEqual(unlockedAt(at(19, 8)));
   });
 });
 

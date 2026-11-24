@@ -35,7 +35,8 @@ export function createPhoneFinder(deps: {
           ? [host]
           : scanner.enabled
             ? // A caller of its own, so it is given the sweep whoever else has had it.
-              await scanner.candidates(`find:${randomBytes(4).toString("hex")}`)
+              // And afresh: the phone may have been asleep at the last sweep.
+              await scanner.candidates(`find:${randomBytes(4).toString("hex")}`, { fresh: true })
             : [];
       // Each candidate is some Apple device. Only the phone this pair record
       // belongs to accepts it; the others refuse, which is expected.

@@ -33,6 +33,29 @@ deployed, and each entry lists the individual calls inside it.
 | D30 | The server works out which phone is asking | By the request's address and the pairing, with no token; opening the app on a phone starts a wanted backup |
 | O8 | Backups away from home | Research only ([REMOTE.md](REMOTE.md)). A one-hour WireGuard test is proposed |
 
+**Reviewed before you saw it.** The day's changes were read through for
+bugs by a second pass with no stake in them, and what it found is fixed,
+each with a test that reproduces it:
+
+| Found | Fixed by |
+|---|---|
+| Stop did nothing while a requested backup was still looking for the phone, and the prompt then appeared | Stop works from the moment of asking; a backup stopped that early never reaches the phone |
+| A phone that went on a charger while nobody was watching looked "just plugged in" when watching resumed | What was last seen of a phone is forgotten once it is no longer being watched |
+| One missed probe made the same sitting count as a second unlock, so it could prompt twice | A gap of under 15 minutes continues the same stretch, as it already did for power |
+| The four hours after a Cancel were cut short by any later failure | Every recent failure sets its own pause; the one that ends last holds |
+| The proof of concept's "plugged in" request ignored the plug-in switch | It now respects it |
+| A phone removed in the app came back at the next restart while the old config was still mounted | The import is noted as done, and is done once |
+| Retrying "Add a phone" reused a network sweep up to five minutes old | Adding a phone sweeps afresh; so does anything after the range is changed |
+| A typed identifier was never checked against the phone, and case mattered | Checked when the phone is found; kept the way the phone writes it; compared without regard to case |
+| An old config file that still said `trigger` stopped the service | It is read and translated; and no unreadable old file can stop the service starting |
+| A replacement phone with the same name inherited the old one's history and backups | An id belongs to one handset for good; only the same handset gets it back |
+| Screens piled up behind Back, each still asking the server every few seconds | Back returns to the screen that is there; a hidden screen stops asking |
+| Recognising a phone: one short knock; it probed a phone mid-backup; behind a proxy it took the caller's word | A longer knock; a phone being backed up is left alone; only the proxy's own entry is used |
+
+Left as it is, knowingly: recognising a phone presents each phone's pairing
+identifiers (not its keys) to whatever answers on the lockdown port at the
+caller's address. On a home network that is another Apple device at most.
+
 Also decided along the way, without an entry of their own:
 
 - **The iPhone app's bundle id** is `io.github.mountmike.pommedonjon`. It
@@ -685,7 +708,8 @@ off altogether.
    Revisit if unlocks are missed in practice.
 2. **A moment is used once.** After a prompt nobody answered, the same
    plug-in, or the same stretch of being unlocked, does not prompt again;
-   the next one does. This replaces "ask again every 10 minutes", which the
+   the next one does. One missed probe does not end a stretch: only being
+   seen locked, or fifteen minutes without a word, does. This replaces "ask again every 10 minutes", which the
    owner's rules ruled out. The 10 minutes stay as a floor between prompts.
 3. **Sitting on a charger asks again after four hours.** That rung has no
    moment to wait for, so it needed a number. Four hours matches the pause
@@ -693,18 +717,22 @@ off altogether.
 4. **Three unanswered prompts in 24 hours, then none until the oldest is a
    day old.** The owner's rule, counted over a rolling day, not a calendar
    one. Settable in the config file (`maxUnansweredPerDay`), not in the app.
-5. **A phone never backed up is on the first rung only.** There is nothing
+5. **Pauses do not cut each other short.** Each recent failure sets its
+   own pause and the one that ends last holds, so a Cancel's four hours
+   survive something else failing in the meantime.
+6. **What was seen of a phone is forgotten when watching stops.** Otherwise
+   a phone last seen on battery, and put on a charger unwatched, would
+   count as just plugged in when watching resumed.
+7. **A phone never backed up is on the first rung only.** There is nothing
    to count "wanted for" from, and a phone just added should not be
    prompted while it sits unattended on a charger. Its first backup comes at
    a plug-in or from Back up now.
-6. **A phone that does not say whether it is locked counts as locked.**
-7. **`trigger` is removed, not kept alongside.** `"on-charger"` is now
+8. **A phone that does not say whether it is locked counts as locked.**
+9. **`trigger` is removed, not kept alongside.** `"on-charger"` is now
    `startOnChargerAfterHours: 0`. Settings saved from the app are converted
-   by the database upgrade; a config file that still says `trigger` is
-   refused with a message naming it. Only the test stack exists and its
-   file does not use it.
-8. **Which moment started a backup is logged, not stored.** The run history
-   does not yet say why a backup began.
+   by the database upgrade, and an old config file that still says
+   `trigger` is translated as it is read.
+10. **Which moment started a backup is kept with the run** (D29).
 
 Not built: "the owner opens the app" as a moment, which needs the app to
 know which phone it is on.
@@ -737,8 +765,10 @@ things are comes from environment variables with defaults.
    2026-11-25: a probe given no UDID reported the right one. Away from
    home, the name and UDID have to be typed.
 5. **A phone's short id comes from its name** ("Mike's iPhone" is
-   `mikes-iphone`), and a phone added back under the same name gets the
-   same id, so its backups carry on in the same directory.
+   `mikes-iphone`) and belongs to that handset for good. The same handset
+   added back, whatever it is then called, gets its id back, so its backups
+   carry on in the same directory. A different phone never does, even with
+   the same name: a replacement starts clean as `mikes-iphone-2`.
 6. **Removing a phone keeps its backups and its history.** Only the pairing
    and the settings go. Refused while that phone is being backed up.
 7. **A phone needs a way to be found before it can be added:** a fixed
@@ -748,7 +778,9 @@ things are comes from environment variables with defaults.
    It still has no sign-in (D25), which matters more than it did: the API
    now takes pairings in and removes phones. Sign-in (O27) is the next
    thing this needs before it leaves a trusted network.
-9. **An earlier config file is imported once, then ignored.** D26 rejected
+9. **An earlier config file is imported once, then ignored,** and that it
+   was done is written down, so a phone removed in the app stays removed
+   while the old file is still mounted. D26 rejected
    exactly this, because a file that is read once looks live and is not.
    It is acceptable here because it is the way off the file, the log says
    so in as many words, and the only deployment is the test stack. The

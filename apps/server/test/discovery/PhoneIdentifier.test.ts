@@ -20,7 +20,9 @@ const LAUREL: DeviceConfig = {
   pairRecordPath: "/pairings/laurel.plist",
 };
 
-function setUp(options: { listening?: string[]; devices?: DeviceConfig[] } = {}) {
+function setUp(
+  options: { listening?: string[]; devices?: DeviceConfig[]; busy?: string[] } = {},
+) {
   const transport = new FakeTransport();
   const knocks: string[] = [];
   let now = new Date("2026-11-25T08:00:00.000Z");
@@ -33,6 +35,7 @@ function setUp(options: { listening?: string[]; devices?: DeviceConfig[] } = {})
     transport,
     clock: () => now,
     port: 62078,
+    isBusy: (deviceId) => (options.busy ?? []).includes(deviceId),
     knock: (host) => {
       knocks.push(host);
       return Promise.resolve((options.listening ?? ["192.168.1.50"]).includes(host));
@@ -113,6 +116,24 @@ describe("PhoneIdentifier", () => {
     ]);
     expect(answers).toEqual(["mike", "mike", "mike"]);
     expect(h.knocks).toHaveLength(1);
+  });
+
+  it("leaves a phone alone while it is being backed up", async () => {
+    const h = setUp({ busy: ["mike"] });
+    h.transport.identities.set("192.168.1.50", fakeStatus({ udid: MIKE.udid }));
+    expect(await h.identifier.whoIsAt("192.168.1.50")).toBeUndefined();
+    expect(h.transport.identified.map((endpoint) => endpoint.pairRecordPath)).toEqual([
+      "/pairings/laurel.plist",
+    ]);
+  });
+
+  it("does not remember more addresses than it has a use for", async () => {
+    const h = setUp({ listening: [] });
+    for (let n = 0; n < 600; n += 1) await h.identifier.whoIsAt(`10.0.${Math.floor(n / 250)}.${n % 250}`);
+    // Still answers, and still looks afresh for an address it has let go of.
+    const before = h.knocks.length;
+    await h.identifier.whoIsAt("10.0.0.0");
+    expect(h.knocks.length).toBe(before + 1);
   });
 
   it("stops recognising a phone that has been removed", async () => {

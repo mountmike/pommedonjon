@@ -1,3 +1,4 @@
+import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
 
@@ -34,13 +35,21 @@ export function useLive<T>(
     latest.current = { load, isBusy };
   });
   const refreshNow = useRef<() => void>(() => {});
+  // A screen that is underneath another is not being read. It stops asking
+  // the server, and starts again, at once, when it comes back to the front.
+  const focused = useIsFocused();
+  const loadedKey = useRef<string | undefined>(undefined);
 
   useEffect(() => {
+    if (!focused) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Only the newest request may write: an older, slower one is out of date.
     let newest = 0;
-    setState({ status: "loading" });
+    // Coming back to the front keeps what was showing while it is refreshed;
+    // only something different to load starts from nothing.
+    if (loadedKey.current !== key) setState({ status: "loading" });
+    loadedKey.current = key;
 
     async function refresh() {
       clearTimeout(timer);
@@ -75,7 +84,7 @@ export function useLive<T>(
       clearTimeout(timer);
       clearInterval(tick);
     };
-  }, [key]);
+  }, [key, focused]);
 
   const refresh = useCallback(() => refreshNow.current(), []);
   return { state, now, refresh };

@@ -252,8 +252,38 @@ export function layer(base: DevicePolicy, overrides: PolicyOverrides | undefined
  * `baseDir`, normally the directory holding the config file. Every problem
  * found is reported, one per line.
  */
+/**
+ * A policy as an earlier version wrote it, brought up to date. `trigger`
+ * became the moments a backup may start at: "on-charger" meant any time on
+ * a charger from the start, and "plugged-in" is what the defaults now say.
+ */
+function modernPolicy(policy: unknown): unknown {
+  if (typeof policy !== "object" || policy === null || !("trigger" in policy)) return policy;
+  const { trigger, ...rest } = policy as Record<string, unknown>;
+  return trigger === "on-charger" && !("startOnChargerAfterHours" in rest)
+    ? { ...rest, startOnChargerAfterHours: 0 }
+    : rest;
+}
+
+/** A config document with every policy in it brought up to date. */
+function modernConfig(document: unknown): unknown {
+  if (typeof document !== "object" || document === null || Array.isArray(document)) return document;
+  const file = document as Record<string, unknown>;
+  return {
+    ...file,
+    ...("defaultPolicy" in file && { defaultPolicy: modernPolicy(file["defaultPolicy"]) }),
+    ...(Array.isArray(file["devices"]) && {
+      devices: file["devices"].map((device: unknown) =>
+        typeof device === "object" && device !== null && "policy" in device
+          ? { ...device, policy: modernPolicy((device as Record<string, unknown>)["policy"]) }
+          : device,
+      ),
+    }),
+  };
+}
+
 export function parseConfig(document: unknown, baseDir: string): PommedonjonConfig {
-  const parsed = ConfigFileSchema.safeParse(document);
+  const parsed = ConfigFileSchema.safeParse(modernConfig(document));
   if (!parsed.success) {
     throw new ConfigError(describeIssues(parsed.error).join("\n"));
   }

@@ -605,6 +605,85 @@ describe("Daemon and the moments a backup may start", () => {
   });
 });
 
+describe("Daemon and what it knows after it stops watching", () => {
+  it("does not take a phone that went on a charger unwatched for one just plugged in", async () => {
+    // Yesterday's backup began from an unlock, on battery, and ended at 19:05.
+    const h = harness([deviceConfig({ policy: { ...DEFAULT_POLICY, pluggedInWindowMinutes: 60 } })]);
+    h.setNow(at(19, 0, -1));
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    h.daemon.requestBackup("mike");
+    await settle();
+    expect(h.ran).toEqual(["mike"]);
+
+    // Nothing is wanted for most of a day, so nobody is watching. At 9 am
+    // the phone goes on a charger with nobody near it.
+    h.setNow(at(9));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "not-due" }]);
+    h.transport.probeResult = fakeStatus();
+
+    // Watching resumes half an hour before the backup is wanted.
+    h.setNow(at(14, 40));
+    await h.daemon.tick();
+    h.setNow(at(15, 2));
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "waiting-for-plug-in" },
+    ]);
+    expect(h.ran).toEqual(["mike"]);
+  });
+
+  it("still sees a plug-in that happens while it is watching", async () => {
+    const h = harness([deviceConfig({ policy: DEFAULT_POLICY })]);
+    const earlier = state.startRun("mike", at(18, 0, -1));
+    state.finishRun(earlier, at(18, 5, -1), { outcome: "succeeded", durationMs: 1 });
+    h.setNow(at(13));
+    await h.daemon.tick(); // not watching yet
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    h.setNow(at(13, 50));
+    await h.daemon.tick(); // watching: on battery
+    h.transport.probeResult = fakeStatus();
+    h.setNow(at(14, 10));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "backed-up" }]);
+  });
+
+  it("does not ask twice in one sitting because one probe went unanswered", async () => {
+    const h = harness([deviceConfig({ policy: DEFAULT_POLICY })]);
+    const earlier = state.startRun("mike", at(18, 0, -1));
+    state.finishRun(earlier, at(18, 5, -1), { outcome: "succeeded", durationMs: 1 });
+    const unlocked = fakeStatus({ battery: ON_BATTERY, locked: false });
+
+    h.transport.probeResult = unlocked;
+    h.setRun(failRun("device-locked", at(19)));
+    await h.daemon.tick();
+    expect(h.ran).toEqual(["mike"]);
+
+    // One probe is missed, then the phone is seen unlocked again: the same sitting.
+    h.transport.probeResult = new DeviceError("no answer", "unreachable");
+    h.setNow(at(19, 13));
+    await h.daemon.tick();
+    h.transport.probeResult = unlocked;
+    h.setNow(at(19, 15));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "moment-used" }]);
+    expect(h.ran).toEqual(["mike"]);
+  });
+
+  it("does not start a backup of a phone that was removed while it was being looked for", async () => {
+    let here = [deviceConfig()];
+    const h = harness([], { all: () => here, get: (id) => here.find((device) => device.id === id) });
+    const found = gate<void>();
+    const probe = h.transport.probe.bind(h.transport);
+    h.transport.probe = async (target) => {
+      await found.closed;
+      return probe(target);
+    };
+    const pass = h.daemon.tick();
+    await settle();
+    here = [];
+    found.open();
+    expect(await pass).toMatchObject([{ action: "waited", reason: "removed" }]);
+    expect(h.ran).toEqual([]);
+  });
+});
+
 describe("Daemon and changed settings", () => {
   /** Phones whose settings can be changed under the daemon, as the app does. */
   function changeable(first: DeviceConfig) {
@@ -728,6 +807,14 @@ describe("Daemon and phones added or removed while it runs", () => {
   });
 });
 
+describe("Daemon.reportPlugIn and the switch", () => {
+  it("starts nothing for a reported plug-in when that moment is switched off", () => {
+    const h = harness([deviceConfig({ policy: { ...DEFAULT_POLICY, startWhenPluggedIn: false } })]);
+    expect(h.daemon.reportPlugIn("mike")).toEqual({ outcome: "not-now", reason: "manual-only" });
+    expect(h.ran).toEqual([]);
+  });
+});
+
 describe("Daemon.reportAppOpen", () => {
   const backedUpHoursAgo = (hours: number) => {
     const finished = new Date(at(19).getTime() - hours * 60 * 60 * 1000);
@@ -844,6 +931,30 @@ describe("Daemon.stopBackup", () => {
     expect(await h.daemon.tick()).toMatchObject([
       { action: "waited", reason: "backing-off", until: at(23, 1) },
     ]);
+  });
+
+  it("stops a backup that was asked for before the phone has even been found", async () => {
+    const h = harness();
+    // The phone takes a while to answer.
+    const found = gate<void>();
+    const probe = h.transport.probe.bind(h.transport);
+    h.transport.probe = async (target) => {
+      await found.closed;
+      return probe(target);
+    };
+
+    h.daemon.requestBackup("mike");
+    await settle();
+    expect(h.daemon.requestFor("mike")).toMatchObject({ status: "connecting" });
+    expect(h.daemon.stopBackup("mike")).toBe("stopping");
+
+    found.open();
+    await settle();
+    // Found, and nothing asked of it.
+    expect(h.ran).toEqual([]);
+    expect(h.daemon.requestFor("mike")).toMatchObject({ status: "not-started", reason: "stopped" });
+    expect(h.daemon.isBusy("mike")).toBe(false);
+    expect(h.daemon.stopBackup("mike")).toBe("not-running");
   });
 
   it("has nothing to stop when no backup is running, or the phone is not here", () => {

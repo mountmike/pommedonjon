@@ -122,6 +122,46 @@ describe("importConfig", () => {
     expect(h.serverSettings.get().pollIntervalSeconds).toBe(90);
   });
 
+  it("does not bring a phone back that was removed in the app, while the old file is still there", () => {
+    const h = setUp();
+    h.run({ ...FILE, devices: [FILE.devices[0]] });
+    h.directory.remove("mike");
+    // The service restarts with the file and the pair record still mounted.
+    expect(h.run({ ...FILE, devices: [FILE.devices[0]] })).toBe(0);
+    expect(h.directory.all()).toEqual([]);
+  });
+
+  it("brings in the settings it can when the app's rules will not take one of them", () => {
+    const h = setUp();
+    // An hour and a half between polls is more than the app allows.
+    h.run({ ...FILE, pollIntervalSeconds: 5400 });
+    expect(h.serverSettings.get()).toMatchObject({
+      discoveryRanges: ["192.168.1.0/24"],
+      scanIntervalSeconds: 600,
+      pollIntervalSeconds: 120,
+    });
+    expect(h.logs).toContainEqual(
+      expect.objectContaining({
+        level: "warning",
+        fields: expect.objectContaining({ setting: "pollIntervalSeconds" }),
+      }),
+    );
+  });
+
+  it("reads a file from before the moments, where a trigger said when to start", () => {
+    const h = setUp();
+    h.run({
+      ...FILE,
+      defaultPolicy: { trigger: "plugged-in" },
+      devices: [
+        { ...FILE.devices[0], policy: { trigger: "on-charger" } },
+        { ...FILE.devices[1], policy: {} },
+      ],
+    });
+    expect(h.directory.get("mike")?.policy.startOnChargerAfterHours).toBe(0);
+    expect(h.directory.get("laurel")?.policy.startOnChargerAfterHours).toBe(24);
+  });
+
   it("says so in the log, without anything from a pair record", () => {
     const h = setUp();
     h.run();

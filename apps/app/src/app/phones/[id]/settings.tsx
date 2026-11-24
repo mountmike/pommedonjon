@@ -92,7 +92,7 @@ export default function PhoneSettingsScreen() {
     setSaving({ status: "saving" });
     try {
       await saveSettings(id, { ...wanted, name: wanted.name.trim() });
-      router.replace(back);
+      router.dismissTo(back);
     } catch (error) {
       const known = error instanceof ApiError;
       const why = known ? error.message : "Something went wrong.";
@@ -107,7 +107,7 @@ export default function PhoneSettingsScreen() {
     setRemoving({ status: "removing" });
     try {
       await removePhone(id);
-      router.replace("/");
+      router.dismissTo("/");
     } catch (error) {
       const message = error instanceof ApiError ? error.message : "Something went wrong.";
       setRemoving({ status: "failed", message });
@@ -117,7 +117,7 @@ export default function PhoneSettingsScreen() {
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Link href={back} asChild>
+        <Link href={back} dismissTo asChild>
           <Pressable accessibilityRole="link" style={styles.back}>
             <Text style={[styles.backText, { color: theme.tint }]}>‹ Back</Text>
           </Pressable>
@@ -291,7 +291,7 @@ export default function PhoneSettingsScreen() {
                 />
               </Host>
               <Host matchContents>
-                <Button label="Cancel" variant="text" onPress={() => router.replace(back)} />
+                <Button label="Cancel" variant="text" onPress={() => router.dismissTo(back)} />
               </Host>
             </View>
 

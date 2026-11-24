@@ -132,4 +132,44 @@ describe("PortScanner", () => {
     expect(await h.scanner.candidates("mike")).toEqual([]);
     expect(h.calls).toEqual([]);
   });
+
+  it("sweeps again for someone waiting on the answer, though the last sweep is recent", async () => {
+    // Asleep at the first sweep, awake a minute later.
+    let awake = false;
+    const h = scanner({ open: (host) => awake && host === "192.168.1.50" });
+    expect(await h.scanner.candidates("mike")).toEqual([]);
+
+    awake = true;
+    h.advance(60_000);
+    expect(await h.scanner.candidates("mike")).toEqual([]);
+    expect(await h.scanner.candidates("find:1", { fresh: true })).toEqual(["192.168.1.50"]);
+  });
+
+  it("shares one fresh sweep between people who ask within seconds of each other", async () => {
+    const h = scanner({ open: (host) => host === "192.168.1.50" });
+    await h.scanner.candidates("find:1", { fresh: true });
+    const callsAfterFirst = h.calls.length;
+    h.advance(5_000);
+    expect(await h.scanner.candidates("find:2", { fresh: true })).toEqual(["192.168.1.50"]);
+    expect(h.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("sweeps again once the ranges have been changed", async () => {
+    let ranges = ["192.168.1.0/30"];
+    const calls: string[] = [];
+    const live = new PortScanner({
+      ranges: () => ranges,
+      port: 62078,
+      minIntervalMs: 300_000,
+      clock: () => new Date(0),
+      connect: (host) => {
+        calls.push(host);
+        return Promise.resolve(host === "10.0.0.2");
+      },
+    });
+    expect(await live.candidates("mike")).toEqual([]);
+    ranges = ["10.0.0.0/30"];
+    expect(await live.candidates("mike")).toEqual(["10.0.0.2"]);
+    expect(calls.some((host) => host.startsWith("10.0.0."))).toBe(true);
+  });
 });

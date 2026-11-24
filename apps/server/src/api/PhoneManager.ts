@@ -128,7 +128,18 @@ export function createPhoneManager(deps: {
               ],
             };
           }
-          udid ??= found.udid;
+          if (udid !== undefined && udid.toLowerCase() !== found.udid.toLowerCase()) {
+            pairRecords.discard(received);
+            return {
+              outcome: "invalid",
+              problems: [
+                "that pairing belongs to a different phone than the identifier given: " +
+                  "leave the identifier empty to use the phone's own",
+              ],
+            };
+          }
+          // The phone's own word for it, whatever was typed.
+          udid = found.udid;
           name ??= found.name;
           foundAt = found.host;
         }
@@ -166,7 +177,6 @@ export function createPhoneManager(deps: {
       if (daemon.isBusy(deviceId)) return "already-running";
       try {
         const { status } = await locator.locate(device);
-        const wrongPhone = status.udid.toLowerCase() !== device.udid.toLowerCase();
         return {
           reachable: true,
           paired: true,
@@ -176,16 +186,16 @@ export function createPhoneManager(deps: {
           batteryPercent: status.battery.levelPercent,
           onCharger: status.battery.externalPowerConnected,
           locked: status.locked ?? null,
-          problem: wrongPhone
-            ? "wrong-phone"
-            : status.backupEncryptionEnabled
-              ? null
-              : "encryption-off",
+          problem: status.backupEncryptionEnabled ? null : "encryption-off",
         };
       } catch (error) {
         if (!(error instanceof DeviceError)) throw error;
         if (error.reason === "not-paired") {
           return { ...NOTHING_KNOWN, reachable: true, paired: false, problem: "not-paired" };
+        }
+        if (error.reason === "wrong-device") {
+          // It took the pairing, so it is paired; it is just not this phone.
+          return { ...NOTHING_KNOWN, reachable: true, paired: true, problem: "wrong-phone" };
         }
         return {
           ...NOTHING_KNOWN,

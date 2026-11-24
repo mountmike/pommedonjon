@@ -155,7 +155,8 @@ export function schedule(input: {
     .flatMap((attempt) => (attempt.finishedAt ? [attempt.finishedAt.getTime()] : []))
     .filter((finishedAt) => finishedAt > nowMs - DAY_MS)
     .sort((a, b) => b - a);
-  const oldestCounted = unanswered[policy.maxUnansweredPerDay - 1];
+  // A limit of two and a half is a limit of two.
+  const oldestCounted = unanswered[Math.max(1, Math.floor(policy.maxUnansweredPerDay)) - 1];
   if (oldestCounted !== undefined) {
     return {
       observe: true,
@@ -165,30 +166,28 @@ export function schedule(input: {
 
   // After an unanswered prompt there is a short pause, and then a fresh
   // moment is needed (see readyToStart): the owner was simply not there. A
-  // dismissed one means "not now" and is respected for much longer.
-  // Anything else gets its own, separately set, pause.
-  let lastFailure: AttemptSummary | undefined;
+  // dismissed or stopped one means "not now" and is respected for much
+  // longer. Anything else gets its own, separately set, pause.
+  //
+  // Every recent failure sets its own pause, and the one that ends last
+  // holds: a Cancel's four hours are not cut short by something failing
+  // for another reason an hour later.
+  let retryAt = 0;
   for (const attempt of recentAttempts) {
     if (attempt.outcome !== "failed" || !attempt.finishedAt) continue;
-    if (!lastFailure?.finishedAt || attempt.finishedAt > lastFailure.finishedAt) {
-      lastFailure = attempt;
-    }
-  }
-  if (lastFailure?.finishedAt) {
     const pauseMinutes =
-      lastFailure.failureReason === "device-locked"
+      attempt.failureReason === "device-locked"
         ? policy.retryAfterTimeoutMinutes
-        : lastFailure.failureReason === "passcode-cancelled" ||
-            lastFailure.failureReason === "stopped"
+        : attempt.failureReason === "passcode-cancelled" || attempt.failureReason === "stopped"
           ? policy.retryAfterCancelMinutes
           : policy.retryAfterFailureMinutes;
-    const retryAt = lastFailure.finishedAt.getTime() + pauseMinutes * MINUTE_MS;
-    if (nowMs < retryAt) {
-      return {
-        observe: true,
-        start: { allowed: false, reason: "backing-off", until: new Date(retryAt) },
-      };
-    }
+    retryAt = Math.max(retryAt, attempt.finishedAt.getTime() + pauseMinutes * MINUTE_MS);
+  }
+  if (nowMs < retryAt) {
+    return {
+      observe: true,
+      start: { allowed: false, reason: "backing-off", until: new Date(retryAt) },
+    };
   }
 
   return { observe: true, start: { allowed: true } };

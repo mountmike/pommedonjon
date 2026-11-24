@@ -17,6 +17,9 @@ const tcpConnect: ConnectFn = (host, port, timeoutMs) =>
     socket.connect(port, host);
   });
 
+/** A sweep asked for afresh still serves anyone asking within these few seconds. */
+const FRESH_ENOUGH_MS = 15_000;
+
 export interface PortScannerOptions {
   /**
    * IPv4 ranges to sweep, e.g. ["192.168.1.0/24"]. A function, so that a
@@ -50,7 +53,13 @@ export class PortScanner {
   readonly #retryTimeoutMs: number;
   readonly #concurrency: number;
   #last:
-    | { readonly at: number; readonly sweep: number; readonly open: Promise<string[]> }
+    | {
+        readonly at: number;
+        readonly sweep: number;
+        /** The ranges that were swept, to tell when they have changed. */
+        readonly ranges: string;
+        readonly open: Promise<string[]>;
+      }
     | undefined;
   /** The last sweep each caller has been given, so none is handed out twice. */
   readonly #seen = new Map<string, number>();
@@ -78,10 +87,20 @@ export class PortScanner {
    * phone that is away is not re-tested against the same addresses on every
    * poll.
    */
-  async candidates(caller: string): Promise<string[]> {
+  async candidates(caller: string, options: { readonly fresh?: boolean } = {}): Promise<string[]> {
     const now = this.options.clock().getTime();
-    if (!this.#last || now - this.#last.at >= this.options.minIntervalMs) {
-      this.#last = { at: now, sweep: (this.#last?.sweep ?? 0) + 1, open: this.#sweep() };
+    const ranges = this.#ranges().join(",");
+    // Someone waiting on the answer, as when a phone is being added, is
+    // not handed a sweep from minutes ago; nor is anyone handed a sweep of
+    // ranges that have since been changed.
+    const goodFor = options.fresh ? FRESH_ENOUGH_MS : this.options.minIntervalMs;
+    if (!this.#last || this.#last.ranges !== ranges || now - this.#last.at >= goodFor) {
+      this.#last = {
+        at: now,
+        sweep: (this.#last?.sweep ?? 0) + 1,
+        ranges,
+        open: this.#sweep(),
+      };
     }
     if (this.#seen.get(caller) === this.#last.sweep) return [];
     this.#seen.set(caller, this.#last.sweep);

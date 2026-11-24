@@ -149,7 +149,7 @@ export default function AddPhoneScreen() {
           />
         </Host>
         <Host matchContents>
-          <Button label="Cancel" variant="text" onPress={() => router.replace("/")} />
+          <Button label="Cancel" variant="text" onPress={() => router.dismissTo("/")} />
         </Host>
       </View>
     </Screen>

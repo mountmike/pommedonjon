@@ -23,6 +23,10 @@ const tcpKnock: KnockFn = (host, port, timeoutMs) =>
 const REMEMBER_PHONE_MS = 5 * 60 * 1000;
 /** A browser on a computer asks on every page; do not knock on it every time. */
 const REMEMBER_NOBODY_MS = 60 * 1000;
+/** How long the knock on an address waits for an answer. */
+const KNOCK_TIMEOUT_MS = 3000;
+/** How many addresses' answers are kept at once. */
+const MAX_REMEMBERED = 256;
 
 /**
  * Works out which phone a request came from, by its address: the server
@@ -45,6 +49,12 @@ export class PhoneIdentifier {
       readonly clock: () => Date;
       /** The lockdown port. */
       readonly port: number;
+      /**
+       * Whether a phone is being backed up right now. Such a phone is not
+       * asked who it is: a second connection during a backup is one more
+       * thing to go wrong. Left out, none is ever taken to be.
+       */
+      readonly isBusy?: (deviceId: string) => boolean;
       /** Test seam. */
       readonly knock?: KnockFn;
     },
@@ -72,15 +82,27 @@ export class PhoneIdentifier {
 
   async #look(address: string): Promise<string | undefined> {
     const deviceId = await this.#find(address);
-    this.#known.set(address, { at: this.deps.clock().getTime(), deviceId });
+    const now = this.deps.clock().getTime();
+    // What is remembered is bounded: forget what is out of date, and if
+    // that is not enough, everything. It is only a saving of effort.
+    if (this.#known.size >= MAX_REMEMBERED) {
+      for (const [known, answer] of this.#known) {
+        if (now - answer.at >= REMEMBER_PHONE_MS) this.#known.delete(known);
+      }
+      if (this.#known.size >= MAX_REMEMBERED) this.#known.clear();
+    }
+    this.#known.set(address, { at: now, deviceId });
     return deviceId;
   }
 
   async #find(address: string): Promise<string | undefined> {
-    const devices = this.deps.devices.all();
+    const devices = this.deps.devices
+      .all()
+      .filter((device) => !(this.deps.isBusy?.(device.id) ?? false));
     if (devices.length === 0) return undefined;
-    // A computer has nothing listening there, and says so at once.
-    if (!(await this.#knock(address, this.deps.port, 1500))) return undefined;
+    // A computer has nothing listening there, and says so at once. A phone
+    // can take a few seconds to answer, so it is given them.
+    if (!(await this.#knock(address, this.deps.port, KNOCK_TIMEOUT_MS))) return undefined;
     const answers = await Promise.all(
       devices.map(async (device: DeviceConfig): Promise<string | undefined> => {
         try {

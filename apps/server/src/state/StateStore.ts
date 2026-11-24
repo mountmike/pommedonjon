@@ -66,7 +66,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -135,7 +135,8 @@ const DEVICES = `
     udid     TEXT    NOT NULL UNIQUE,
     host     TEXT,
     port     INTEGER,
-    added_at INTEGER NOT NULL
+    added_at INTEGER NOT NULL,
+    removed_at INTEGER
   ) STRICT;
 
   CREATE TABLE server_settings (
@@ -349,6 +350,13 @@ export class StateStore {
         "BEGIN; ALTER TABLE runs ADD COLUMN started_by TEXT; PRAGMA user_version = 9; COMMIT;",
       );
     }
+    if (version < 10) {
+      // A removed phone keeps its row, so its id stays its own: see
+      // removeDevice. A database older than 8 has just been given the
+      // table with the column already in it.
+      const column = version >= 8 ? "ALTER TABLE devices ADD COLUMN removed_at INTEGER;" : "";
+      this.#db.exec(`BEGIN; ${column} PRAGMA user_version = 10; COMMIT;`);
+    }
   }
 
   close(): void {
@@ -537,16 +545,54 @@ export class StateStore {
       .run(deviceId, JSON.stringify(settings), at.getTime());
   }
 
-  /** Every phone, in the order they were added. */
+  /** Every phone that is here now, in the order they were added. */
   devices(): DeviceRow[] {
     return this.#db
-      .prepare("SELECT * FROM devices ORDER BY added_at, rowid")
+      .prepare("SELECT * FROM devices WHERE removed_at IS NULL ORDER BY added_at, rowid")
       .all()
       .map((row) => read(DeviceRowSchema, "a phone", row));
   }
 
-  /** Add a phone. Throws if its id or UDID is already taken. */
+  /**
+   * Every id that is or ever was a phone's here. An id belongs to one
+   * handset for good, because the history and the backups are filed under
+   * it: a different phone must never inherit them.
+   */
+  deviceIdsEverUsed(): string[] {
+    return this.#db
+      .prepare("SELECT id FROM devices")
+      .all()
+      .map((row) => read(z.object({ id: z.string() }), "a phone's id", row).id);
+  }
+
+  /** The id a phone had here before it was removed, if it was ever here. */
+  formerDeviceId(udid: string): string | undefined {
+    const row = this.#db
+      .prepare("SELECT id FROM devices WHERE lower(udid) = lower(?) AND removed_at IS NOT NULL")
+      .get(udid);
+    return row === undefined ? undefined : read(z.object({ id: z.string() }), "a phone's id", row).id;
+  }
+
+  /**
+   * Add a phone, or bring back one that was removed, under the id it had.
+   * Throws if its id or UDID is taken by a phone that is here.
+   */
   addDevice(device: Omit<DeviceRow, "addedAt">, at: Date): void {
+    const revived = this.#db
+      .prepare(
+        `UPDATE devices SET name = ?, udid = ?, host = ?, port = ?, added_at = ?, removed_at = NULL
+          WHERE id = ? AND removed_at IS NOT NULL AND lower(udid) = lower(?)`,
+      )
+      .run(
+        device.name,
+        device.udid,
+        device.host ?? null,
+        device.port ?? null,
+        at.getTime(),
+        device.id,
+        device.udid,
+      );
+    if (revived.changes === 1) return;
     this.#db
       .prepare(
         "INSERT INTO devices (id, name, udid, host, port, added_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -568,11 +614,15 @@ export class StateStore {
   /**
    * Remove a phone and what was changed about it. Its history of runs is
    * kept: it says what happened, whether or not the phone is still here.
+   * So is the fact that the id was this handset's, so that the same phone
+   * added back picks up where it left off and no other phone can.
    */
-  removeDevice(deviceId: string): void {
+  removeDevice(deviceId: string, at: Date = new Date()): void {
     this.#db.exec("BEGIN");
     try {
-      this.#db.prepare("DELETE FROM devices WHERE id = ?").run(deviceId);
+      this.#db
+        .prepare("UPDATE devices SET removed_at = ?, host = NULL, port = NULL WHERE id = ?")
+        .run(at.getTime(), deviceId);
       this.#db.prepare("DELETE FROM device_settings WHERE device_id = ?").run(deviceId);
       this.#db.prepare("DELETE FROM device_addresses WHERE device_id = ?").run(deviceId);
       this.#db.exec("COMMIT");

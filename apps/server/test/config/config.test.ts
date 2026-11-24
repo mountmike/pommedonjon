@@ -61,6 +61,20 @@ describe("parseConfig", () => {
     });
   });
 
+  it("reads a policy from before the moments, where a trigger said when to start", () => {
+    const file = minimal();
+    const config = parseConfig(
+      {
+        ...file,
+        defaultPolicy: { trigger: "plugged-in" },
+        devices: [{ ...file.devices[0], policy: { trigger: "on-charger" } }],
+      },
+      "/config",
+    );
+    expect(config.devices[0]?.policy.startOnChargerAfterHours).toBe(0);
+    expect(config.devices[0]?.policy).not.toHaveProperty("trigger");
+  });
+
   it("by default backs up shortly after plug-in, once a backup is 20 hours old, at any hour", () => {
     expect(DEFAULT_POLICY).toMatchObject({
       dueAfterHours: 20,
@@ -177,7 +191,6 @@ describe("parseConfig", () => {
     [{ defaultPolicy: { window: { start: "25:00", end: "01:00" } } }, /window.start/],
     [{ defaultPolicy: { window: { start: "09:00", end: "09:00" } } }, /must differ/],
     [{ headsUpLeadSeconds: 5 }, /headsUpLeadSeconds is not a recognised setting/],
-    [{ defaultPolicy: { trigger: "on-charger" } }, /trigger is not a recognised setting/],
     [{ defaultPolicy: { automatic: "yes" } }, /automatic must be true or false/],
     [{ defaultPolicy: { startWhenUnlockedAfterHours: -1 } }, /startWhenUnlockedAfterHours must be at least 0/],
     [{ defaultPolicy: { dueAfterHours: 0 } }, /dueAfterHours must be at least 1/],

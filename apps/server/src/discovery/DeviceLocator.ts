@@ -16,8 +16,11 @@ export interface AddressBook {
 /** The part of the port scanner the locator needs. */
 export interface AddressScanner {
   readonly enabled: boolean;
-  /** Addresses worth trying that this caller has not been given before. */
-  candidates(caller: string): Promise<string[]>;
+  /**
+   * Addresses worth trying that this caller has not been given before.
+   * `fresh`: look again now, for someone who is waiting on the answer.
+   */
+  candidates(caller: string, options?: { readonly fresh?: boolean }): Promise<string[]>;
 }
 
 export interface Located {

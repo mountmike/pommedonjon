@@ -197,7 +197,7 @@ async function main(argv: readonly string[]): Promise<number> {
   process.once("SIGTERM", stop);
 
   /** Bring in a config file from before settings were kept in the database. */
-  const bringIn = async (file: string): Promise<number> =>
+  const bringIn = async (file: string, again: boolean): Promise<number> =>
     importConfig(await loadConfig(file), {
       state: app.state,
       directory: app.devices,
@@ -205,11 +205,12 @@ async function main(argv: readonly string[]): Promise<number> {
       serverSettings: app.serverSettings,
       log: jsonLogger,
       clock: () => new Date(),
+      again,
     });
 
   try {
     if (command === "import") {
-      const phones = await bringIn(values.config ?? "");
+      const phones = await bringIn(values.config ?? "", true);
       print(
         phones > 0
           ? `brought in ${phones} phone${phones === 1 ? "" : "s"}; the file is no longer needed`
@@ -222,7 +223,17 @@ async function main(argv: readonly string[]): Promise<number> {
       // over once, and after that the file is not read.
       const legacy = values.config ?? options.legacyConfigFile;
       if (legacy !== undefined && existsSync(legacy) && app.devices.all().length === 0) {
-        await bringIn(legacy);
+        try {
+          await bringIn(legacy, false);
+        } catch (error) {
+          // The service is managed in the web app now. An old file it
+          // cannot read must not keep it from starting.
+          if (!(error instanceof ConfigError)) throw error;
+          jsonLogger("error", "could not read the earlier config file; nothing was brought in", {
+            file: legacy,
+            problem: error.message,
+          });
+        }
       }
     }
     if (command !== "status" && command !== "report") {

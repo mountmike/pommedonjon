@@ -67,6 +67,8 @@ export type DeviceErrorReason =
   | "unreachable"
   /** Reached, but it does not accept this host's pair record. */
   | "not-paired"
+  /** Reached, and it accepted the pair record, but it is a different phone. */
+  | "wrong-device"
   | "failed";
 
 export class DeviceError extends Error {

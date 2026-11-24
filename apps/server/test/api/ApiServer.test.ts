@@ -621,8 +621,10 @@ describe("the API for knowing which phone is asking", () => {
     recognised.address = "192.168.1.50";
     recognised.trustProxy = true;
     const h = await harness();
-    const answer = await h.send("GET", "/api/me", undefined, "192.168.1.50, 10.0.0.1");
+    // The proxy adds what it saw to the end; what comes before is the caller's say-so.
+    const answer = await h.send("GET", "/api/me", undefined, "203.0.113.9, 192.168.1.50");
     expect(answer.body).toEqual({ deviceId: "mike" });
+    expect(h.addresses).toEqual(["192.168.1.50"]);
   });
 
   it("starts a backup, if one is wanted, when the app is opened on a phone", async () => {

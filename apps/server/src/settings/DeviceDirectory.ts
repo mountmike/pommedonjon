@@ -103,7 +103,7 @@ export type AddResult =
     };
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const UDID_PATTERN = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$|^[0-9a-f]{40}$/;
+const UDID_PATTERN = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$|^[0-9A-Fa-f]{40}$/;
 
 /** "Mike's iPhone" as "mikes-iphone": short, and safe in a path or an address. */
 export function idFromName(name: string): string {
@@ -120,8 +120,25 @@ export function idFromName(name: string): string {
 
 type DirectoryState = Pick<
   StateStore,
-  "devices" | "addDevice" | "removeDevice" | "renameDevice" | "deviceSettings" | "saveDeviceSettings"
+  | "devices"
+  | "deviceIdsEverUsed"
+  | "formerDeviceId"
+  | "addDevice"
+  | "removeDevice"
+  | "renameDevice"
+  | "deviceSettings"
+  | "saveDeviceSettings"
 >;
+
+/**
+ * A UDID as the phone itself reports it: capitals for the current form
+ * ("00008140-000A1B2C3D4E001C"), lower case for the older 40-character one.
+ * Typed or copied in the other case, it is still the same phone.
+ */
+export function canonicalUdid(udid: string): string {
+  const tidy = udid.trim();
+  return tidy.includes("-") ? tidy.toUpperCase() : tidy.toLowerCase();
+}
 type DirectoryPairRecords = Pick<PairRecordStore, "pathFor" | "keep" | "discard" | "remove">;
 
 /**
@@ -217,12 +234,13 @@ export class DeviceDirectory implements DeviceSource {
   }
 
   /**
-   * Add a phone. Its short id is made from its name, and kept if a phone of
-   * that name was here before, so its backups carry on where they left off.
+   * Add a phone. Its short id is made from its name. A phone that was here
+   * before, by its UDID, gets the id it had, so its backups carry on where
+   * they left off.
    */
   add(phone: NewPhone, at: Date): AddResult {
     const name = phone.name.trim();
-    const udid = phone.udid.trim();
+    const udid = canonicalUdid(phone.udid);
     const host = phone.host?.trim() === "" ? undefined : phone.host?.trim();
     const problems: string[] = [];
     if (name === "") problems.push("name must not be empty");
@@ -231,8 +249,8 @@ export class DeviceDirectory implements DeviceSource {
     if (phone.id !== undefined && !ID_PATTERN.test(phone.id)) {
       problems.push("id must be lower-case letters, digits and hyphens");
     }
-    if (phone.id !== undefined && this.get(phone.id)) {
-      problems.push(`there is already a phone with the id "${phone.id}"`);
+    if (phone.id !== undefined && this.#state.deviceIdsEverUsed().includes(phone.id)) {
+      problems.push(`the id "${phone.id}" has been used by a phone here already`);
     }
     if (problems.length > 0) {
       this.#pairRecords.discard(phone.receivedPairRecord);
@@ -247,10 +265,14 @@ export class DeviceDirectory implements DeviceSource {
       };
     }
 
-    const taken = new Set(this.#current.map((device) => device.id));
+    // The same handset added back gets the id it had, so its backups and
+    // history carry on. Any other phone gets an id nothing has ever had: a
+    // replacement with the same name must not inherit the old one's backups.
+    const former = phone.id === undefined ? this.#state.formerDeviceId(udid) : undefined;
+    const taken = new Set(this.#state.deviceIdsEverUsed());
     const base = phone.id ?? idFromName(name);
-    let id = base;
-    for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
+    let id = former ?? base;
+    for (let n = 2; former === undefined && taken.has(id); n += 1) id = `${base}-${n}`;
     if (!ID_PATTERN.test(id)) throw new Error(`could not make an id from "${name}"`);
 
     this.#pairRecords.keep(phone.receivedPairRecord, id);

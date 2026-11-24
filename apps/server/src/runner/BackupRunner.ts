@@ -159,7 +159,10 @@ export class BackupRunner {
         `the backup did not verify: ${verification.problems.join("; ")}`,
       );
     }
-    if (verification.udid !== undefined && verification.udid !== device.udid) {
+    if (
+      verification.udid !== undefined &&
+      verification.udid.toLowerCase() !== device.udid.toLowerCase()
+    ) {
       throw new RunFailure(
         "verification-failed",
         `the backup belongs to ${verification.udid}, not ${device.udid}`,

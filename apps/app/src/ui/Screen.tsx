@@ -24,7 +24,8 @@ export function Screen({
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Link href={back} asChild>
+        {/* Back to the screen that is already there, not a new copy on top. */}
+        <Link href={back} dismissTo asChild>
           <Pressable accessibilityRole="link" style={styles.back}>
             <Text style={[styles.backText, { color: theme.tint }]}>‹ {backLabel}</Text>
           </Pressable>

@@ -233,14 +233,17 @@ export class Daemon {
     host: string,
     startedBy: string,
     signal: AbortSignal | undefined,
+    /** The stopper already in place for a backup that was asked for. */
+    existing?: AbortController,
   ): Promise<RunReport> {
-    const stopper = new AbortController();
+    const stopper = existing ?? new AbortController();
     this.#stoppers.set(device.id, stopper);
     try {
       const either = signal ? AbortSignal.any([signal, stopper.signal]) : stopper.signal;
       return await this.deps.runner.run(device, host, either, startedBy);
     } finally {
-      this.#stoppers.delete(device.id);
+      // One that was handed in is its owner's to clear.
+      if (!existing) this.#stoppers.delete(device.id);
     }
   }
 
@@ -287,6 +290,8 @@ export class Daemon {
     if (this.#busy.has(device.id)) return { outcome: "already-running" };
 
     const now = clock();
+    // Its owner has switched this moment off: a report of it starts nothing.
+    if (!device.policy.startWhenPluggedIn) return { outcome: "not-now", reason: "manual-only" };
     const plan = schedule({
       now,
       policy: device.policy,
@@ -341,7 +346,13 @@ export class Daemon {
   /** Begin a backup outside the polling cycle. The caller has checked `#busy`. */
   #start(device: DeviceConfig, source: RequestSource): void {
     this.#busy.add(device.id);
-    const work = this.#backUpOnRequest(device, source).finally(() => {
+    // From this moment the phone is shown as backing up, with Stop beside
+    // it, so from this moment Stop has to work: before the phone has even
+    // been found, not only once the run has begun.
+    const stopper = new AbortController();
+    this.#stoppers.set(device.id, stopper);
+    const work = this.#backUpOnRequest(device, source, stopper).finally(() => {
+      this.#stoppers.delete(device.id);
       this.#busy.delete(device.id);
       this.#requested.delete(work);
     });
@@ -349,7 +360,11 @@ export class Daemon {
   }
 
   /** The work behind `requestBackup` and `reportPlugIn`. Never rejects. */
-  async #backUpOnRequest(device: DeviceConfig, source: RequestSource): Promise<void> {
+  async #backUpOnRequest(
+    device: DeviceConfig,
+    source: RequestSource,
+    stopper: AbortController,
+  ): Promise<void> {
     const { locator, runner, state, log, clock } = this.deps;
     const now = clock();
     log("info", "backup requested", { device: device.id, source });
@@ -374,6 +389,12 @@ export class Daemon {
         notStarted("encryption-off");
         return;
       }
+      if (stopper.signal.aborted) {
+        // Stopped while the phone was still being looked for: nothing has
+        // been asked of the phone, and nothing will be.
+        notStarted("stopped");
+        return;
+      }
       reached = true;
       try {
         await this.#runBackup(
@@ -381,6 +402,7 @@ export class Daemon {
           host,
           source === "request" ? "request" : source === "app-open" ? "app-open" : "plugged-in",
           this.#signal,
+          stopper,
         );
       } finally {
         // The run is in the history now, and speaks for itself.
@@ -390,7 +412,13 @@ export class Daemon {
       this.#lastLogged.delete(device.id);
     } catch (error) {
       if (error instanceof DeviceError) {
-        notStarted(error.reason === "failed" ? "probe-failed" : error.reason);
+        notStarted(
+          stopper.signal.aborted
+            ? "stopped"
+            : error.reason === "failed"
+              ? "probe-failed"
+              : error.reason,
+        );
         return;
       }
       log("error", "unexpected error in a requested backup", {
@@ -499,6 +527,12 @@ export class Daemon {
             ...(plan.start.until && { until: plan.start.until }),
           };
     if (!plan.observe) {
+      // Nobody is watching the phone now, so what was last seen of it goes
+      // out of date: forget it. Otherwise a phone last seen on battery
+      // yesterday, and on a charger since this morning, would look "just
+      // plugged in" the moment watching resumed, with nobody near it.
+      this.#power.delete(device.id);
+      this.#lock.delete(device.id);
       return blocked() ?? { deviceId: device.id, action: "waited", reason: "not-due" };
     }
 
@@ -555,6 +589,10 @@ export class Daemon {
     // A request may have arrived while this pass was finding the phone.
     if (this.#busy.has(device.id)) {
       return { deviceId: device.id, action: "waited", reason: "already-running" };
+    }
+    // Or the phone may have been removed.
+    if (!this.deps.devices.get(device.id)) {
+      return { deviceId: device.id, action: "waited", reason: "removed" };
     }
     this.#busy.add(device.id);
     this.deps.log("info", "a good moment for a backup", {

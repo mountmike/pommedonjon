@@ -9,6 +9,7 @@ const t = (iso: string) => new Date(iso);
 
 /** What each schema version added, undone: newest first. */
 const UNDO: readonly (readonly [version: number, sql: string])[] = [
+  [10, "ALTER TABLE devices DROP COLUMN removed_at;"],
   [9, "ALTER TABLE runs DROP COLUMN started_by;"],
   [8, "DROP TABLE devices; DROP TABLE server_settings;"],
   [6, "DROP TABLE device_settings;"],
@@ -437,6 +438,49 @@ describe("StateStore phones", () => {
     store.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
     store.renameDevice("mike", "Mike's phone");
     expect(store.devices()[0]?.name).toBe("Mike's phone");
+  });
+
+  it("keeps a removed phone's id for that handset, and for no other", () => {
+    store.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+    store.removeDevice("mike", t("2026-11-25T09:00:00Z"));
+    expect(store.devices()).toEqual([]);
+    expect(store.deviceIdsEverUsed()).toEqual(["mike"]);
+    expect(store.formerDeviceId(MIKE.udid)).toBe("mike");
+    expect(store.formerDeviceId(MIKE.udid.toLowerCase())).toBe("mike");
+    expect(store.formerDeviceId(LAUREL.udid)).toBeUndefined();
+    // Another phone cannot take the id.
+    expect(() => store.addDevice({ ...LAUREL, id: "mike" }, t("2026-11-25T10:00:00Z"))).toThrow();
+  });
+
+  it("brings a removed phone back under its id, with what is said of it now", () => {
+    store.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+    store.removeDevice("mike", t("2026-11-25T09:00:00Z"));
+    store.addDevice({ ...MIKE, name: "Mike's phone", host: undefined }, t("2026-11-25T10:00:00Z"));
+    expect(store.devices()).toEqual([
+      { ...MIKE, name: "Mike's phone", host: undefined, addedAt: t("2026-11-25T10:00:00Z") },
+    ]);
+    expect(store.formerDeviceId(MIKE.udid)).toBeUndefined();
+  });
+
+  it("gains the removed mark on a database from before it, keeping the phones in it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-state-"));
+    const file = path.join(dir, "state.sqlite");
+    try {
+      const first = new StateStore(file);
+      first.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+      first.close();
+      const raw = new DatabaseSync(file);
+      windBack(raw, 9);
+      raw.close();
+
+      const upgraded = new StateStore(file);
+      expect(upgraded.devices().map((device) => device.id)).toEqual(["mike"]);
+      upgraded.removeDevice("mike");
+      expect(upgraded.formerDeviceId(MIKE.udid)).toBe("mike");
+      upgraded.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("removes a phone with its settings and last address, and keeps its runs", () => {

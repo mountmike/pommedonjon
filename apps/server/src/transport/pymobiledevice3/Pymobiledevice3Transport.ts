@@ -78,12 +78,12 @@ export class Pymobiledevice3Transport implements DeviceTransport {
 
   async probe(target: DeviceTarget): Promise<DeviceStatus> {
     const status = await this.#ask(endpointArgs(target));
-    if (status.udid !== target.udid) {
+    if (status.udid.toLowerCase() !== target.udid.toLowerCase()) {
       // The address answered, but it is a different device. Never back up
       // one phone into another phone's directory.
       throw new DeviceError(
         `the device at this endpoint is ${status.udid}, not ${target.udid}`,
-        "failed",
+        "wrong-device",
       );
     }
     return status;

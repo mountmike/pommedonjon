@@ -117,7 +117,7 @@ export default function ServerSettingsScreen() {
           </Section>
 
           <Host matchContents>
-            <Button label="Done" variant="text" onPress={() => router.replace("/")} />
+            <Button label="Done" variant="text" onPress={() => router.dismissTo("/")} />
           </Host>
         </>
       )}
