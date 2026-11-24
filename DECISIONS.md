@@ -696,3 +696,20 @@ two server environments, the options:
 ### O19. The name
 
 *Closed by the owner, 2026-11-24.* See D21.
+
+### O20. Run the owner's test stack unprivileged
+
+*Flagged by the owner as a follow-up, 2026-11-24, for after the proof of
+concept works.*
+
+The new `backups/iphones` dataset on the NAS is owned by root, so the user
+the image normally runs as (1000) cannot write to it. To get a first
+deployment going, the test stack runs as root: `POMMEDONJON_USER = 0:0`.
+Every capability is still dropped and the filesystem is still read-only,
+but it is not the unprivileged container of D15.
+
+To undo it: make the dataset's owner the NAS account with ID 1000 (`media`
+on the owner's NAS, the same account that owns `downloads`), hand the
+stack's config and pair-record folders to that ID, and remove
+`POMMEDONJON_USER` from the stack so it falls back to 1000:1000.
+
