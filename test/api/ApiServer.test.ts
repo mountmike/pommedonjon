@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { startApiServer, type ApiServer } from "../../src/api/ApiServer.js";
-import type { BackupRequestResult } from "../../src/daemon/Daemon.js";
+import type { BackupRequestResult, PlugInReportResult } from "../../src/daemon/Daemon.js";
 import type { LogLevel } from "../../src/notify/Notifier.js";
 
 let server: ApiServer | undefined;
@@ -9,8 +9,12 @@ afterEach(async () => {
   server = undefined;
 });
 
-async function harness(answer: BackupRequestResult | Error = "started") {
+async function harness(
+  answer: BackupRequestResult | Error = "started",
+  plugInAnswer: PlugInReportResult = { outcome: "started" },
+) {
   const asked: string[] = [];
+  const pluggedIn: string[] = [];
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   server = await startApiServer({
     // Any free port.
@@ -19,6 +23,10 @@ async function harness(answer: BackupRequestResult | Error = "started") {
       asked.push(deviceId);
       if (answer instanceof Error) throw answer;
       return answer;
+    },
+    reportPlugIn: (deviceId) => {
+      pluggedIn.push(deviceId);
+      return plugInAnswer;
     },
     log: (level, message, fields) => logs.push({ level, message, fields }),
   });
@@ -35,7 +43,7 @@ async function harness(answer: BackupRequestResult | Error = "started") {
       body: (await response.json()) as unknown,
     };
   };
-  return { asked, logs, send };
+  return { asked, pluggedIn, logs, send };
 }
 
 describe("the API", () => {
@@ -44,7 +52,7 @@ describe("the API", () => {
     expect(server?.port).toBeGreaterThan(0);
     expect(h.logs).toContainEqual({
       level: "info",
-      message: "listening for backup requests",
+      message: "listening for requests",
       fields: { port: server?.port },
     });
   });
@@ -83,8 +91,8 @@ describe("the API", () => {
     });
     expect(h.logs).toContainEqual({
       level: "info",
-      message: "backup request refused",
-      fields: { device: "mike", reason: "already-running" },
+      message: "request refused",
+      fields: { device: "mike", action: "backup-now", reason: "already-running" },
     });
   });
 
@@ -122,9 +130,55 @@ describe("the API", () => {
     });
     expect(h.logs).toContainEqual({
       level: "error",
-      message: "could not handle a backup request",
-      fields: { device: "mike", error: "no database" },
+      message: "could not handle a request",
+      fields: { device: "mike", action: "backup-now", error: "no database" },
     });
+  });
+
+  it("passes on a phone's word that it was plugged in, and says a backup started", async () => {
+    const h = await harness("started", { outcome: "started" });
+    expect(await h.send("POST", "/devices/mike/plugged-in")).toMatchObject({
+      status: 202,
+      body: { status: "started" },
+    });
+    expect(h.pluggedIn).toEqual(["mike"]);
+    expect(h.asked).toEqual([]);
+  });
+
+  it("answers 200 with the reason when a plug-in starts nothing", async () => {
+    const until = new Date("2026-11-25T06:08:22.000Z");
+    const h = await harness("started", { outcome: "not-now", reason: "not-due", until });
+    expect(await h.send("POST", "/devices/mike/plugged-in")).toEqual({
+      status: 200,
+      allow: null,
+      type: "application/json",
+      body: { status: "not-now", reason: "not-due", until: "2026-11-25T06:08:22.000Z" },
+    });
+  });
+
+  it("leaves out the time when there is none to give", async () => {
+    const h = await harness("started", { outcome: "not-now", reason: "backing-off" });
+    expect((await h.send("POST", "/devices/mike/plugged-in")).body).toEqual({
+      status: "not-now",
+      reason: "backing-off",
+    });
+  });
+
+  it.each([
+    [{ outcome: "unknown-device" } as const, 404],
+    [{ outcome: "already-running" } as const, 409],
+  ])("answers a refused plug-in report %j with %i", async (answer, status) => {
+    const h = await harness("started", answer);
+    expect(await h.send("POST", "/devices/mike/plugged-in")).toMatchObject({
+      status,
+      body: { error: answer.outcome },
+    });
+  });
+
+  it("starts nothing for a GET of the plug-in address either", async () => {
+    const h = await harness();
+    expect((await h.send("GET", "/devices/mike/plugged-in")).status).toBe(405);
+    expect(h.pluggedIn).toEqual([]);
   });
 
   it("stops answering once closed", async () => {

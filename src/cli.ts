@@ -193,6 +193,7 @@ async function main(argv: readonly string[]): Promise<number> {
             : await startApiServer({
                 port: app.config.api.port,
                 requestBackup: (deviceId) => app.daemon.requestBackup(deviceId),
+                reportPlugIn: (deviceId) => app.daemon.reportPlugIn(deviceId),
                 log: jsonLogger,
               });
         try {

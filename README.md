@@ -142,25 +142,30 @@ already charging when the service starts waits for its next plug-in.
 
 ### Backing up on request
 
-Set `api.port` and the service also takes requests to back a phone up
-straight away:
+Set `api.port` and the service also takes two requests, meant to be sent
+from the phone itself, for instance by Apple Shortcuts:
 
 ```
 POST http://<server>:<port>/devices/<id>/backup-now
+POST http://<server>:<port>/devices/<id>/plugged-in
 ```
+
+| Request | What it does | Meant for |
+|---|---|---|
+| `backup-now` | Backs the phone up straight away. Ignores the schedule: whether a backup is due, whether the phone is on a charger, whether an earlier prompt was dismissed. | A button on the home screen. |
+| `plugged-in` | Says the phone has just been plugged in. A backup starts only if the schedule allows one now. | An automation that runs when the charger is connected. |
 
 | Answer | Meaning |
 |---|---|
 | 202 `{"status":"started"}` | A backup is starting; the passcode prompt follows within seconds. |
+| 200 `{"status":"not-now","reason":"not-due","until":"..."}` | `plugged-in` only: nothing was started, and why. |
 | 404 `{"error":"unknown-device"}` | No phone with that id is configured. |
 | 409 `{"error":"already-running"}` | That phone is already being backed up. |
 
-A request ignores the schedule: it does not matter whether a backup is due,
-whether the phone is on a charger, or whether an earlier prompt was
-dismissed. It is meant to be sent from the phone itself, by its owner, for
-instance from an Apple Shortcut on the home screen or one that runs when
-the charger is connected. The container's port has to be published, and
-the phone has to be able to reach it.
+With the automation in place the phone announces each plug-in itself, the
+moment it happens, so the service no longer depends on noticing it between
+two polls. The container's port has to be published, and the phone has to
+be able to reach it.
 
 **There is no authentication yet.** Anything that can reach the port can
 make a phone show its passcode prompt. It cannot read or change a backup.

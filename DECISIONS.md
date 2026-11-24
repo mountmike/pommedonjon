@@ -822,15 +822,25 @@ What it found, on the owner's phone the same evening:
   that does not exist yet, D9), and 3.9 s connecting and starting the
   backup service. Without the pause it would be under 6 s.
 
-What that leaves to decide:
+What followed from that, approved by the owner and built the same evening:
 
-- **A request ignores whether a backup is due**, which is right for a
-  button and wrong for an automation: left on, the charger automation would
-  prompt at every plug-in. Proposed: a second request meaning "this phone
-  has just been plugged in", which starts a backup only if one is due and
-  the owner has not recently dismissed a prompt. Not built.
-- **The 5 s pause** serves nothing on a requested backup. Proposed: skip it
-  for requests. Not built.
+- **A second request for the automation.** A request to back up now
+  ignores whether a backup is due, which is right for a button and wrong
+  for an automation: left on, the charger automation would prompt at every
+  plug-in. `POST /devices/<id>/plugged-in` means "this phone has just been
+  plugged in" and starts a backup only if the schedule allows one: due,
+  inside the allowed hours, and not in the pause after a failure or a
+  dismissed prompt. Otherwise it answers 200 with the reason.
+- **No heads-up pause on a requested backup**, of either kind. The owner is
+  at the phone.
+
+Still open: the Shortcut shows nothing when the server says no. Left for
+the web UI phase.
+
+A consequence worth noting for O16: with the automation in place the phone
+announces every plug-in itself, so the "plugged-in" trigger no longer rests
+on polling happening to catch one. Polling remains as the fallback for a
+phone without the automation.
 
 Without authentication, anything that can reach the port can make a phone
 show a passcode prompt. It cannot read or change a backup. That is the
