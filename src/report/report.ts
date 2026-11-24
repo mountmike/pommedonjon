@@ -46,6 +46,8 @@ export type DayEntry =
       readonly sawPlugIn: boolean | undefined;
     }
   | { readonly at: Date; readonly type: "waiting"; readonly reason: string }
+  /** Someone asked for a backup now, instead of waiting for the schedule. */
+  | { readonly at: Date; readonly type: "requested" }
   | { readonly at: Date; readonly type: "run"; readonly run: RunSummary };
 
 export interface ReportTotals {
@@ -152,6 +154,8 @@ export function buildReport(input: ReportInput): DeviceReport {
       });
     } else if (event.kind === "waiting") {
       add({ at: event.at, type: "waiting", reason: text(event.detail["reason"], "unknown") });
+    } else if (event.kind === "requested") {
+      add({ at: event.at, type: "requested" });
     }
   }
 
@@ -297,7 +301,9 @@ export function formatReport(report: DeviceReport): string {
           ? describeRun(entry.run)
           : entry.type === "power"
             ? describePower(entry)
-            : `waiting: ${entry.reason}`;
+            : entry.type === "requested"
+              ? "backup requested"
+              : `waiting: ${entry.reason}`;
       lines.push(`  ${clock(entry.at)}  ${what}`);
     }
   }

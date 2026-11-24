@@ -581,6 +581,191 @@ describe("Daemon with two phones", () => {
   });
 });
 
+describe("Daemon.requestBackup", () => {
+  it("backs the phone up at once, whatever the schedule says", async () => {
+    // Backed up an hour ago, on battery, with a plug-in trigger: nothing
+    // about the schedule would start a backup now.
+    const h = harness([deviceConfig({ policy: DEFAULT_POLICY })]);
+    const earlier = state.startRun("mike", at(18));
+    state.finishRun(earlier, at(18, 5), { outcome: "succeeded", durationMs: 1 });
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "not-due" }]);
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+
+    expect(h.ran).toEqual(["mike"]);
+    expect(h.hosts).toEqual(["10.0.0.7"]);
+    expect(h.logs.map((entry) => entry.message)).toContain("backup requested");
+  });
+
+  it("is not held back by the pause after a dismissed prompt", async () => {
+    const h = harness();
+    h.setRun(failRun("passcode-cancelled", at(19)));
+    await h.daemon.tick();
+    h.setNow(at(19, 5));
+    expect(await h.daemon.tick()).toMatchObject([{ action: "waited", reason: "backing-off" }]);
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+
+    expect(h.ran).toEqual(["mike", "mike"]);
+  });
+
+  it("does not know a device that is not configured", () => {
+    const h = harness();
+    expect(h.daemon.requestBackup("laurel")).toBe("unknown-device");
+    expect(h.ran).toEqual([]);
+  });
+
+  it("refuses while that phone is already being backed up, however it was started", async () => {
+    const h = harness();
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+
+    // Started by the schedule.
+    const scheduled = h.daemon.tick();
+    await settle();
+    expect(h.daemon.requestBackup("mike")).toBe("already-running");
+    release.open();
+    await scheduled;
+    expect(h.ran).toEqual(["mike"]);
+  });
+
+  it("refuses a second request while the first is still in hand", async () => {
+    const h = harness();
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    expect(h.daemon.requestBackup("mike")).toBe("already-running");
+    await settle();
+    // The schedule leaves the phone alone meanwhile, too.
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "already-running" },
+    ]);
+
+    release.open();
+    await settle();
+    expect(h.ran).toEqual(["mike"]);
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+  });
+
+  it("backs up one phone on request while another is mid-backup", async () => {
+    const h = harness([deviceConfig(), sam()]);
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      if (device.id === "mike") await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    expect(h.daemon.requestBackup("sam")).toBe("started");
+    await settle();
+    expect(h.ran.sort()).toEqual(["mike", "sam"]);
+    release.open();
+    await settle();
+  });
+
+  it("says so in the log, and starts nothing, when the phone cannot be reached", async () => {
+    const h = harness();
+    h.transport.probeResult = new DeviceError("no answer", "unreachable");
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+
+    expect(h.ran).toEqual([]);
+    expect(h.logs).toContainEqual({
+      level: "warning",
+      message: "requested backup not started",
+      fields: { device: "mike", reason: "unreachable" },
+    });
+    // And the phone can be asked for again straight away.
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+  });
+
+  it("never takes an unencrypted backup, even when asked", async () => {
+    const h = harness();
+    h.transport.probeResult = fakeStatus({ backupEncryptionEnabled: false });
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+
+    expect(h.ran).toEqual([]);
+    expect(h.logs).toContainEqual({
+      level: "warning",
+      message: "requested backup not started",
+      fields: { device: "mike", reason: "encryption-off" },
+    });
+  });
+
+  it("survives a backup that blows up", async () => {
+    const h = harness();
+    h.setRun(() => Promise.reject(new Error("disk on fire")));
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+
+    expect(h.logs).toContainEqual({
+      level: "error",
+      message: "unexpected error in a requested backup",
+      fields: { device: "mike", error: "disk on fire" },
+    });
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+  });
+
+  it("keeps a record that the backup was asked for", async () => {
+    const h = harness();
+    h.daemon.requestBackup("mike");
+    await settle();
+    expect(state.deviceEventsSince("mike", at(0))).toContainEqual({
+      at: at(19),
+      kind: "requested",
+      detail: {},
+    });
+  });
+
+  it("waits for a requested backup to finish before the daemon reports it has stopped", async () => {
+    const h = harness();
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    const release = gate<void>();
+    const controller = new AbortController();
+    const running = h.daemon.run(controller.signal);
+    await settle();
+
+    h.transport.probeResult = fakeStatus();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    await settle();
+    controller.abort();
+    await settle();
+    expect(h.logs.map((entry) => entry.message)).not.toContain("pommedonjon stopped");
+
+    release.open();
+    await running;
+    expect(h.logs.at(-1)?.message).toBe("pommedonjon stopped");
+  });
+});
+
 describe("Daemon.run", () => {
   it("closes off interrupted runs, polls at the configured interval, and stops on abort", async () => {
     const h = harness();
