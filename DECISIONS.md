@@ -69,7 +69,7 @@ time comes; it is not part of the design or the build plan.
    2. A design brief: theme, component kit and the screens (O23).
    3. The API contract and a status screen, in the web app the container
       serves.
-   4. The iPhone app around the same build, and "back up now" in it.
+   4. The same app on the iPhone, and "back up now" in it.
    5. A schedule for each phone, set in the app (O26).
    6. Settings in the database; the config file goes (O24).
    7. Adding a phone from the app (O25).
@@ -533,32 +533,27 @@ that so; nothing else about the commits changed.
 
 ### D23. One front end, in React and TypeScript, for the web and the iPhone
 
-*Reopened by the owner the same evening:* React and TypeScript stand, and
-so does one codebase for both; whether the iPhone app is built with
-Capacitor or with Expo is undecided again. What follows describes
-Capacitor.
+*Decided by the owner, 2026-11-24:* React and TypeScript, one codebase for
+the web app and the iPhone app, built with Expo (React Native, with its web
+target). The owner wants a user interface that is both from the start, as
+much front-end code shared as possible, and a real iPhone app.
 
-*Decided by the owner, 2026-11-24:* a React web app in TypeScript, and the
-iPhone app built from the same codebase with Capacitor, which wraps the web
-build in a native shell. The owner wants a user interface that is both from
-the start, and as much front-end code shared as possible.
-
-I had recommended Expo (React Native with a web target). The owner chose
-Capacitor: the web app is the app, and the whole of it is shared.
+The owner first chose Capacitor, a native shell around a web app, and
+changed to Expo the same evening. What decided it: nothing about starting
+a backup needs native code in either (O26), so the choice came down to
+whether the phone app should feel like an iPhone app or like a website in
+a wrapper.
 
 What follows from that, by judgement, to be confirmed as each is built:
 
-- **The container serves the web build beside the API**, from the same
-  address, so there is still one container and the web app needs no
-  set-up.
-- **The iPhone app carries its own copy of the web build.** So it has to
-  be told where the server is, on a first-run screen; the API has to
-  accept requests from the app's own origin; and iOS has to be allowed to
-  reach a plain-HTTP address on the local network, or the server reached
-  over HTTPS.
-- **Native features, if any are needed, are small Swift additions to the
-  app project**, which Capacitor supports without publishing a plugin.
-  Starting a backup needs none (O26).
+- **The container serves the web build beside the API.** Expo exports the
+  web app as static files, so there is still one container and the web app
+  needs no set-up.
+- **The iPhone app has to be told where the server is**, on a first-run
+  screen, and the API has to accept requests from it. The web app does
+  not: it is served from the same address as the API.
+- **Screens are built from React Native components**, so the component kit
+  has to be one made for that (O23). Web-only kits are out.
 - **Building the iPhone app needs Xcode**, and keeping it on a phone for
   more than a week needs the paid Apple Developer Program.
 - The Shortcuts that call the service by address (O22) were a proof of
@@ -574,7 +569,7 @@ Proposed layout, by judgement:
 | Workspace | Holds |
 |---|---|
 | `apps/server` | Today's daemon, the API, and the Python sidecar it drives |
-| `apps/web` | The React app, with the Capacitor iPhone project inside it |
+| `apps/app` | The Expo app: the iPhone app and the web app |
 | `packages/api-contract` | Zod schemas for every request and reply. The server validates with them and the app takes its types from them (D14) |
 | `packages/api-client` | The typed client the app calls the server with |
 
@@ -613,7 +608,7 @@ messages cite them.
 | O23 | The design brief: theme, component kit, screens | next, before any screens |
 | O24 | Settings without a config file | the owner's yes to the proposal |
 | O25 | Adding a phone from the app | a test of pairing from the browser |
-| O26 | What starts a backup: a button or a schedule | decided by the owner; the schedule's details are open |
+| O26 | What starts a backup: a button or a schedule | decided by the owner; the automatic mode waits on a lock-state test |
 | O27 | Sign-in | later; direction proposed |
 
 ### O8. Remote backups over the tailnet
@@ -735,10 +730,9 @@ and how one leads to the next, colour and type for light and dark, and the
 theme. The name gives it one, an apple and a castle keep, to be used with
 restraint.
 
-The component kit is open. With a web app in a native shell, the choice is
-between a general web kit styled to feel at home on a phone and one built
-to look like iOS. To be compared against their current documentation, with
-a recommendation and a sample screen.
+The component kit is open. It has to be one built for React Native that
+also renders well on the web (D23). Two or three to be compared against
+their current documentation, with a recommendation and a sample screen.
 
 ### O24. Settings without a config file
 
@@ -807,9 +801,37 @@ How it works, which needs nothing from iOS:
   which is how the first automatic backups were started (attempts 15 and
   16).
 
-Open, for the design brief (O23): what a schedule can say. Today's settings
-are "when a backup is due and the phone goes on charge", with optional
-hours to stay inside (D7). A set time of day is not built.
+**The schedule is loose, and the service picks the moment.** *The owner's
+idea, 2026-11-24:* an automatic mode. The schedule says roughly how often
+and when; an algorithm then chooses the actual moment from what is known
+about the phone, and keeps waiting past the scheduled time until its owner
+is actually at it.
+
+What it could use:
+
+| Signal | Where it comes from | Known to work? |
+|---|---|---|
+| At home | The phone answers on the network | Yes |
+| On power, and just plugged in | The server asks the phone | Yes (attempts 15 and 16) |
+| Unlocked, or just unlocked | The server asks the phone | **Not yet measured.** The phone reports a value that should say; whether it changes with the lock on iOS 26 is the first thing to test |
+| The app is open | The app tells the server | Certain, once there is an app. The strongest sign of all that the owner is there |
+| When prompts were answered before | The run history (O16) | Recorded since the trial began |
+| A cancel | The transport (O17) | Yes; already buys a long pause (D8) |
+
+A first shape for it, to be designed properly with the brief (O23): once a
+backup is due, wait for the best moment on offer, in this order: the app
+is opened; the phone has just been unlocked at home; it has just been
+plugged in. If none comes within a set time, fall back to asking on the
+charger, inside any hours the owner allows.
+
+This brings back O2 (prompt just after an unlock), which was closed when
+prompting a locked phone turned out to be acceptable. Acceptable is not
+the same as best: a prompt that arrives as the owner unlocks is the one
+least likely to be missed.
+
+Today's settings are "when a backup is due and the phone goes on charge",
+with optional hours to stay inside (D7). That is one fixed rule; the
+automatic mode would replace it as the default.
 
 The one constraint that no schedule removes: every backup asks for the
 passcode on the phone (FINDINGS.md), so a schedule is only useful at times
