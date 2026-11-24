@@ -734,5 +734,9 @@ backups and state go, the schedule. Two things cannot be invented: which
 phones to back up, which comes down to having a pair record for each, and
 which network range to look for them in.
 
-Not decided. No code has been changed for this.
+*Decided by the owner, 2026-11-24:* for the proof of concept, copy the two
+files into the volumes by hand after the first deploy. Later versions get a
+UI that does it. The idea of the app building its own config from the pair
+records it finds, needing only a network range, is kept for then. No code
+has been changed for this.
 
