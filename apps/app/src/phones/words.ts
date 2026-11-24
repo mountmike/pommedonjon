@@ -1,9 +1,10 @@
 import {
   PASSCODE_WINDOW_SECONDS,
   type DeviceSummary,
+  type RunSummary,
   type Waiting,
 } from "@pommedonjon/api-contract";
-import { ago, at, howLong, type TimeStyle } from "./time";
+import { ago, at, howLong, timeOfDay, took, type TimeStyle } from "./time";
 
 /** Which of the theme's state colours a phone's state is shown in. */
 export type Tone = "safe" | "due" | "overdue" | "busy" | "neutral";
@@ -152,4 +153,90 @@ export function describeState(
         glyph: "…",
       };
   }
+}
+
+/** Why a backup did not count, as a sentence and as a few words for a list. */
+function failureWords(run: RunSummary): { readonly sentence: string; readonly short: string } {
+  switch (run.reason) {
+    case "device-locked":
+      return {
+        sentence: "The phone asked for your passcode and nobody answered.",
+        short: "Nobody typed the passcode",
+      };
+    case "passcode-cancelled":
+      return { sentence: "You cancelled on the phone.", short: "Cancelled on the phone" };
+    case "unreachable":
+    case "probe-failed":
+      // Reaching the passcode prompt means the phone was there to begin with.
+      return run.prompted
+        ? { sentence: "Lost contact with the phone part-way.", short: "Lost contact part-way" }
+        : { sentence: "Couldn't reach the phone.", short: "Couldn't reach the phone" };
+    case "encryption-off":
+      return {
+        sentence: "Backup encryption is off on this phone.",
+        short: "Backup encryption is off",
+      };
+    case "verification-failed":
+      return {
+        sentence: "The backup finished but did not pass its checks, so it does not count.",
+        short: "Did not pass its checks",
+      };
+    case "not-paired":
+      return { sentence: "The phone did not accept its pairing.", short: "Pairing not accepted" };
+    case "interrupted":
+      return { sentence: "The server stopped part-way.", short: "Server stopped part-way" };
+    case "cancelled":
+      return { sentence: "The backup was stopped.", short: "Stopped" };
+    default:
+      return { sentence: "The backup did not work.", short: "Did not work" };
+  }
+}
+
+/**
+ * What to say under a phone's state about its last try, or undefined when
+ * there is nothing to add: it worked, or a good backup has been made since.
+ */
+export function lastTryWords(
+  device: DeviceSummary,
+  now: Date,
+  style: TimeStyle = {},
+): string | undefined {
+  const attempt = device.lastAttempt;
+  if (!attempt || attempt.outcome !== "failed" || device.state === "backing-up") return undefined;
+  const ended = new Date(attempt.finishedAt ?? attempt.startedAt);
+  if (device.lastBackupAt && new Date(device.lastBackupAt).getTime() >= ended.getTime()) {
+    return undefined;
+  }
+  const safe = device.lastBackupAt ? " Your last good backup is safe." : "";
+  return `Tried ${ago(ended, now, style)}. ${failureWords(attempt).sentence}${safe}`;
+}
+
+/** One past backup, as a row of the history. */
+export interface AttemptWords {
+  readonly title: string;
+  /** When, and for a good one how long it took. */
+  readonly detail: string;
+  readonly tone: Tone;
+  readonly glyph: string;
+}
+
+export function describeAttempt(run: RunSummary, style: TimeStyle = {}): AttemptWords {
+  if (run.outcome === "running") {
+    return {
+      title: "Backing up now",
+      detail: `Started ${timeOfDay(new Date(run.startedAt), style)}`,
+      tone: "busy",
+      glyph: "↻",
+    };
+  }
+  const when = timeOfDay(new Date(run.finishedAt ?? run.startedAt), style);
+  if (run.outcome === "succeeded") {
+    return {
+      title: "Backed up",
+      detail: run.durationMs === null ? when : `${when}, took ${took(run.durationMs)}`,
+      tone: "safe",
+      glyph: "✓",
+    };
+  }
+  return { title: failureWords(run).short, detail: when, tone: "due", glyph: "×" };
 }

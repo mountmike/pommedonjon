@@ -8,6 +8,8 @@ export interface Theme {
   readonly ink: ColorValue;
   readonly muted: ColorValue;
   readonly tint: ColorValue;
+  /** The hairline between rows of a list. */
+  readonly separator: ColorValue;
   readonly tone: Readonly<Record<Tone, ColorValue>>;
 }
 
@@ -22,6 +24,7 @@ function systemTheme(): Theme {
     ink: PlatformColor("label"),
     muted: PlatformColor("secondaryLabel"),
     tint: PlatformColor("systemBlue"),
+    separator: PlatformColor("separator"),
     tone: {
       safe: PlatformColor("systemGreen"),
       due: PlatformColor("systemOrange"),
@@ -39,6 +42,7 @@ const LIGHT: Theme = {
   ink: "#000000",
   muted: "#6C6C70",
   tint: "#0066CC",
+  separator: "#C6C6C8",
   tone: { safe: "#1E7B34", due: "#8A4B00", overdue: "#C4281C", busy: "#0066CC", neutral: "#6C6C70" },
 };
 
@@ -48,6 +52,7 @@ const DARK: Theme = {
   ink: "#FFFFFF",
   muted: "#AEAEB2",
   tint: "#4DA3FF",
+  separator: "#38383A",
   tone: { safe: "#30D158", due: "#FF9F0A", overdue: "#FF6961", busy: "#4DA3FF", neutral: "#AEAEB2" },
 };
 

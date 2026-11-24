@@ -26,7 +26,7 @@ export default function PhonesScreen() {
 
 function Phones({ onRetry }: { onRetry: () => void }) {
   const theme = useTheme();
-  const { state, now } = useDevices();
+  const { state, now, refresh } = useDevices();
 
   if (state.status === "loading") {
     return <ActivityIndicator style={styles.centre} color={theme.muted} />;
@@ -41,7 +41,7 @@ function Phones({ onRetry }: { onRetry: () => void }) {
       </View>
     );
   }
-  if (state.devices.length === 0) {
+  if (state.data.length === 0) {
     return (
       <Text style={[styles.message, styles.centre, { color: theme.muted }]}>
         No phones have been added yet.
@@ -55,8 +55,8 @@ function Phones({ onRetry }: { onRetry: () => void }) {
           Can't reach the server. Showing what was last known.
         </Text>
       )}
-      {state.devices.map((device) => (
-        <PhoneCard key={device.id} device={device} now={now} />
+      {state.data.map((device) => (
+        <PhoneCard key={device.id} device={device} now={now} onChanged={refresh} />
       ))}
     </View>
   );

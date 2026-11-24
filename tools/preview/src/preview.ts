@@ -3,7 +3,8 @@
  *
  *   pnpm preview    build everything, then serve the app at
  *                   http://localhost:8399 with three phones that do not
- *                   exist: one backed up, one due, one overdue
+ *                   exist: one backed up, one due, one overdue, each with
+ *                   some history
  *
  * For looking at the app's screens without a real phone or a real backup.
  * The phones sit at addresses reserved for documentation, so the server
@@ -25,17 +26,68 @@ const SERVER = path.join(ROOT, "apps/server/dist");
 const WEB = path.join(ROOT, "apps/app/dist");
 const DIR = path.join(ROOT, "local/preview");
 
-/** Each made-up phone, and how many hours ago its last good backup ended. */
-const PHONES = [
-  { id: "mike", name: "Mike's iPhone", host: "192.0.2.10", hoursAgo: 2 },
-  { id: "laurel", name: "Laurel's iPhone", host: "192.0.2.11", hoursAgo: 25 },
-  { id: "spare", name: "Spare iPhone", host: "192.0.2.12", hoursAgo: 100 },
-] as const;
+/** How a made-up backup ended, and how many hours ago. */
+interface PastRun {
+  readonly hoursAgo: number;
+  /** Why it failed; left out for one that worked. */
+  readonly failed?: string;
+}
+
+/**
+ * Each made-up phone and its history, oldest first. Between them they show
+ * every state a phone at home can be in without a backup running.
+ */
+const PHONES: readonly {
+  readonly id: string;
+  readonly name: string;
+  readonly host: string;
+  readonly runs: readonly PastRun[];
+}[] = [
+  {
+    // Backed up two hours ago, after a week of ordinary days.
+    id: "mike",
+    name: "Mike's iPhone",
+    host: "192.0.2.10",
+    runs: [
+      { hoursAgo: 170 },
+      { hoursAgo: 146 },
+      { hoursAgo: 122.5, failed: "device-locked" },
+      { hoursAgo: 122 },
+      { hoursAgo: 98 },
+      { hoursAgo: 74 },
+      { hoursAgo: 50.2, failed: "unreachable" },
+      { hoursAgo: 50 },
+      { hoursAgo: 26 },
+      { hoursAgo: 2 },
+    ],
+  },
+  {
+    // Due, and the last try was cancelled on the phone.
+    id: "laurel",
+    name: "Laurel's iPhone",
+    host: "192.0.2.11",
+    runs: [{ hoursAgo: 73 }, { hoursAgo: 49 }, { hoursAgo: 25 }, { hoursAgo: 0.5, failed: "passcode-cancelled" }],
+  },
+  {
+    // Overdue: nothing good for four days.
+    id: "spare",
+    name: "Spare iPhone",
+    host: "192.0.2.12",
+    runs: [{ hoursAgo: 124 }, { hoursAgo: 100 }, { hoursAgo: 30, failed: "device-locked" }],
+  },
+];
 
 /** The part of the server's state store this needs. */
 interface Store {
   startRun(deviceId: string, at: Date): number;
-  finishRun(runId: number, at: Date, result: { outcome: "succeeded"; durationMs: number }): void;
+  recordEvent(runId: number, at: Date, event: { type: string }): void;
+  finishRun(
+    runId: number,
+    at: Date,
+    result:
+      | { outcome: "succeeded"; durationMs: number }
+      | { outcome: "failed"; reason: string; message: string },
+  ): void;
   close(): void;
 }
 
@@ -66,10 +118,24 @@ async function seedState(): Promise<void> {
   const store = new StateStore(path.join(DIR, "state/pommedonjon.sqlite"));
   const hoursAgo = (hours: number): Date => new Date(Date.now() - hours * 3_600_000);
   for (const phone of PHONES) {
-    const durationMs = 282_000;
-    const finished = hoursAgo(phone.hoursAgo);
-    const run = store.startRun(phone.id, new Date(finished.getTime() - durationMs));
-    store.finishRun(run, finished, { outcome: "succeeded", durationMs });
+    for (const past of phone.runs) {
+      const finished = hoursAgo(past.hoursAgo);
+      // A good backup takes minutes; a refused one is over in a minute.
+      const durationMs = past.failed === undefined ? 282_000 : 62_000;
+      const started = new Date(finished.getTime() - durationMs);
+      const run = store.startRun(phone.id, started);
+      // The phone asks for its passcode in every run that reaches it.
+      if (past.failed !== "unreachable") {
+        store.recordEvent(run, new Date(started.getTime() + 9000), { type: "passcode-required" });
+      }
+      store.finishRun(
+        run,
+        finished,
+        past.failed === undefined
+          ? { outcome: "succeeded", durationMs }
+          : { outcome: "failed", reason: past.failed, message: "made up for the preview" },
+      );
+    }
   }
   store.close();
 }
