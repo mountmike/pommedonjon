@@ -43,6 +43,7 @@ function run(
     finishedAt,
     outcome: result.outcome,
     failureReason: result.outcome === "failed" ? result.reason : undefined,
+    startedBy: undefined,
     message: undefined,
     prompted: prompt !== undefined,
     durationMs: result.outcome === "succeeded" ? result.seconds * 1000 : undefined,

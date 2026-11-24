@@ -24,6 +24,8 @@ export interface ApiDeps {
   readonly phones: PhoneManager;
   /** Ask for a phone to be backed up now. */
   readonly requestBackup: (deviceId: string) => BackupRequestResult;
+  /** Stop the backup of a phone that is running. */
+  readonly stopBackup: (deviceId: string) => "stopping" | "unknown-device" | "not-running";
   /** Tell the daemon a phone has just been plugged in. */
   readonly reportPlugIn: (deviceId: string) => PlugInReportResult;
   /**
@@ -47,6 +49,8 @@ const API_DEVICE = new RegExp(`^/api/devices/(${DEVICE_ID})/?$`);
 const API_BACKUP_NOW = new RegExp(`^/api/devices/(${DEVICE_ID})/backup-now/?$`);
 /** `/api/devices/<id>/settings`: what the app can change about a phone. */
 const API_SETTINGS = new RegExp(`^/api/devices/(${DEVICE_ID})/settings/?$`);
+/** `/api/devices/<id>/stop`: stop the backup of a phone that is running. */
+const API_STOP = new RegExp(`^/api/devices/(${DEVICE_ID})/stop/?$`);
 /** `/api/devices/<id>/check`: look for a phone now, without starting anything. */
 const API_CHECK = new RegExp(`^/api/devices/(${DEVICE_ID})/check/?$`);
 /** Settings are a few hundred bytes; anything much larger is not settings. */
@@ -185,6 +189,8 @@ async function serveWeb(
  * - `PUT /api/devices/<id>/settings`: change it, sending all of it. 200
  *   with the settings as saved, 400 `{"error":"invalid-settings",
  *   "problems":[...]}`, 404 `{"error":"unknown-device"}`.
+ * - `POST /api/devices/<id>/stop`: stop the backup of this phone that is
+ *   running. 202 `{"status":"stopping"}`, 409 `{"error":"not-running"}`.
  * - `POST /api/devices`: add a phone, with its pair record. 201 `{"id":...}`,
  *   400 `{"error":"invalid-phone","problems":[...]}`, 409
  *   `{"error":"already-added"}`.
@@ -245,6 +251,17 @@ export function createApiHandler(deps: ApiDeps) {
     if (pathname === "/api/server") {
       if (reading) reply(res, 200, deps.phones.info());
       else reply(res, 405, { error: "method-not-allowed" }, { allow: "GET" });
+      return;
+    }
+    const stopOf = API_STOP.exec(pathname)?.[1];
+    if (stopOf !== undefined) {
+      if (method !== "POST") {
+        reply(res, 405, { error: "method-not-allowed" }, { allow: "POST" });
+        return;
+      }
+      const outcome = deps.stopBackup(stopOf);
+      if (outcome === "stopping") reply(res, 202, { status: "stopping" });
+      else reply(res, outcome === "unknown-device" ? 404 : 409, { error: outcome });
       return;
     }
     const checkOf = API_CHECK.exec(pathname)?.[1];

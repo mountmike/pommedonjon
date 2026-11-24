@@ -48,6 +48,12 @@ class RunFailure extends Error {
   }
 }
 
+/**
+ * The reason to abort a run's signal with when its owner asked for the
+ * backup to stop, as opposed to the service shutting down.
+ */
+export const STOPPED_BY_OWNER = "stopped-by-owner";
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -67,10 +73,20 @@ export class BackupRunner {
    * @param host Where the phone is, as found by whoever decided to back it
    *   up. The runner does not go looking for it.
    */
-  async run(device: DeviceConfig, host: string, signal?: AbortSignal): Promise<RunReport> {
+  async run(
+    device: DeviceConfig,
+    host: string,
+    signal?: AbortSignal,
+    /** What started it: a moment, "request" or "command". Kept with the run. */
+    startedBy?: string,
+  ): Promise<RunReport> {
     const { state, clock, log } = this.deps;
-    const runId = state.startRun(device.id, clock());
-    log("info", "backup starting", { device: device.id, runId });
+    const runId = state.startRun(device.id, clock(), startedBy);
+    log("info", "backup starting", {
+      device: device.id,
+      runId,
+      ...(startedBy !== undefined && { startedBy }),
+    });
 
     let report: RunReport;
     try {
@@ -79,10 +95,11 @@ export class BackupRunner {
       report = { runId, outcome: "succeeded", durationMs };
       log("info", "backup succeeded", { device: device.id, runId, durationMs });
     } catch (error) {
-      const reason =
-        error instanceof RunFailure || error instanceof BackupError
-          ? error.reason
-          : "failed";
+      const cause =
+        error instanceof RunFailure || error instanceof BackupError ? error.reason : "failed";
+      // Stopped by its owner from the app is its own reason: it is a "not
+      // now", like Cancel on the phone, where the service stopping is not.
+      const reason = cause === "cancelled" && signal?.reason === STOPPED_BY_OWNER ? "stopped" : cause;
       const message = describe(error);
       state.finishRun(runId, clock(), { outcome: "failed", reason, message });
       report = { runId, outcome: "failed", reason, message };

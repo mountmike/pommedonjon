@@ -19,7 +19,7 @@ import {
   type PowerState,
 } from "../policy/power.js";
 import type { DeviceLocator } from "../discovery/DeviceLocator.js";
-import type { BackupRunner, RunReport } from "../runner/BackupRunner.js";
+import { STOPPED_BY_OWNER, type BackupRunner, type RunReport } from "../runner/BackupRunner.js";
 import type { StateStore } from "../state/StateStore.js";
 import { DeviceError } from "../transport/DeviceTransport.js";
 
@@ -143,6 +143,8 @@ export class Daemon {
   readonly #staleWarnedAt = new Map<string, Date>();
   /** The signal `run` was given, so requested backups stop with the daemon. */
   #signal: AbortSignal | undefined;
+  /** How to stop each backup in hand, for its owner asking it to. */
+  readonly #stoppers = new Map<string, AbortController>();
   /** Each phone's cycle, while it runs. A phone added later gets one then. */
   readonly #cycles = new Map<string, Promise<void>>();
 
@@ -204,6 +206,40 @@ export class Daemon {
       if (!here.has(deviceId)) this.#staleWarnedAt.delete(deviceId);
     }
     this.#startCycles();
+  }
+
+  /**
+   * Stop the backup of this phone that is in hand, because its owner asked.
+   * It ends as a failed run with the reason "stopped", and the phone is then
+   * left alone for as long as after a Cancel on the phone itself.
+   */
+  stopBackup(deviceId: string): "stopping" | "unknown-device" | "not-running" {
+    if (!this.deps.devices.get(deviceId)) return "unknown-device";
+    const stopper = this.#stoppers.get(deviceId);
+    if (!stopper) return "not-running";
+    this.deps.log("info", "backup stop requested", { device: deviceId });
+    stopper.abort(STOPPED_BY_OWNER);
+    return "stopping";
+  }
+
+  /**
+   * Run a backup so that it stops with the daemon and can be stopped by
+   * its owner.
+   */
+  async #runBackup(
+    device: DeviceConfig,
+    host: string,
+    startedBy: string,
+    signal: AbortSignal | undefined,
+  ): Promise<RunReport> {
+    const stopper = new AbortController();
+    this.#stoppers.set(device.id, stopper);
+    try {
+      const either = signal ? AbortSignal.any([signal, stopper.signal]) : stopper.signal;
+      return await this.deps.runner.run(device, host, either, startedBy);
+    } finally {
+      this.#stoppers.delete(device.id);
+    }
   }
 
   /** Whether a backup of this phone is in hand right now. */
@@ -306,7 +342,12 @@ export class Daemon {
       }
       reached = true;
       try {
-        await runner.run(device, host, this.#signal);
+        await this.#runBackup(
+          device,
+          host,
+          source === "request" ? "request" : "plugged-in",
+          this.#signal,
+        );
       } finally {
         // The run is in the history now, and speaks for itself.
         this.#requests.delete(device.id);
@@ -487,7 +528,7 @@ export class Daemon {
       moment: readiness.moment,
     });
     try {
-      const report = await runner.run(device, host, signal);
+      const report = await this.#runBackup(device, host, readiness.moment, signal);
       return { deviceId: device.id, action: "backed-up", report };
     } finally {
       this.#busy.delete(device.id);

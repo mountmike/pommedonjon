@@ -166,6 +166,13 @@ describe("schedule", () => {
     ).toEqual(GO);
   });
 
+  it("leaves the phone alone as long after its owner stopped a backup from the app", () => {
+    const recentAttempts = [failed(at(19), "stopped")];
+    expect(
+      schedule({ now: at(22, 59), policy, lastSuccessAt: undefined, recentAttempts }),
+    ).toMatchObject({ start: { allowed: false, reason: "backing-off", until: at(23, 1) } });
+  });
+
   it("goes back to asking soon if a later prompt merely timed out", () => {
     const recentAttempts = [
       failed(at(14), "passcode-cancelled"),

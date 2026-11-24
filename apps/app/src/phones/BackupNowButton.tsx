@@ -2,7 +2,7 @@ import { Button, Host } from "@expo/ui";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { DeviceSummary } from "@pommedonjon/api-contract";
-import { ApiError, requestBackup } from "../api/client";
+import { ApiError, requestBackup, stopBackup } from "../api/client";
 import { space, type, useTheme } from "../theme/tokens";
 
 type Asking =
@@ -33,6 +33,7 @@ export function BackupNowButton({
   const theme = useTheme();
   const [asking, setAsking] = useState<Asking>({ status: "idle" });
 
+  if (device.state === "backing-up") return <StopButton device={device} onStopped={onStarted} />;
   if (!canBackUpNow(device)) return null;
 
   async function start() {
@@ -61,6 +62,44 @@ export function BackupNowButton({
       ) : (
         <Text style={[styles.note, { color: theme.muted }]}>
           Have the phone with you: it will ask for your passcode.
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/** While a backup runs: the way to call it off. */
+function StopButton({ device, onStopped }: { device: DeviceSummary; onStopped: () => void }) {
+  const theme = useTheme();
+  const [asking, setAsking] = useState<Asking>({ status: "idle" });
+
+  async function stop() {
+    setAsking({ status: "asking" });
+    try {
+      await stopBackup(device.id);
+      onStopped();
+      setAsking({ status: "idle" });
+    } catch (error) {
+      const why = error instanceof ApiError ? error.message : "Something went wrong.";
+      setAsking({ status: "failed", message: `Couldn't stop the backup. ${why}` });
+    }
+  }
+
+  return (
+    <View style={styles.all}>
+      <Host matchContents style={styles.button}>
+        <Button
+          label={asking.status === "asking" ? "Stopping…" : "Stop"}
+          variant="outlined"
+          disabled={asking.status === "asking"}
+          onPress={() => void stop()}
+        />
+      </Host>
+      {asking.status === "failed" ? (
+        <Text style={[styles.note, { color: theme.tone.overdue }]}>{asking.message}</Text>
+      ) : (
+        <Text style={[styles.note, { color: theme.muted }]}>
+          Your last good backup stays as it is. The phone is then left alone for a few hours.
         </Text>
       )}
     </View>

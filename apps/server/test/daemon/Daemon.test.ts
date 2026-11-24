@@ -60,7 +60,12 @@ function harness(
   };
 
   /** A runner that records a successful run in the state store. */
-  let runImpl = (device: DeviceConfig): Promise<RunReport> => {
+  let runImpl = (
+    device: DeviceConfig,
+    _host?: string,
+    _signal?: AbortSignal,
+    _startedBy?: string,
+  ): Promise<RunReport> => {
     const runId = state.startRun(device.id, now);
     state.finishRun(runId, now, {
       outcome: "succeeded",
@@ -88,10 +93,10 @@ function harness(
       clock: () => now,
     }),
     runner: {
-      run: (device, host) => {
+      run: (device, host, signal, startedBy) => {
         ran.push(device.id);
         hosts.push(host);
-        return runImpl(device);
+        return runImpl(device, host, signal, startedBy);
       },
     },
     state,
@@ -117,6 +122,10 @@ function harness(
       now = date;
     },
     setRun: (impl: typeof runImpl) => {
+      runImpl = impl;
+    },
+    /** The same, for a stand-in that wants the signal and what started the run. */
+    setRunWith: (impl: typeof runImpl) => {
       runImpl = impl;
     },
     onSleep: (callback: () => void) => {
@@ -716,6 +725,66 @@ describe("Daemon and phones added or removed while it runs", () => {
     release.open();
     await settle();
     expect(h.daemon.isBusy("mike")).toBe(false);
+  });
+});
+
+describe("Daemon.stopBackup", () => {
+  /** A backup that runs until its signal aborts, as a real one would. */
+  function runUntilStopped(h: ReturnType<typeof harness>) {
+    const signals: AbortSignal[] = [];
+    const started: (string | undefined)[] = [];
+    h.setRunWith((device, _host, signal, startedBy) => {
+      const runId = state.startRun(device.id, at(19), startedBy);
+      started.push(startedBy);
+      if (signal) signals.push(signal);
+      return new Promise((resolve) => {
+        signal?.addEventListener("abort", () => {
+          const reason = signal.reason === "stopped-by-owner" ? "stopped" : "cancelled";
+          state.finishRun(runId, at(19, 1), { outcome: "failed", reason, message: reason });
+          resolve({ runId, outcome: "failed", reason, message: reason });
+        });
+      });
+    });
+    return { signals, started };
+  }
+
+  it("stops a backup that was asked for, as its owner's doing", async () => {
+    const h = harness();
+    const running = runUntilStopped(h);
+    h.daemon.requestBackup("mike");
+    await settle();
+    expect(h.daemon.isBusy("mike")).toBe(true);
+
+    expect(h.daemon.stopBackup("mike")).toBe("stopping");
+    await settle();
+    expect(running.signals[0]?.reason).toBe("stopped-by-owner");
+    expect(h.daemon.isBusy("mike")).toBe(false);
+    expect(state.recentRuns("mike", 1)[0]).toMatchObject({
+      outcome: "failed",
+      failureReason: "stopped",
+      startedBy: "request",
+    });
+  });
+
+  it("stops a backup the schedule started, and then leaves the phone alone for hours", async () => {
+    const h = harness();
+    const running = runUntilStopped(h);
+    const pass = h.daemon.tick();
+    await settle();
+    expect(running.started).toEqual(["on-charger"]);
+
+    expect(h.daemon.stopBackup("mike")).toBe("stopping");
+    await pass;
+    h.setNow(at(19, 30));
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "backing-off", until: at(23, 1) },
+    ]);
+  });
+
+  it("has nothing to stop when no backup is running, or the phone is not here", () => {
+    const h = harness();
+    expect(h.daemon.stopBackup("mike")).toBe("not-running");
+    expect(h.daemon.stopBackup("nobody")).toBe("unknown-device");
   });
 });
 

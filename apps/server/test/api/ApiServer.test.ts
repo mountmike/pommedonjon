@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   BackupStartedSchema,
+  BackupStoppingSchema,
   DeviceDetailSchema,
   DeviceListSchema,
   DeviceAddedSchema,
@@ -84,6 +85,7 @@ async function harness(
   const changed: { deviceId: string; wanted: unknown }[] = [];
   const added: unknown[] = [];
   const removed: string[] = [];
+  const stopped: string[] = [];
   const pluggedIn: string[] = [];
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   server = await startApiServer({
@@ -137,6 +139,11 @@ async function harness(
       },
     },
     ...(web !== undefined && { webDir: web }),
+    stopBackup: (deviceId) => {
+      if (deviceId !== "mike") return deviceId === "idle" ? "not-running" : "unknown-device";
+      stopped.push(deviceId);
+      return "stopping";
+    },
     requestBackup: (deviceId) => {
       asked.push(deviceId);
       if (answer instanceof Error) throw answer;
@@ -171,7 +178,7 @@ async function harness(
       text: await response.text(),
     };
   };
-  return { asked, changed, added, removed, pluggedIn, logs, send, fetchRaw };
+  return { asked, changed, added, removed, stopped, pluggedIn, logs, send, fetchRaw };
 }
 
 describe("the API", () => {
@@ -552,6 +559,34 @@ describe("the API for adding and removing phones", () => {
     for (const path of ["/api/devices", "/api/devices/mike", "/api/devices/mike/settings"]) {
       expect(JSON.stringify((await h.send("GET", path)).body)).not.toMatch(/pair/i);
     }
+  });
+});
+
+describe("the API for stopping a backup", () => {
+  it("tells a running backup to stop, and answers straight away", async () => {
+    const h = await harness();
+    const answer = await h.send("POST", "/api/devices/mike/stop");
+    expect(answer.status).toBe(202);
+    expect(BackupStoppingSchema.parse(answer.body)).toEqual({ status: "stopping" });
+    expect(h.stopped).toEqual(["mike"]);
+  });
+
+  it("answers 409 when nothing is running, and 404 for a phone it does not have", async () => {
+    const h = await harness();
+    expect(await h.send("POST", "/api/devices/idle/stop")).toMatchObject({
+      status: 409,
+      body: { error: "not-running" },
+    });
+    expect(await h.send("POST", "/api/devices/nobody/stop")).toMatchObject({
+      status: 404,
+      body: { error: "unknown-device" },
+    });
+  });
+
+  it("stops nothing on a GET", async () => {
+    const h = await harness();
+    expect(await h.send("GET", "/api/devices/mike/stop")).toMatchObject({ status: 405, allow: "POST" });
+    expect(h.stopped).toEqual([]);
   });
 });
 

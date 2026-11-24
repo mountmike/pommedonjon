@@ -105,7 +105,7 @@ async function backup(app: App, deviceId: string | undefined, signal: AbortSigna
     print(`${device.id}: backup not started (${error.reason}). ${error.message}`);
     return 1;
   }
-  const report = await app.runner.run(device, host, signal);
+  const report = await app.runner.run(device, host, signal, "command");
   if (report.outcome === "succeeded") {
     print(`${device.id}: backed up in ${Math.round(report.durationMs / 1000)} s`);
     return 0;
@@ -269,6 +269,7 @@ async function main(argv: readonly string[]): Promise<number> {
                 }),
                 ...(webDir !== undefined && { webDir }),
                 requestBackup: (deviceId) => app.daemon.requestBackup(deviceId),
+                stopBackup: (deviceId) => app.daemon.stopBackup(deviceId),
                 reportPlugIn: (deviceId) => app.daemon.reportPlugIn(deviceId),
                 log: jsonLogger,
               });

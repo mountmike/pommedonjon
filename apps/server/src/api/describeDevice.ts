@@ -72,6 +72,7 @@ function summariseRun(run: RunRecord): RunSummary {
     reason: run.failureReason ?? null,
     prompted: run.prompted,
     durationMs: run.durationMs ?? null,
+    startedBy: run.startedBy ?? null,
   };
 }
 
@@ -133,6 +134,7 @@ export function describeDevice(facts: DeviceFacts): DeviceSummary {
           reason: notStarted.reason ?? "failed",
           prompted: false,
           durationMs: null,
+          startedBy: "request",
         }
       : lastEnded
         ? summariseRun(lastEnded)

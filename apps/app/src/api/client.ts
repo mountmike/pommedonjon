@@ -1,6 +1,7 @@
 import {
   ApiErrorSchema,
   BackupStartedSchema,
+  BackupStoppingSchema,
   DeviceDetailSchema,
   DeviceAddedSchema,
   DeviceCheckSchema,
@@ -286,4 +287,23 @@ export async function saveServerSettings(
   const parsed = ServerSettingsSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(NONSENSE, status);
   return parsed.data;
+}
+
+/**
+ * Stop the backup of a phone that is running. "not-running" if it had
+ * already ended, which is as good.
+ */
+export async function stopBackup(
+  deviceId: string,
+  base: string = API_BASE,
+  fetchFn: FetchFn = fetch,
+): Promise<"stopping" | "not-running"> {
+  const { ok, status, body } = await ask(fetchFn, `${deviceUrl(base, deviceId)}/stop`, "POST");
+  if (ok) {
+    if (!BackupStoppingSchema.safeParse(body).success) throw new ApiError(NONSENSE, status);
+    return "stopping";
+  }
+  if (status === 409 && errorCode(body) === "not-running") return "not-running";
+  if (status === 404) throw new ApiError("There is no such phone on the server.", status);
+  throw new ApiError(`The server answered ${status}.`, status);
 }

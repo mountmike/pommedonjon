@@ -6,6 +6,7 @@ import {
   fetchSettings,
   requestBackup,
   saveSettings,
+  stopBackup,
   type FetchFn,
 } from "../src/api/client";
 
@@ -198,6 +199,29 @@ describe("saveSettings", () => {
   it("says so for a phone the server does not have", async () => {
     const missing = answering({ error: "unknown-device" }, 404);
     await expect(saveSettings("nobody", SETTINGS, "", missing)).rejects.toThrow(
+      "There is no such phone on the server.",
+    );
+  });
+});
+
+describe("stopBackup", () => {
+  it("posts to the phone's stop address and says it is stopping", async () => {
+    const asked: unknown[] = [];
+    const answer = await stopBackup("mike", "", (url, init) => {
+      asked.push({ url, method: init?.method });
+      return answering({ status: "stopping" }, 202)(url);
+    });
+    expect(asked).toEqual([{ url: "/api/devices/mike/stop", method: "POST" }]);
+    expect(answer).toBe("stopping");
+  });
+
+  it("takes a backup that had already ended as an answer, not a failure", async () => {
+    const ended = answering({ error: "not-running" }, 409);
+    expect(await stopBackup("mike", "", ended)).toBe("not-running");
+  });
+
+  it("says so for a phone the server does not have", async () => {
+    await expect(stopBackup("nobody", "", answering({ error: "unknown-device" }, 404))).rejects.toThrow(
       "There is no such phone on the server.",
     );
   });

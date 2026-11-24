@@ -178,7 +178,8 @@ export function schedule(input: {
     const pauseMinutes =
       lastFailure.failureReason === "device-locked"
         ? policy.retryAfterTimeoutMinutes
-        : lastFailure.failureReason === "passcode-cancelled"
+        : lastFailure.failureReason === "passcode-cancelled" ||
+            lastFailure.failureReason === "stopped"
           ? policy.retryAfterCancelMinutes
           : policy.retryAfterFailureMinutes;
     const retryAt = lastFailure.finishedAt.getTime() + pauseMinutes * MINUTE_MS;

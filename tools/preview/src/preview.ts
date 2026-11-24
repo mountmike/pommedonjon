@@ -83,7 +83,7 @@ interface Store {
     device: { id: string; name: string; udid: string; host: string | undefined; port: undefined },
     at: Date,
   ): void;
-  startRun(deviceId: string, at: Date): number;
+  startRun(deviceId: string, at: Date, startedBy?: string): number;
   recordEvent(runId: number, at: Date, event: { type: string }): void;
   finishRun(
     runId: number,
@@ -119,7 +119,8 @@ async function seedState(): Promise<void> {
       // A good backup takes minutes; a refused one is over in a minute.
       const durationMs = past.failed === undefined ? 282_000 : 62_000;
       const started = new Date(finished.getTime() - durationMs);
-      const run = store.startRun(phone.id, started);
+      // Most backups begin at a plug-in; now and then someone asks for one.
+      const run = store.startRun(phone.id, started, past.hoursAgo % 48 < 24 ? "plugged-in" : "request");
       // The phone asks for its passcode in every run that reaches it.
       if (past.failed !== "unreachable") {
         store.recordEvent(run, new Date(started.getTime() + 9000), { type: "passcode-required" });

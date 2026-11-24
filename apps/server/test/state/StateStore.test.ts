@@ -7,6 +7,21 @@ import { StateStore } from "../../src/state/StateStore.js";
 
 const t = (iso: string) => new Date(iso);
 
+/** What each schema version added, undone: newest first. */
+const UNDO: readonly (readonly [version: number, sql: string])[] = [
+  [9, "ALTER TABLE runs DROP COLUMN started_by;"],
+  [8, "DROP TABLE devices; DROP TABLE server_settings;"],
+  [6, "DROP TABLE device_settings;"],
+];
+
+/** Take a database as this version makes it back to how an earlier one left it. */
+function windBack(raw: DatabaseSync, toVersion: number): void {
+  for (const [version, sql] of UNDO) {
+    if (version > toVersion) raw.exec(sql);
+  }
+  raw.exec(`PRAGMA user_version = ${toVersion};`);
+}
+
 let store: StateStore;
 beforeEach(() => {
   store = new StateStore(":memory:");
@@ -355,9 +370,7 @@ describe("StateStore device settings", () => {
       first.close();
       // Wind it back to how schema 5 left it.
       const raw = new DatabaseSync(file);
-      raw.exec(
-        "DROP TABLE device_settings; DROP TABLE devices; DROP TABLE server_settings; PRAGMA user_version = 5;",
-      );
+      windBack(raw, 5);
       raw.close();
 
       const upgraded = new StateStore(file);
@@ -384,7 +397,7 @@ describe("StateStore settings from before the moments", () => {
       save.run("mike", JSON.stringify({ name: "Mike", policy: { trigger: "on-charger", dueAfterHours: 44 } }));
       save.run("laurel", JSON.stringify({ policy: { trigger: "plugged-in" } }));
       save.run("spare", JSON.stringify({ name: "Spare" }));
-      raw.exec("DROP TABLE devices; DROP TABLE server_settings; PRAGMA user_version = 6;");
+      windBack(raw, 6);
       raw.close();
 
       const upgraded = new StateStore(file);
@@ -446,7 +459,7 @@ describe("StateStore phones", () => {
     try {
       new StateStore(file).close();
       const raw = new DatabaseSync(file);
-      raw.exec("DROP TABLE devices; DROP TABLE server_settings; PRAGMA user_version = 7;");
+      windBack(raw, 7);
       raw.close();
 
       const upgraded = new StateStore(file);
@@ -466,5 +479,35 @@ describe("StateStore server settings", () => {
     store.saveServerSetting("server", { pollIntervalSeconds: 60 });
     store.saveServerSetting("server", { pollIntervalSeconds: 90 });
     expect(store.serverSetting("server")).toEqual({ pollIntervalSeconds: 90 });
+  });
+});
+
+describe("StateStore and what started a run", () => {
+  it("keeps what started a run, and nothing when it was not said", () => {
+    const told = store.startRun("mike", t("2026-11-25T08:00:00Z"), "unlocked");
+    const untold = store.startRun("mike", t("2026-11-25T09:00:00Z"));
+    expect(store.getRun(told)?.startedBy).toBe("unlocked");
+    expect(store.getRun(untold)?.startedBy).toBeUndefined();
+  });
+
+  it("is added to a database from before it was recorded, leaving old runs without it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-state-"));
+    const file = path.join(dir, "state.sqlite");
+    try {
+      const first = new StateStore(file);
+      const old = first.startRun("mike", t("2026-11-24T08:00:00Z"));
+      first.close();
+      const raw = new DatabaseSync(file);
+      windBack(raw, 8);
+      raw.close();
+
+      const upgraded = new StateStore(file);
+      expect(upgraded.getRun(old)?.startedBy).toBeUndefined();
+      const fresh = upgraded.startRun("mike", t("2026-11-25T08:00:00Z"), "request");
+      expect(upgraded.getRun(fresh)?.startedBy).toBe("request");
+      upgraded.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

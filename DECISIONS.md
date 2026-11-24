@@ -736,6 +736,21 @@ Not built: pairing a phone that has never been paired, from the browser
 (O25). It needs a cable, the phone and its owner. Until then the pairing is
 made on a computer with three commands (README, "Setting up a phone").
 
+### D29. A backup can be stopped from the app, and says what started it
+
+*Built 2026-11-25 while the owner was away. **For review.***
+
+- **Stop** shows in place of Back up now while a backup runs. The brief
+  called it Cancel; "Stop" is used so it is not confused with Cancel on the
+  phone's passcode prompt.
+- **A stopped backup is a "not now".** It is recorded as failed with the
+  reason "stopped", and the phone is then left alone for as long as after a
+  Cancel on the phone (four hours). The service shutting down mid-backup
+  stays "cancelled" and buys no such pause.
+- **Each run records what started it:** a moment (plugged in, unlocked, on
+  a charger), a request, or the command line. The history shows it. Runs
+  from before this have none. This closes point 8 of D27.
+
 ## Open
 
 Still needing a decision or a test. Items settled since the first review are

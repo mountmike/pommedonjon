@@ -24,6 +24,7 @@ function run(overrides: Partial<RunRecord> = {}): RunRecord {
     message: undefined,
     prompted: true,
     durationMs: 282_000,
+    startedBy: "plugged-in",
     ...overrides,
   };
 }
@@ -65,6 +66,7 @@ describe("describeDevice", () => {
         reason: null,
         prompted: true,
         durationMs: 282_000,
+        startedBy: "plugged-in",
       },
     });
   });
@@ -194,6 +196,7 @@ describe("describeDevice", () => {
       reason: "unreachable",
       prompted: false,
       durationMs: null,
+      startedBy: "request",
     });
   });
 
@@ -279,6 +282,7 @@ describe("describeDeviceDetail", () => {
         reason: "passcode-cancelled",
         prompted: true,
         durationMs: null,
+        startedBy: "plugged-in",
       },
       {
         startedAt: ago(2.1).toISOString(),
@@ -287,6 +291,7 @@ describe("describeDeviceDetail", () => {
         reason: null,
         prompted: true,
         durationMs: 282_000,
+        startedBy: "plugged-in",
       },
     ]);
     expect(() => DeviceDetailSchema.parse(detail)).not.toThrow();

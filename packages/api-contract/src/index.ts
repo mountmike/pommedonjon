@@ -98,6 +98,12 @@ export const RunSummarySchema = z.object({
   prompted: z.boolean(),
   /** How long the copy took, for a run that succeeded. */
   durationMs: z.number().nullable(),
+  /**
+   * What started it: a moment ("plugged-in", "unlocked", "on-charger"),
+   * "request" for someone asking, or "command". Null where that is not
+   * known, as for runs from before it was recorded. Not a closed list.
+   */
+  startedBy: z.string().nullable().default(null),
 });
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
@@ -324,6 +330,12 @@ export const BackupStartedSchema = z.object({
   status: z.literal("started"),
 });
 export type BackupStarted = z.infer<typeof BackupStartedSchema>;
+
+/** `POST /api/devices/<id>/stop`, when a running backup was told to stop (202). */
+export const BackupStoppingSchema = z.object({
+  status: z.literal("stopping"),
+});
+export type BackupStopping = z.infer<typeof BackupStoppingSchema>;
 
 /** The body of any reply that is not a success. */
 export const ApiErrorSchema = z.object({

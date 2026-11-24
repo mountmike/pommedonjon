@@ -8,7 +8,7 @@ import { BackupStore } from "../../src/storage/BackupStore.js";
 import type { BackupVerification, BackupVerifier } from "../../src/storage/BackupVerifier.js";
 import { FAKE_UDID, FakeTransport } from "../support/fakeTransport.js";
 import { BackupError } from "../../src/transport/DeviceTransport.js";
-import { BackupRunner } from "../../src/runner/BackupRunner.js";
+import { BackupRunner, STOPPED_BY_OWNER } from "../../src/runner/BackupRunner.js";
 
 const device: DeviceConfig = {
   id: "mike",
@@ -326,6 +326,31 @@ describe("BackupRunner", () => {
     expect(report).toMatchObject({ outcome: "failed", reason: "cancelled" });
     expect(h.transport.backups[0]?.cancelled).toBe(true);
     expect(state.getRun(report.runId)?.outcome).toBe("failed");
+  });
+
+  it("records a backup its owner stopped as stopped, not as the service stopping", async () => {
+    const h = harness();
+    const controller = new AbortController();
+    h.transport.onBackup = (run) => {
+      run.emit({ type: "started" });
+      controller.abort(STOPPED_BY_OWNER);
+    };
+    const report = await h.runner.run(device, HOST, controller.signal);
+    expect(report).toMatchObject({ outcome: "failed", reason: "stopped" });
+    expect(state.getRun(report.runId)?.failureReason).toBe("stopped");
+  });
+
+  it("keeps what started the run with it", async () => {
+    const h = harness();
+    const report = await h.runner.run(device, HOST, undefined, "unlocked");
+    expect(state.getRun(report.runId)?.startedBy).toBe("unlocked");
+    expect(h.logs[0]).toMatchObject({
+      message: "backup starting",
+      fields: { device: "mike", startedBy: "unlocked" },
+    });
+
+    const unsaid = await h.runner.run(device, HOST);
+    expect(state.getRun(unsaid.runId)?.startedBy).toBeUndefined();
   });
 
   it("always finishes the run record, even on an unexpected error", async () => {

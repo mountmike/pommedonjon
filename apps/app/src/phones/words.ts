@@ -207,6 +207,8 @@ function failureWords(run: RunSummary): { readonly sentence: string; readonly sh
       return { sentence: "The phone did not accept its pairing.", short: "Pairing not accepted" };
     case "interrupted":
       return { sentence: "The server stopped part-way.", short: "Server stopped part-way" };
+    case "stopped":
+      return { sentence: "You stopped it.", short: "Stopped from the app" };
     case "cancelled":
       return { sentence: "The backup was stopped.", short: "Stopped" };
     default:
@@ -242,11 +244,32 @@ export interface AttemptWords {
   readonly glyph: string;
 }
 
+/** What started a backup, to follow its time in the history. */
+function startedWords(startedBy: string | null): string | undefined {
+  switch (startedBy) {
+    case "request":
+      return "asked for";
+    case "plugged-in":
+      return "after a plug-in";
+    case "unlocked":
+      return "after an unlock";
+    case "on-charger":
+      return "while on a charger";
+    case "command":
+      return "from the command line";
+    default:
+      return undefined;
+  }
+}
+
 export function describeAttempt(run: RunSummary, style: TimeStyle = {}): AttemptWords {
+  const started = startedWords(run.startedBy);
+  const parts = (...texts: (string | undefined)[]) =>
+    texts.filter((text) => text !== undefined).join(", ");
   if (run.outcome === "running") {
     return {
       title: "Backing up now",
-      detail: `Started ${timeOfDay(new Date(run.startedAt), style)}`,
+      detail: parts(`Started ${timeOfDay(new Date(run.startedAt), style)}`, started),
       tone: "busy",
       glyph: "↻",
     };
@@ -255,10 +278,14 @@ export function describeAttempt(run: RunSummary, style: TimeStyle = {}): Attempt
   if (run.outcome === "succeeded") {
     return {
       title: "Backed up",
-      detail: run.durationMs === null ? when : `${when}, took ${took(run.durationMs)}`,
+      detail: parts(
+        when,
+        run.durationMs === null ? undefined : `took ${took(run.durationMs)}`,
+        started,
+      ),
       tone: "safe",
       glyph: "✓",
     };
   }
-  return { title: failureWords(run).short, detail: when, tone: "due", glyph: "×" };
+  return { title: failureWords(run).short, detail: parts(when, started), tone: "due", glyph: "×" };
 }

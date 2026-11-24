@@ -202,12 +202,12 @@ The service serves a web app on its port, for example
 `http://<server>:8377`. It shows:
 
 - every phone and its state, and what each is waiting for;
-- a **Back up now** button for each phone;
+- a **Back up now** button for each phone, and **Stop** while one runs;
 - a running backup step by step, from "connecting" through the passcode
   prompt to "checking";
 - how the last try went if it did not work, and why;
 - on each phone's own page, a check of its connection and its past backups
-  day by day;
+  day by day, with what started each one;
 - a phone's name and schedule, to change: automatic or only on request,
   how often, which moments may start a backup, quiet hours, and when it
   counts as overdue;
@@ -229,6 +229,7 @@ too. **It has no sign-in yet**: anything that can reach the port can use it.
 | `GET /api/devices/<id>/settings` | What can be changed about a phone. |
 | `PUT /api/devices/<id>/settings` | Changes it; send all of it. 200 with the settings as saved, 400 `{"error":"invalid-settings","problems":[...]}`. |
 | `POST /api/devices/<id>/backup-now` | Backs the phone up now. 202 `{"status":"started"}`, 404 `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`. |
+| `POST /api/devices/<id>/stop` | Stops the backup of that phone that is running. 202 `{"status":"stopping"}`, 409 `{"error":"not-running"}`. |
 | `GET /api/server` | Which version is running and where backups go. |
 | `GET /api/settings`, `PUT /api/settings` | The server's own settings: the network range and the poll interval. |
 

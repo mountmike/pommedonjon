@@ -19,6 +19,12 @@ export interface RunRecord {
   readonly prompted: boolean;
   /** How long the transfer itself took, for successful runs. */
   readonly durationMs: number | undefined;
+  /**
+   * What started it: a moment ("plugged-in", "unlocked", "on-charger"),
+   * "request" for someone asking, or "command" for the command line.
+   * Undefined for runs from before this was recorded.
+   */
+  readonly startedBy: string | undefined;
 }
 
 export interface RunEvent {
@@ -60,7 +66,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -72,7 +78,8 @@ const SCHEMA = `
     failure_reason TEXT,
     message        TEXT,
     prompted       INTEGER NOT NULL DEFAULT 0,
-    duration_ms    INTEGER
+    duration_ms    INTEGER,
+    started_by     TEXT
   ) STRICT;
   CREATE INDEX runs_by_device ON runs (device_id, started_at);
 
@@ -198,6 +205,7 @@ const RunRowSchema = z
       .number()
       .nullable()
       .transform((value) => value ?? undefined),
+    started_by: optionalText,
   })
   .transform(
     (row): RunRecord => ({
@@ -210,6 +218,7 @@ const RunRowSchema = z
       message: row.message,
       prompted: row.prompted === 1,
       durationMs: row.duration_ms,
+      startedBy: row.started_by,
     }),
   );
 
@@ -334,16 +343,24 @@ export class StateStore {
     if (version < 8) {
       this.#db.exec(`BEGIN; ${DEVICES} PRAGMA user_version = 8; COMMIT;`);
     }
+    if (version < 9) {
+      // What started each run is recorded from here on.
+      this.#db.exec(
+        "BEGIN; ALTER TABLE runs ADD COLUMN started_by TEXT; PRAGMA user_version = 9; COMMIT;",
+      );
+    }
   }
 
   close(): void {
     this.#db.close();
   }
 
-  startRun(deviceId: string, at: Date): number {
+  startRun(deviceId: string, at: Date, startedBy?: string): number {
     const result = this.#db
-      .prepare("INSERT INTO runs (device_id, started_at, outcome) VALUES (?, ?, 'running')")
-      .run(deviceId, at.getTime());
+      .prepare(
+        "INSERT INTO runs (device_id, started_at, outcome, started_by) VALUES (?, ?, 'running', ?)",
+      )
+      .run(deviceId, at.getTime(), startedBy ?? null);
     return Number(result.lastInsertRowid);
   }
 

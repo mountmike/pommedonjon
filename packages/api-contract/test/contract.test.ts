@@ -55,6 +55,7 @@ describe("the device summary", () => {
         reason: "passcode-cancelled",
         prompted: true,
         durationMs: null,
+        startedBy: "plugged-in",
       },
     };
     expect(DeviceSummarySchema.parse(afterACancel)).toEqual(afterACancel);
@@ -106,6 +107,7 @@ describe("the replies", () => {
           reason: null,
           prompted: true,
           durationMs: 282082,
+          startedBy: "plugged-in",
         },
         {
           startedAt: "2026-11-24T09:51:15.512Z",
@@ -114,10 +116,14 @@ describe("the replies", () => {
           reason: "unreachable",
           prompted: false,
           durationMs: null,
+          startedBy: null,
         },
       ],
     };
     expect(DeviceDetailSchema.parse(detail)).toEqual(detail);
+    // A run from a server that does not say what started it still reads.
+    const { startedBy: _unsaid, ...older } = detail.recentRuns[0] ?? {};
+    expect(DeviceDetailSchema.parse({ ...detail, recentRuns: [older] }).recentRuns[0]?.startedBy).toBeNull();
   });
 });
 

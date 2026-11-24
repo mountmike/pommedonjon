@@ -248,6 +248,7 @@ function attempt(overrides: Partial<RunSummary> = {}): RunSummary {
     reason: null,
     prompted: true,
     durationMs: 282_000,
+    startedBy: null,
     ...overrides,
   };
 }
@@ -301,6 +302,7 @@ describe("lastTryWords", () => {
     ["verification-failed", "The backup finished but did not pass its checks, so it does not count."],
     ["not-paired", "The phone did not accept its pairing."],
     ["interrupted", "The server stopped part-way."],
+    ["stopped", "You stopped it."],
     ["encryption-off", "Backup encryption is off on this phone."],
     ["something-new", "The backup did not work."],
   ])("explains a try that failed with %s, and that the last good backup is safe", (reason, sentence) => {
@@ -357,6 +359,23 @@ describe("describeAttempt", () => {
       detail: "8:30 pm",
       tone: "due",
       glyph: "×",
+    });
+  });
+
+  it.each([
+    ["request", "7:30 pm, took 4 min 42 s, asked for"],
+    ["plugged-in", "7:30 pm, took 4 min 42 s, after a plug-in"],
+    ["unlocked", "7:30 pm, took 4 min 42 s, after an unlock"],
+    ["on-charger", "7:30 pm, took 4 min 42 s, while on a charger"],
+    ["something-new", "7:30 pm, took 4 min 42 s"],
+  ])("says what started it when that is known: %s", (startedBy, detail) => {
+    expect(describeAttempt(attempt({ startedBy }), STYLE).detail).toBe(detail);
+  });
+
+  it("says a backup stopped from the app was stopped from the app", () => {
+    expect(describeAttempt(failed("stopped", 60, { startedBy: "request" }), STYLE)).toMatchObject({
+      title: "Stopped from the app",
+      detail: "8:30 pm, asked for",
     });
   });
 
