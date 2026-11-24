@@ -169,6 +169,17 @@ const ConfigFileSchema = z.strictObject(
         { error: "must be an object" },
       )
       .prefault({}),
+    /**
+     * The HTTP interface, through which a phone can ask to be backed up
+     * now. Left out, the daemon does not listen on the network at all.
+     *
+     * It has no authentication yet: anything that can reach the port can
+     * make a phone show its passcode prompt. Publish it only on a network
+     * you trust.
+     */
+    api: z
+      .strictObject({ port: number({ min: 1, max: 65535 }) }, { error: "must be an object" })
+      .optional(),
     defaultPolicy: PolicyOverridesSchema.optional(),
     devices: z
       .array(DeviceEntrySchema, { error: "must be an array" })

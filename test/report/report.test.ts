@@ -233,9 +233,15 @@ describe("formatReport", () => {
           power(at(24, 7), "unknown", "on-power", false),
           power(at(24, 12), "unreachable", "on-power", true),
           power(at(24, 13), "unknown", "on-battery"),
+          { at: at(24, 14), kind: "requested", detail: { source: "request" } },
+          { at: at(24, 15), kind: "requested", detail: { source: "plug-in" } },
+          { at: at(24, 16), kind: "plug-in-reported", detail: { reason: "not-due" } },
         ],
       ),
     );
+    expect(text).toContain("14:00  backup requested");
+    expect(text).toContain("15:00  phone said it was plugged in: backup due");
+    expect(text).toContain("16:00  phone said it was plugged in: no backup (not-due)");
     expect(text).toContain("07:00  on power (already charging when first seen)");
     expect(text).toContain("08:00  prompt was cancelled on the phone (prompt at 08:00, open 2.6 s)");
     expect(text).toContain("09:00  backup failed: unreachable (no prompt shown)");

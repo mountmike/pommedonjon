@@ -79,7 +79,7 @@ built for arm64 here.
 
 ## What was measured
 
-### Backup attempts (encryption on; 1 to 5 over USB, 6 to 14 over WiFi)
+### Backup attempts (encryption on; 1 to 5 over USB, 6 to 16 over WiFi)
 
 | # | Tool | Passcode prompt | Outcome |
 |---|---|---|---|
@@ -159,7 +159,33 @@ at 94%.
 | 13 | Prompt appeared 3 s after the backup started. **The owner tapped Cancel.** It closed 2.6 s later | Failed at once with `Device locked (MBErrorDomain/208)`, the same error as a timeout |
 | 14 | Prompt appeared at +3 s, passcode typed, closed at +7 s | **Completed** in 4 min 11 s (251 s): verified, `verified.json` written, recorded as succeeded |
 
+Attempts 15 and 16, the evening of 2026-11-24: the first backups started by
+the daemon's own decision, from the test stack on the server, which is on a
+different VLAN from the phone and writes to the NAS over NFS. The NAS had
+been seeded with attempt 14's backup. The owner plugged the phone in and
+did nothing else.
+
+| # | What happened | Outcome |
+|---|---|---|
+| 15 | The daemon saw the phone go onto power on its next poll and started a backup | Failed after 8 s as `unreachable`: the firewall allowed only port 62078 and the backup service is on another port (see "From another subnet"). No prompt was shown |
+| 16 | Ten minutes later, after the pause for a failed attempt, the daemon started again by itself. Prompt 9 s after the start, passcode typed, closed 4.7 s later | **Completed** in 6 min 15 s (375 s): incremental, verified, `verified.json` written |
+
 What these show:
+
+- **The whole loop works unattended on the server side:** plug-in seen,
+  backup started, failure backed off and retried, result verified and
+  marked, all without anyone touching the server.
+- **Plug-in detection works on a real phone.** The poll before had the
+  phone on battery, the next had it on power, and that was taken as "just
+  plugged in".
+- One poll between the two attempts got no answer from the phone although
+  it was plugged in and in use. The next poll, two minutes later, found it
+  again and the plug-in was still counted as recent.
+- An incremental over NFS with sync disabled took 6 min 15 s, against
+  4 min 11 s for attempt 14 to a local disk. The two are not the same amount
+  of changed data, so this is not a measure of the share.
+
+What attempts 13 and 14 show:
 
 - **The phone does not distinguish a cancel from a timeout.** Both end in
   error 208. What differs is how long the prompt was open: 2.6 seconds when
@@ -450,7 +476,7 @@ all use fakes for the phone and the sidecar.
 | Transport interface and implementation | `src/transport/` | Yes (attempt 9) |
 | Config, as a Zod schema | `src/config/` | n/a; the container loads real configs with it |
 | Discovery: range sweep, locator, address book | `src/discovery/` | Yes: found the phone by sweeping the home /24 from the container, on the second sweep |
-| Schedule and plug-in detection | `src/policy/` | **No** |
+| Schedule and plug-in detection | `src/policy/` | Yes (attempts 15 and 16) |
 | Storage: one backup per phone, verified marker | `src/storage/` | Yes (attempt 14) |
 | Run history in SQLite | `src/state/` | Yes: recorded attempts 9 to 12, then upgraded in place to the current schema |
 | Runner: back up, verify, record | `src/runner/` | Yes (attempts 13 and 14) |

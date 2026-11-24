@@ -41,6 +41,14 @@ export interface BackupRunnerDeps {
   readonly headsUpLeadSeconds: number;
 }
 
+export interface RunOptions {
+  /**
+   * The owner has just asked for this backup and is waiting for the prompt,
+   * so there is nobody to give notice to: start without the heads-up pause.
+   */
+  readonly ownerIsWaiting?: boolean;
+}
+
 /** Progress is recorded only when it crosses one of these steps. */
 const PROGRESS_STEP_PERCENT = 10;
 
@@ -70,14 +78,19 @@ export class BackupRunner {
    * @param host Where the phone is, as found by whoever decided to back it
    *   up. The runner does not go looking for it.
    */
-  async run(device: DeviceConfig, host: string, signal?: AbortSignal): Promise<RunReport> {
+  async run(
+    device: DeviceConfig,
+    host: string,
+    signal?: AbortSignal,
+    options: RunOptions = {},
+  ): Promise<RunReport> {
     const { state, clock, log, notifier } = this.deps;
     const runId = state.startRun(device.id, clock());
     log("info", "backup starting", { device: device.id, runId });
 
     let report: RunReport;
     try {
-      const { durationMs } = await this.#attempt(device, host, runId, signal);
+      const { durationMs } = await this.#attempt(device, host, runId, signal, options);
       state.finishRun(runId, clock(), { outcome: "succeeded", durationMs });
       report = { runId, outcome: "succeeded", durationMs };
       log("info", "backup succeeded", { device: device.id, runId, durationMs });
@@ -125,6 +138,7 @@ export class BackupRunner {
     host: string,
     runId: number,
     signal: AbortSignal | undefined,
+    options: RunOptions,
   ): Promise<{ durationMs: number }> {
     const { transport, store, verifier, state, notifier, clock, sleep, log } = this.deps;
 
@@ -142,7 +156,11 @@ export class BackupRunner {
         `the heads-up notification could not be sent, so no backup was started: ${describe(error)}`,
       );
     }
-    await sleep(this.deps.headsUpLeadSeconds * 1000, signal);
+    // The pause gives the notice time to arrive before the prompt does.
+    // Someone who has just asked for the backup needs no notice.
+    if (!options.ownerIsWaiting) {
+      await sleep(this.deps.headsUpLeadSeconds * 1000, signal);
+    }
     if (signal?.aborted) throw new BackupError("backup cancelled", "cancelled");
 
     // From here the backup on disk is being changed, so it stops counting as

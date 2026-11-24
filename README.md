@@ -93,6 +93,7 @@ the file is reported at once.
 | `stateDir` | Where the run history (SQLite) lives. Must be a local disk. |
 | `discovery.ranges` | The network ranges the phones are on, e.g. `["192.168.1.0/24"]`. At most /22 each. |
 | `discovery.scanIntervalSeconds` | A range is not swept more often than this. Default 300. |
+| `api.port` | Optional. Listen on this port for "back up now" requests; see below. Left out, nothing listens. |
 | `devices[].id` | Short name used in paths, logs and commands. |
 | `devices[].udid` | The phone's UDID. |
 | `devices[].pairRecordPath` | Where its pair record is mounted. |
@@ -108,8 +109,15 @@ does not answer it tries the lockdown port on every address in
 the right phone, so a wrong address can never lead to backing up the wrong
 one.
 
-Your firewall has to let the container reach the phones' range on TCP 62078.
-A router's intrusion detection may notice the sweeps.
+Your firewall has to let the container reach the phones on TCP 49152 to
+65535. Port 62078 alone is not enough: it finds the phone and starts the
+conversation, and the backup itself then runs on a port the phone picks
+each time. A router's intrusion detection may notice the sweeps.
+
+If the container is on a different subnet from the phones, the router also
+has to rewrite the source address (source NAT, or masquerade) on that
+traffic, so the phone sees an address on its own network. A phone accepts a
+connection from another subnet and then closes it.
 
 ### When a backup starts
 
@@ -131,6 +139,37 @@ backup falls due at 3 a.m.; it is backed up at the next plug-in. With
 
 pommedonjon has to see the phone go onto power to call it a plug-in. A phone
 already charging when the service starts waits for its next plug-in.
+
+### Backing up on request
+
+Set `api.port` and the service also takes two requests, meant to be sent
+from the phone itself, for instance by Apple Shortcuts:
+
+```
+POST http://<server>:<port>/devices/<id>/backup-now
+POST http://<server>:<port>/devices/<id>/plugged-in
+```
+
+| Request | What it does | Meant for |
+|---|---|---|
+| `backup-now` | Backs the phone up straight away. Ignores the schedule: whether a backup is due, whether the phone is on a charger, whether an earlier prompt was dismissed. | A button on the home screen. |
+| `plugged-in` | Says the phone has just been plugged in. A backup starts only if the schedule allows one now. | An automation that runs when the charger is connected. |
+
+| Answer | Meaning |
+|---|---|
+| 202 `{"status":"started"}` | A backup is starting; the passcode prompt follows within seconds. |
+| 200 `{"status":"not-now","reason":"not-due","until":"..."}` | `plugged-in` only: nothing was started, and why. |
+| 404 `{"error":"unknown-device"}` | No phone with that id is configured. |
+| 409 `{"error":"already-running"}` | That phone is already being backed up. |
+
+With the automation in place the phone announces each plug-in itself, the
+moment it happens, so the service no longer depends on noticing it between
+two polls. The container's port has to be published, and the phone has to
+be able to reach it.
+
+**There is no authentication yet.** Anything that can reach the port can
+make a phone show its passcode prompt. It cannot read or change a backup.
+Only publish the port on a network you trust.
 
 ## Running
 

@@ -1,6 +1,6 @@
 import type { DeviceConfig, PommedonjonConfig } from "../config/config.js";
 import type { Logger, Notifier } from "../notify/Notifier.js";
-import { isStale, readyToStart, schedule } from "../policy/policy.js";
+import { isStale, readyToStart, schedule, type WaitReason } from "../policy/policy.js";
 import {
   INITIAL_POWER_STATE,
   observe,
@@ -32,6 +32,33 @@ export type DeviceOutcome =
       readonly report: RunReport;
     };
 
+/** What became of a request to back a phone up now. */
+export type BackupRequestResult =
+  /** A backup is being started; how it ends is in the log and the history. */
+  | "started"
+  /** No configured device has that id. */
+  | "unknown-device"
+  /** That phone is already being backed up. */
+  | "already-running";
+
+/** What became of a phone saying it has just been plugged in. */
+export type PlugInReportResult =
+  | { readonly outcome: "started" | "unknown-device" | "already-running" }
+  | {
+      /** The schedule says no: nothing is due, or the phone is being left alone. */
+      readonly outcome: "not-now";
+      readonly reason: Exclude<WaitReason, "already-running">;
+      /** When the answer could change, where that is knowable. */
+      readonly until?: Date;
+    };
+
+/** Why a backup was started outside the daemon's own polling. */
+type RequestSource =
+  /** Someone asked for a backup now. */
+  | "request"
+  /** The phone said it had just been plugged in, and a backup was due. */
+  | "plug-in";
+
 export interface DaemonDeps {
   readonly config: PommedonjonConfig;
   readonly locator: Pick<DeviceLocator, "locate">;
@@ -62,12 +89,19 @@ export class Daemon {
   readonly #lastLogged = new Map<string, string>();
   /** What recent probes say about each phone's power, to spot a plug-in. */
   readonly #power = new Map<string, PowerState>();
+  /** Devices with a backup in hand, whichever way it was started. */
+  readonly #busy = new Set<string>();
+  /** Backups started on request that have not finished yet. */
+  readonly #requested = new Set<Promise<void>>();
+  /** The signal `run` was given, so requested backups stop with the daemon. */
+  #signal: AbortSignal | undefined;
 
   constructor(private readonly deps: DaemonDeps) {}
 
   /** Run until the signal aborts. */
   async run(signal: AbortSignal): Promise<void> {
-    const { config, state, log, clock, sleep } = this.deps;
+    const { config, state, log, clock } = this.deps;
+    this.#signal = signal;
     const interrupted = state.failInterruptedRuns(clock());
     if (interrupted > 0) {
       log("warning", "closed off runs left unfinished by a previous stop", {
@@ -81,7 +115,115 @@ export class Daemon {
     });
 
     await Promise.all(config.devices.map((device) => this.#cycle(device, signal)));
+    await Promise.all(this.#requested);
     log("info", "pommedonjon stopped");
+  }
+
+  /**
+   * Back a phone up now, because someone asked: its owner, holding it.
+   *
+   * Nothing about the schedule is consulted: not whether a backup is due,
+   * not whether the phone was just plugged in or is on a charger at all, not
+   * a pause after an earlier failure. The one thing that still holds is that
+   * a phone is never backed up twice at once.
+   *
+   * Returns as soon as that is decided. The backup carries on in the
+   * background and reports through the log and the history like any other.
+   */
+  requestBackup(deviceId: string): BackupRequestResult {
+    const device = this.deps.config.devices.find((candidate) => candidate.id === deviceId);
+    if (!device) return "unknown-device";
+    if (this.#busy.has(device.id)) return "already-running";
+
+    this.#start(device, "request");
+    return "started";
+  }
+
+  /**
+   * The phone says it has just been plugged in: back it up if the schedule
+   * allows one now.
+   *
+   * This is the daemon's usual trigger with the guesswork taken out. Polling
+   * has to infer a plug-in from two readings minutes apart; here the phone
+   * says so itself, the moment it happens. Everything else about the
+   * schedule still applies: nothing starts unless a backup is due, inside
+   * the allowed hours, and not during the pause after a failed attempt or a
+   * dismissed prompt.
+   */
+  reportPlugIn(deviceId: string): PlugInReportResult {
+    const { config, state, log, clock } = this.deps;
+    const device = config.devices.find((candidate) => candidate.id === deviceId);
+    if (!device) return { outcome: "unknown-device" };
+    if (this.#busy.has(device.id)) return { outcome: "already-running" };
+
+    const now = clock();
+    const plan = schedule({
+      now,
+      policy: device.policy,
+      lastSuccessAt: state.lastSuccessAt(device.id),
+      recentAttempts: state.attemptsSince(device.id, new Date(now.getTime() - HISTORY_MS)),
+    });
+    if (plan.start.allowed) {
+      this.#start(device, "plug-in");
+      return { outcome: "started" };
+    }
+    const { reason, until } = plan.start;
+    if (reason === "already-running") return { outcome: "already-running" };
+
+    const detail = { reason, ...(until && { until: until.toISOString() }) };
+    log("info", "plug-in reported, no backup started", { device: device.id, ...detail });
+    state.recordDeviceEvent(device.id, now, "plug-in-reported", detail);
+    return { outcome: "not-now", reason, ...(until && { until }) };
+  }
+
+  /** Begin a backup outside the polling cycle. The caller has checked `#busy`. */
+  #start(device: DeviceConfig, source: RequestSource): void {
+    this.#busy.add(device.id);
+    const work = this.#backUpOnRequest(device, source).finally(() => {
+      this.#busy.delete(device.id);
+      this.#requested.delete(work);
+    });
+    this.#requested.add(work);
+  }
+
+  /** The work behind `requestBackup` and `reportPlugIn`. Never rejects. */
+  async #backUpOnRequest(device: DeviceConfig, source: RequestSource): Promise<void> {
+    const { locator, runner, state, log, clock } = this.deps;
+    const now = clock();
+    log("info", "backup requested", { device: device.id, source });
+    state.recordDeviceEvent(device.id, now, "requested", { source });
+    try {
+      const { status, host } = await locator.locate(device);
+      this.#observe(
+        device,
+        status.battery.externalPowerConnected ? "on-power" : "on-battery",
+        now,
+      );
+      if (!status.backupEncryptionEnabled) {
+        // The same rule as for a scheduled backup: never an unencrypted one.
+        log("warning", "requested backup not started", {
+          device: device.id,
+          reason: "encryption-off",
+        });
+        return;
+      }
+      // Either way the owner is at the phone, so the prompt needs no notice.
+      await runner.run(device, host, this.#signal, { ownerIsWaiting: true });
+      // The next scheduled pass should say afresh why it is waiting.
+      this.#lastLogged.delete(device.id);
+    } catch (error) {
+      if (error instanceof DeviceError) {
+        log("warning", "requested backup not started", {
+          device: device.id,
+          reason: error.reason === "failed" ? "probe-failed" : error.reason,
+        });
+        return;
+      }
+      log("error", "unexpected error in a requested backup", {
+        device: device.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** One device's cycle: consider it, pause, repeat, until told to stop. */
@@ -122,6 +264,11 @@ export class Daemon {
     const lastSuccessAt = state.lastSuccessAt(device.id);
 
     await this.#alertIfStale(device, lastSuccessAt, now);
+
+    // A backup started on request is in hand: leave the phone to it.
+    if (this.#busy.has(device.id)) {
+      return { deviceId: device.id, action: "waited", reason: "already-running" };
+    }
 
     const plan = schedule({
       now,
@@ -176,8 +323,17 @@ export class Daemon {
       return { deviceId: device.id, action: "waited", reason: readiness.reason };
     }
 
-    const report = await runner.run(device, host, signal);
-    return { deviceId: device.id, action: "backed-up", report };
+    // A request may have arrived while this pass was finding the phone.
+    if (this.#busy.has(device.id)) {
+      return { deviceId: device.id, action: "waited", reason: "already-running" };
+    }
+    this.#busy.add(device.id);
+    try {
+      const report = await runner.run(device, host, signal);
+      return { deviceId: device.id, action: "backed-up", report };
+    } finally {
+      this.#busy.delete(device.id);
+    }
   }
 
   /** Fold a probe result into what is known, logging when the picture changes. */

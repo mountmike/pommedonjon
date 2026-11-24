@@ -46,6 +46,10 @@ export type DayEntry =
       readonly sawPlugIn: boolean | undefined;
     }
   | { readonly at: Date; readonly type: "waiting"; readonly reason: string }
+  /** A backup started because it was asked for, or the phone reported a plug-in. */
+  | { readonly at: Date; readonly type: "requested"; readonly source: string }
+  /** The phone reported a plug-in and the schedule said not now. */
+  | { readonly at: Date; readonly type: "plug-in-reported"; readonly reason: string }
   | { readonly at: Date; readonly type: "run"; readonly run: RunSummary };
 
 export interface ReportTotals {
@@ -152,6 +156,14 @@ export function buildReport(input: ReportInput): DeviceReport {
       });
     } else if (event.kind === "waiting") {
       add({ at: event.at, type: "waiting", reason: text(event.detail["reason"], "unknown") });
+    } else if (event.kind === "requested") {
+      add({ at: event.at, type: "requested", source: text(event.detail["source"], "request") });
+    } else if (event.kind === "plug-in-reported") {
+      add({
+        at: event.at,
+        type: "plug-in-reported",
+        reason: text(event.detail["reason"], "unknown"),
+      });
     }
   }
 
@@ -297,7 +309,13 @@ export function formatReport(report: DeviceReport): string {
           ? describeRun(entry.run)
           : entry.type === "power"
             ? describePower(entry)
-            : `waiting: ${entry.reason}`;
+            : entry.type === "requested"
+              ? entry.source === "plug-in"
+                ? "phone said it was plugged in: backup due"
+                : "backup requested"
+              : entry.type === "plug-in-reported"
+                ? `phone said it was plugged in: no backup (${entry.reason})`
+                : `waiting: ${entry.reason}`;
       lines.push(`  ${clock(entry.at)}  ${what}`);
     }
   }
