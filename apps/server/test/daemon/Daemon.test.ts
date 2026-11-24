@@ -658,6 +658,67 @@ describe("Daemon and changed settings", () => {
   });
 });
 
+describe("Daemon and phones added or removed while it runs", () => {
+  /** Phones that can come and go under the daemon, as the app makes them. */
+  function comeAndGo(first: DeviceConfig[]) {
+    let current = first;
+    const source: DeviceSource = {
+      all: () => current,
+      get: (id) => current.find((device) => device.id === id),
+    };
+    return { source, set: (next: DeviceConfig[]) => (current = next) };
+  }
+
+  it("starts considering a phone added after it began, without a restart", async () => {
+    const phones = comeAndGo([]);
+    const h = harness([], phones.source);
+    const controller = new AbortController();
+    const running = h.daemon.run(controller.signal);
+    await settle();
+    expect(h.ran).toEqual([]);
+
+    phones.set([deviceConfig()]);
+    h.daemon.devicesChanged();
+    await settle();
+    expect(h.ran).toEqual(["mike"]);
+
+    controller.abort();
+    await running;
+    expect(h.logs.at(-1)?.message).toBe("pommedonjon stopped");
+  });
+
+  it("stops considering a phone that was removed, and forgets what it knew of it", async () => {
+    const phones = comeAndGo([deviceConfig()]);
+    const h = harness([], phones.source);
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    await h.daemon.tick();
+    expect(h.daemon.waitingFor("mike")).toBeDefined();
+
+    phones.set([]);
+    h.daemon.devicesChanged();
+    expect(h.daemon.waitingFor("mike")).toBeUndefined();
+    expect(await h.daemon.tick()).toEqual([]);
+    expect(h.daemon.requestBackup("mike")).toBe("unknown-device");
+  });
+
+  it("says whether a phone is being backed up right now", async () => {
+    const h = harness();
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+    expect(h.daemon.isBusy("mike")).toBe(false);
+    h.daemon.requestBackup("mike");
+    expect(h.daemon.isBusy("mike")).toBe(true);
+    release.open();
+    await settle();
+    expect(h.daemon.isBusy("mike")).toBe(false);
+  });
+});
+
 describe("Daemon stale warning", () => {
   const staleWarnings = (h: ReturnType<typeof harness>) =>
     h.logs.filter((entry) => entry.message === "no good backup for too long");

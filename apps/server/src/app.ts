@@ -1,12 +1,15 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import type { PommedonjonConfig } from "./config/config.js";
+import type { ServerOptions } from "./config/serverOptions.js";
+import { SidecarPairRecordInspector, type PairRecordInspector } from "./credentials/PairRecordInspector.js";
+import { PairRecordStore } from "./credentials/PairRecordStore.js";
 import { Daemon } from "./daemon/Daemon.js";
 import { DeviceLocator } from "./discovery/DeviceLocator.js";
 import { PortScanner } from "./discovery/PortScanner.js";
 import type { Logger } from "./log.js";
 import { BackupRunner } from "./runner/BackupRunner.js";
 import { DeviceDirectory } from "./settings/DeviceDirectory.js";
+import { ServerSettingsStore } from "./settings/ServerSettings.js";
 import { Sidecar } from "./sidecar/Sidecar.js";
 import { StateStore } from "./state/StateStore.js";
 import { BackupStore } from "./storage/BackupStore.js";
@@ -36,47 +39,52 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 export interface App {
-  readonly config: PommedonjonConfig;
+  readonly options: ServerOptions;
+  /** The server's own settings, as they stand. */
+  readonly serverSettings: ServerSettingsStore;
   /** The phones, with what has been changed from the app applied. */
   readonly devices: DeviceDirectory;
+  readonly pairRecords: PairRecordStore;
+  readonly pairRecordInspector: PairRecordInspector;
   readonly transport: DeviceTransport;
   readonly locator: DeviceLocator;
   readonly state: StateStore;
   readonly runner: BackupRunner;
   readonly daemon: Daemon;
+  /** Which build this is. */
+  readonly version: string;
   close(): void;
 }
 
-/** Wire the real implementations together from a loaded config. */
+/** Wire the real implementations together. */
 export function createApp(
-  config: PommedonjonConfig,
+  options: ServerOptions,
   log: Logger,
   env: NodeJS.ProcessEnv = process.env,
 ): App {
-  const pythonPath = config.sidecar.pythonPath ?? env["POMMEDONJON_PYTHON"];
   const sidecar = new Sidecar({
-    ...(pythonPath !== undefined && { pythonPath }),
-    ...(config.sidecar.scriptPath !== undefined && {
-      scriptPath: config.sidecar.scriptPath,
-    }),
+    ...(options.sidecar.pythonPath !== undefined && { pythonPath: options.sidecar.pythonPath }),
+    ...(options.sidecar.scriptPath !== undefined && { scriptPath: options.sidecar.scriptPath }),
   });
   const transport = new Pymobiledevice3Transport({ sidecar });
 
-  mkdirSync(config.stateDir, { recursive: true });
-  const state = new StateStore(path.join(config.stateDir, "pommedonjon.sqlite"));
+  mkdirSync(options.stateDir, { recursive: true });
+  const state = new StateStore(path.join(options.stateDir, "pommedonjon.sqlite"));
+  const serverSettings = new ServerSettingsStore(state);
+  const pairRecords = new PairRecordStore(path.join(options.stateDir, "pairings"));
+  const devices = new DeviceDirectory({ state, pairRecords });
 
-  const devices = new DeviceDirectory({ devices: config.devices, state });
-
-  const store = new BackupStore(config.backupRoot);
+  const store = new BackupStore(options.backupRoot);
   const clock = () => new Date();
 
   const locator = new DeviceLocator({
     transport,
     addresses: state,
     scanner: new PortScanner({
-      ranges: config.discovery.ranges,
+      // Read at each sweep, so a range set in the app applies without a restart.
+      ranges: () => serverSettings.get().discoveryRanges,
       port: LOCKDOWN_PORT,
-      minIntervalMs: config.discovery.scanIntervalSeconds * 1000,
+      minIntervalMs: serverSettings.get().scanIntervalSeconds * 1000,
       clock,
     }),
     log,
@@ -91,26 +99,36 @@ export function createApp(
     log,
     clock,
   });
+  const version = describeBuild(readBuildInfo(env));
   const daemon = new Daemon({
-    config,
+    // Read at each pass, so a change made in the app applies without a restart.
+    config: {
+      get pollIntervalSeconds() {
+        return serverSettings.get().pollIntervalSeconds;
+      },
+    },
     devices,
     locator,
     runner,
     state,
     log,
     clock,
-    version: describeBuild(readBuildInfo(env)),
+    version,
     sleep,
   });
 
   return {
-    config,
+    options,
+    serverSettings,
     devices,
+    pairRecords,
+    pairRecordInspector: new SidecarPairRecordInspector(sidecar),
     transport,
     locator,
     state,
     runner,
     daemon,
+    version,
     close: () => state.close(),
   };
 }

@@ -143,6 +143,8 @@ export class Daemon {
   readonly #staleWarnedAt = new Map<string, Date>();
   /** The signal `run` was given, so requested backups stop with the daemon. */
   #signal: AbortSignal | undefined;
+  /** Each phone's cycle, while it runs. A phone added later gets one then. */
+  readonly #cycles = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: DaemonDeps) {}
 
@@ -162,9 +164,51 @@ export class Daemon {
       pollIntervalSeconds: config.pollIntervalSeconds,
     });
 
-    await Promise.all(devices.all().map((device) => this.#cycle(device.id, signal)));
+    this.#startCycles();
+    await new Promise<void>((resolve) => {
+      if (signal.aborted) resolve();
+      else signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    // A phone added while the others were stopping would start a cycle now.
+    while (this.#cycles.size > 0) await Promise.all(this.#cycles.values());
     await Promise.all(this.#requested);
     log("info", "pommedonjon stopped");
+  }
+
+  /** Give every phone that has no cycle one, if the daemon is running. */
+  #startCycles(): void {
+    const signal = this.#signal;
+    if (!signal || signal.aborted) return;
+    for (const device of this.deps.devices.all()) {
+      if (this.#cycles.has(device.id)) continue;
+      const cycle = this.#cycle(device.id, signal).finally(() => {
+        this.#cycles.delete(device.id);
+      });
+      this.#cycles.set(device.id, cycle);
+    }
+  }
+
+  /**
+   * The phones have changed: one was added or removed. A new phone starts
+   * being considered at once; a removed one's cycle ends at its next pass,
+   * and what was remembered about it is dropped.
+   */
+  devicesChanged(): void {
+    const here = new Set(this.deps.devices.all().map((device) => device.id));
+    for (const known of [this.#power, this.#lock, this.#waiting, this.#requests, this.#lastLogged]) {
+      for (const deviceId of known.keys()) {
+        if (!here.has(deviceId)) known.delete(deviceId);
+      }
+    }
+    for (const deviceId of this.#staleWarnedAt.keys()) {
+      if (!here.has(deviceId)) this.#staleWarnedAt.delete(deviceId);
+    }
+    this.#startCycles();
+  }
+
+  /** Whether a backup of this phone is in hand right now. */
+  isBusy(deviceId: string): boolean {
+    return this.#busy.has(deviceId);
   }
 
   /**

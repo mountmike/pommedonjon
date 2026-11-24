@@ -355,7 +355,9 @@ describe("StateStore device settings", () => {
       first.close();
       // Wind it back to how schema 5 left it.
       const raw = new DatabaseSync(file);
-      raw.exec("DROP TABLE device_settings; PRAGMA user_version = 5;");
+      raw.exec(
+        "DROP TABLE device_settings; DROP TABLE devices; DROP TABLE server_settings; PRAGMA user_version = 5;",
+      );
       raw.close();
 
       const upgraded = new StateStore(file);
@@ -382,7 +384,7 @@ describe("StateStore settings from before the moments", () => {
       save.run("mike", JSON.stringify({ name: "Mike", policy: { trigger: "on-charger", dueAfterHours: 44 } }));
       save.run("laurel", JSON.stringify({ policy: { trigger: "plugged-in" } }));
       save.run("spare", JSON.stringify({ name: "Spare" }));
-      raw.exec("PRAGMA user_version = 6;");
+      raw.exec("DROP TABLE devices; DROP TABLE server_settings; PRAGMA user_version = 6;");
       raw.close();
 
       const upgraded = new StateStore(file);
@@ -396,5 +398,73 @@ describe("StateStore settings from before the moments", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("StateStore phones", () => {
+  const MIKE = { id: "mike", name: "Mike's iPhone", udid: "00000000-0000000000000001", host: "10.0.0.7", port: undefined };
+  const LAUREL = { id: "laurel", name: "Laurel's iPhone", udid: "00000000-0000000000000002", host: undefined, port: 62078 };
+
+  it("keeps phones in the order they were added", () => {
+    store.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+    store.addDevice(LAUREL, t("2026-11-25T09:00:00Z"));
+    expect(store.devices()).toEqual([
+      { ...MIKE, addedAt: t("2026-11-25T08:00:00Z") },
+      { ...LAUREL, addedAt: t("2026-11-25T09:00:00Z") },
+    ]);
+  });
+
+  it("will not hold two phones with one id, or one UDID", () => {
+    store.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+    expect(() => store.addDevice({ ...LAUREL, id: "mike" }, t("2026-11-25T09:00:00Z"))).toThrow();
+    expect(() => store.addDevice({ ...LAUREL, udid: MIKE.udid }, t("2026-11-25T09:00:00Z"))).toThrow();
+  });
+
+  it("renames a phone", () => {
+    store.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+    store.renameDevice("mike", "Mike's phone");
+    expect(store.devices()[0]?.name).toBe("Mike's phone");
+  });
+
+  it("removes a phone with its settings and last address, and keeps its runs", () => {
+    store.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+    store.saveDeviceSettings("mike", { policy: {} }, t("2026-11-25T08:00:00Z"));
+    store.rememberAddress("mike", "10.0.0.7", t("2026-11-25T08:00:00Z"));
+    const run = store.startRun("mike", t("2026-11-25T08:00:00Z"));
+    store.finishRun(run, t("2026-11-25T08:05:00Z"), { outcome: "succeeded", durationMs: 1 });
+
+    store.removeDevice("mike");
+    expect(store.devices()).toEqual([]);
+    expect(store.deviceSettings("mike")).toBeUndefined();
+    expect(store.lastAddress("mike")).toBeUndefined();
+    expect(store.recentRuns("mike", 5)).toHaveLength(1);
+  });
+
+  it("is added to a database from before phones were kept in it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "pommedonjon-state-"));
+    const file = path.join(dir, "state.sqlite");
+    try {
+      new StateStore(file).close();
+      const raw = new DatabaseSync(file);
+      raw.exec("DROP TABLE devices; DROP TABLE server_settings; PRAGMA user_version = 7;");
+      raw.close();
+
+      const upgraded = new StateStore(file);
+      upgraded.addDevice(MIKE, t("2026-11-25T08:00:00Z"));
+      upgraded.saveServerSetting("server", { pollIntervalSeconds: 60 });
+      expect(upgraded.devices()).toHaveLength(1);
+      upgraded.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("StateStore server settings", () => {
+  it("has none until one is saved, then gives back what was saved last", () => {
+    expect(store.serverSetting("server")).toBeUndefined();
+    store.saveServerSetting("server", { pollIntervalSeconds: 60 });
+    store.saveServerSetting("server", { pollIntervalSeconds: 90 });
+    expect(store.serverSetting("server")).toEqual({ pollIntervalSeconds: 90 });
   });
 });

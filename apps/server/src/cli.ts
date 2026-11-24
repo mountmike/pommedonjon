@@ -4,7 +4,11 @@ import { startApiServer } from "./api/ApiServer.js";
 import { createDeviceReader } from "./api/DeviceReader.js";
 import { findWebApp } from "./api/webApp.js";
 import { createApp, type App } from "./app.js";
+import { existsSync } from "node:fs";
+import { createPhoneManager } from "./api/PhoneManager.js";
 import { ConfigError, loadConfig, type DeviceConfig } from "./config/config.js";
+import { OptionsError, readServerOptions } from "./config/serverOptions.js";
+import { importConfig } from "./settings/importConfig.js";
 import { jsonLogger } from "./log.js";
 import { buildReport, formatReport } from "./report/report.js";
 import { inspectPairRecord } from "./credentials/pairRecord.js";
@@ -14,29 +18,39 @@ import { describeBuild, readBuildInfo } from "./version.js";
 const USAGE = `pommedonjon: self-hosted iPhone backups
 
 Usage:
-  pommedonjon daemon --config FILE
-      Run the service: back each phone up when it is due, home and ready.
+  pommedonjon daemon
+      Run the service: the web app, and a backup of each phone when one is
+      wanted and the moment is right.
 
-  pommedonjon probe --config FILE [--device ID]
-      Ask each configured phone about itself. Read-only; never prompts.
+  pommedonjon probe [--device ID]
+      Ask each phone about itself. Read-only; never prompts.
 
-  pommedonjon backup --config FILE --device ID
+  pommedonjon backup --device ID
       Back one phone up now, ignoring the schedule. The phone will show its
       passcode prompt, and someone must type the passcode within a minute.
 
-  pommedonjon status --config FILE
+  pommedonjon status
       Show each phone's last good backup and recent attempts.
 
-  pommedonjon report --config FILE [--device ID] [--days N] [--json]
+  pommedonjon report [--device ID] [--days N] [--json]
       Day by day, what happened to each phone over the last N days (default
       14): when it was plugged in, each prompt and its outcome, and why no
       backup started when none did.
 
+  pommedonjon import --config FILE
+      Bring in the phones and settings of a config file from an earlier
+      version. Does nothing if any phone has been added already. The daemon
+      does the same at start-up for the file named by POMMEDONJON_CONFIG.
+
   pommedonjon --version
       Show which build this is.
 
-The config file path can also come from the POMMEDONJON_CONFIG environment
-variable.
+Phones and settings are managed in the web app and kept in the state
+directory. Where things are comes from the environment:
+
+  POMMEDONJON_STATE_DIR    the database and pair records   (default /state)
+  POMMEDONJON_BACKUP_ROOT  where backups are kept          (default /backups)
+  POMMEDONJON_PORT         the web app and API, or "off"   (default 8377)
 `;
 
 class UsageError extends Error {}
@@ -46,7 +60,7 @@ function pickDevices(app: App, id: string | undefined): readonly DeviceConfig[] 
   const device = app.devices.all().find((candidate) => candidate.id === id);
   if (!device) {
     const known = app.devices.all().map((candidate) => candidate.id).join(", ");
-    throw new UsageError(`no device "${id}" in the config (known: ${known})`);
+    throw new UsageError(`there is no phone "${id}" (known: ${known === "" ? "none" : known})`);
   }
   return [device];
 }
@@ -164,22 +178,50 @@ async function main(argv: readonly string[]): Promise<number> {
   if (extra.length > 0) {
     throw new UsageError(`unexpected argument "${extra[0]}"`);
   }
-  if (!["daemon", "probe", "backup", "status", "report"].includes(command)) {
+  if (!["daemon", "probe", "backup", "status", "report", "import"].includes(command)) {
     throw new UsageError(`unknown command "${command}"`);
   }
-
-  const configPath = values.config ?? process.env["POMMEDONJON_CONFIG"];
-  if (configPath === undefined) {
-    throw new UsageError("no config file: pass --config FILE or set POMMEDONJON_CONFIG");
+  if (command === "import" && values.config === undefined) {
+    throw new UsageError("import needs --config FILE");
   }
-  const app = createApp(await loadConfig(configPath), jsonLogger);
+
+  const options = readServerOptions(process.env);
+  const app = createApp(options, jsonLogger);
 
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
 
+  /** Bring in a config file from before settings were kept in the database. */
+  const bringIn = async (file: string): Promise<number> =>
+    importConfig(await loadConfig(file), {
+      state: app.state,
+      directory: app.devices,
+      pairRecords: app.pairRecords,
+      serverSettings: app.serverSettings,
+      log: jsonLogger,
+      clock: () => new Date(),
+    });
+
   try {
+    if (command === "import") {
+      const phones = await bringIn(values.config ?? "");
+      print(
+        phones > 0
+          ? `brought in ${phones} phone${phones === 1 ? "" : "s"}; the file is no longer needed`
+          : "nothing brought in: there are phones here already, or the file has none that could be read",
+      );
+      return 0;
+    }
+    if (command === "daemon") {
+      // An earlier version's config file, still mounted: its phones come
+      // over once, and after that the file is not read.
+      const legacy = values.config ?? options.legacyConfigFile;
+      if (legacy !== undefined && existsSync(legacy) && app.devices.all().length === 0) {
+        await bringIn(legacy);
+      }
+    }
     if (command !== "status" && command !== "report") {
       // Said once at start-up, before anything depends on it.
       for (const device of app.devices.all()) {
@@ -191,10 +233,10 @@ async function main(argv: readonly string[]): Promise<number> {
       case "daemon": {
         const webDir = findWebApp(process.env);
         const api =
-          app.config.api === undefined
+          options.port === undefined
             ? undefined
             : await startApiServer({
-                port: app.config.api.port,
+                port: options.port,
                 devices: createDeviceReader({
                   devices: app.devices,
                   state: app.state,
@@ -210,6 +252,18 @@ async function main(argv: readonly string[]): Promise<number> {
                     return result;
                   },
                 },
+                phones: createPhoneManager({
+                  directory: app.devices,
+                  pairRecords: app.pairRecords,
+                  inspector: app.pairRecordInspector,
+                  locator: app.locator,
+                  daemon: app.daemon,
+                  serverSettings: app.serverSettings,
+                  version: app.version,
+                  backupRoot: options.backupRoot,
+                  log: jsonLogger,
+                  clock: () => new Date(),
+                }),
                 ...(webDir !== undefined && { webDir }),
                 requestBackup: (deviceId) => app.daemon.requestBackup(deviceId),
                 reportPlugIn: (deviceId) => app.daemon.reportPlugIn(deviceId),
@@ -241,7 +295,11 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    if (error instanceof UsageError || error instanceof ConfigError) {
+    if (
+      error instanceof UsageError ||
+      error instanceof ConfigError ||
+      error instanceof OptionsError
+    ) {
       process.stderr.write(`pommedonjon: ${error.message}\n`);
       process.exitCode = 2;
       return;

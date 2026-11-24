@@ -18,8 +18,11 @@ const tcpConnect: ConnectFn = (host, port, timeoutMs) =>
   });
 
 export interface PortScannerOptions {
-  /** IPv4 ranges to sweep, e.g. ["192.168.1.0/24"]. */
-  readonly ranges: readonly string[];
+  /**
+   * IPv4 ranges to sweep, e.g. ["192.168.1.0/24"]. A function, so that a
+   * change made while running applies to the next sweep.
+   */
+  readonly ranges: readonly string[] | (() => readonly string[]);
   readonly port: number;
   /** A sweep is not repeated more often than this; in between, the last result is reused. */
   readonly minIntervalMs: number;
@@ -41,7 +44,7 @@ export interface PortScannerOptions {
  * a limit every poll for every phone would knock on every address.
  */
 export class PortScanner {
-  readonly #addresses: readonly string[];
+  readonly #ranges: () => readonly string[];
   readonly #connect: ConnectFn;
   readonly #timeoutMs: number;
   readonly #retryTimeoutMs: number;
@@ -53,7 +56,8 @@ export class PortScanner {
   readonly #seen = new Map<string, number>();
 
   constructor(private readonly options: PortScannerOptions) {
-    this.#addresses = [...new Set(options.ranges.flatMap(addressesIn))];
+    const { ranges } = options;
+    this.#ranges = typeof ranges === "function" ? ranges : () => ranges;
     this.#connect = options.connect ?? tcpConnect;
     this.#timeoutMs = options.timeoutMs ?? 2000;
     this.#retryTimeoutMs = options.retryTimeoutMs ?? 6000;
@@ -61,7 +65,7 @@ export class PortScanner {
   }
 
   get enabled(): boolean {
-    return this.#addresses.length > 0;
+    return this.#ranges().length > 0;
   }
 
   /**
@@ -85,13 +89,14 @@ export class PortScanner {
   }
 
   async #sweep(): Promise<string[]> {
-    const open = new Set(await this.#pass(this.#addresses, this.#timeoutMs));
+    const addresses = [...new Set(this.#ranges().flatMap(addressesIn))];
+    const open = new Set(await this.#pass(addresses, this.#timeoutMs));
     // A phone has been seen to ignore one connection attempt and accept the
     // next, and to take over six seconds to accept one. So everything that
     // did not answer gets a second, more patient knock.
-    const quiet = this.#addresses.filter((address) => !open.has(address));
+    const quiet = addresses.filter((address) => !open.has(address));
     for (const address of await this.#pass(quiet, this.#retryTimeoutMs)) open.add(address);
-    return this.#addresses.filter((address) => open.has(address));
+    return addresses.filter((address) => open.has(address));
   }
 
   async #pass(addresses: readonly string[], timeoutMs: number): Promise<string[]> {

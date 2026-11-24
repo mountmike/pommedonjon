@@ -234,6 +234,85 @@ export const DeviceSettingsChangeSchema = DeviceSettingsSchema.extend({
     { path: ["automatic"], error: "needs at least one moment at which a backup may start" },
   );
 
+/**
+ * A phone to add: the body of `POST /api/devices`.
+ *
+ * The pair record is what lets the server talk to the phone. It goes in
+ * and never comes back out: no reply carries one.
+ */
+export const NewDeviceSchema = z.object({
+  /** Name to show, e.g. "Mike's iPhone". */
+  name: z.string(),
+  /** The phone's UDID. A Mac names a phone's pair record file after it. */
+  udid: z.string(),
+  /** A fixed address or name for the phone, if it is not to be found by looking. */
+  host: z.string().optional(),
+  /** The pair record file's bytes, in base64. */
+  pairRecord: z.string(),
+});
+export type NewDevice = z.infer<typeof NewDeviceSchema>;
+
+/** `POST /api/devices`, when the phone was added (201). */
+export const DeviceAddedSchema = z.object({
+  /** The short id it was given, for its address in the app and the API. */
+  id: z.string(),
+});
+export type DeviceAdded = z.infer<typeof DeviceAddedSchema>;
+
+/**
+ * What a phone said when the server looked for it just now, without
+ * starting anything: `POST /api/devices/<id>/check`. Nothing appears on
+ * the phone.
+ */
+export const DeviceCheckSchema = z.object({
+  /** Whether the phone answered on the network. */
+  reachable: z.boolean(),
+  /** Whether it accepted its pairing. Null when it did not answer. */
+  paired: z.boolean().nullable(),
+  /** Whether its backups are encrypted. Null when that could not be asked. */
+  encryptionOn: z.boolean().nullable(),
+  /** Apple's model identifier, e.g. "iPhone17,5". */
+  model: z.string().nullable(),
+  osVersion: z.string().nullable(),
+  batteryPercent: z.number().nullable(),
+  onCharger: z.boolean().nullable(),
+  /** Whether it is locked right now. Null when it did not say. */
+  locked: z.boolean().nullable(),
+  /**
+   * What is in the way of a backup, if anything: "unreachable",
+   * "not-paired", "wrong-phone", "encryption-off" or "probe-failed". Not a
+   * closed list.
+   */
+  problem: z.string().nullable(),
+});
+export type DeviceCheck = z.infer<typeof DeviceCheckSchema>;
+
+/**
+ * The settings that belong to the server as a whole.
+ * `GET /api/settings`; `PUT /api/settings` takes any subset of them.
+ */
+export const ServerSettingsSchema = z.object({
+  /**
+   * The network ranges the phones live on, e.g. ["192.168.1.0/24"]. The
+   * server looks through them for a phone that has no fixed address.
+   */
+  discoveryRanges: z.array(z.string()),
+  /** How often each phone is considered for a backup. */
+  pollIntervalSeconds: z.number(),
+});
+export type ServerSettings = z.infer<typeof ServerSettingsSchema>;
+
+/** `GET /api/server`: what this server is. */
+export const ServerInfoSchema = z.object({
+  /** Which build is running, e.g. "0.3.0 (build 1a2b3c4)". */
+  version: z.string(),
+  /** Where backups are kept, as the server sees it. */
+  backupRoot: z.string(),
+  /** How many phones it looks after. */
+  phones: z.number(),
+});
+export type ServerInfo = z.infer<typeof ServerInfoSchema>;
+
 /** `POST /api/devices/<id>/backup-now`, when a backup was started (202). */
 export const BackupStartedSchema = z.object({
   status: z.literal("started"),
@@ -247,7 +326,7 @@ export const ApiErrorSchema = z.object({
    * "not-found".
    */
   error: z.string(),
-  /** With "invalid-settings": what is wrong, one sentence each. */
+  /** With "invalid-settings" and "invalid-phone": what is wrong, one sentence each. */
   problems: z.array(z.string()).optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;

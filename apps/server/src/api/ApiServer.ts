@@ -8,6 +8,7 @@ import type { DeviceSettings } from "@pommedonjon/api-contract";
 import type { Logger } from "../log.js";
 import type { ChangeResult } from "../settings/DeviceDirectory.js";
 import type { DeviceReader } from "./DeviceReader.js";
+import type { PhoneManager } from "./PhoneManager.js";
 
 export interface ApiDeps {
   /** What is known about each phone, for the app's screens. */
@@ -19,6 +20,8 @@ export interface ApiDeps {
     /** Undefined for a phone that is not configured. */
     change(deviceId: string, wanted: unknown): ChangeResult | undefined;
   };
+  /** Adding, removing and checking phones, and the server's own settings. */
+  readonly phones: PhoneManager;
   /** Ask for a phone to be backed up now. */
   readonly requestBackup: (deviceId: string) => BackupRequestResult;
   /** Tell the daemon a phone has just been plugged in. */
@@ -44,8 +47,12 @@ const API_DEVICE = new RegExp(`^/api/devices/(${DEVICE_ID})/?$`);
 const API_BACKUP_NOW = new RegExp(`^/api/devices/(${DEVICE_ID})/backup-now/?$`);
 /** `/api/devices/<id>/settings`: what the app can change about a phone. */
 const API_SETTINGS = new RegExp(`^/api/devices/(${DEVICE_ID})/settings/?$`);
+/** `/api/devices/<id>/check`: look for a phone now, without starting anything. */
+const API_CHECK = new RegExp(`^/api/devices/(${DEVICE_ID})/check/?$`);
 /** Settings are a few hundred bytes; anything much larger is not settings. */
 const MAX_BODY_BYTES = 16 * 1024;
+/** A pair record in base64, with room to spare. */
+const MAX_PHONE_BODY_BYTES = 128 * 1024;
 /** `/devices/<id>/<action>`: the requests the proof of concept's Shortcuts send. */
 const DEVICE_ACTION = new RegExp(`^/devices/(${DEVICE_ID})/(backup-now|plugged-in)/?$`);
 
@@ -87,12 +94,13 @@ function reply(
 /** The request's body as JSON, or why it could not be read. */
 async function readJson(
   req: IncomingMessage,
+  maxBytes: number = MAX_BODY_BYTES,
 ): Promise<{ ok: true; body: unknown } | { ok: false; status: number; error: string }> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req as AsyncIterable<Buffer>) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) return { ok: false, status: 413, error: "too-large" };
+    if (size > maxBytes) return { ok: false, status: 413, error: "too-large" };
     chunks.push(chunk);
   }
   try {
@@ -177,6 +185,15 @@ async function serveWeb(
  * - `PUT /api/devices/<id>/settings`: change it, sending all of it. 200
  *   with the settings as saved, 400 `{"error":"invalid-settings",
  *   "problems":[...]}`, 404 `{"error":"unknown-device"}`.
+ * - `POST /api/devices`: add a phone, with its pair record. 201 `{"id":...}`,
+ *   400 `{"error":"invalid-phone","problems":[...]}`, 409
+ *   `{"error":"already-added"}`.
+ * - `DELETE /api/devices/<id>`: remove a phone and destroy its pair record.
+ *   Its backups stay. 200 `{"status":"removed"}`, 404, 409 mid-backup.
+ * - `POST /api/devices/<id>/check`: look for the phone now and say what it
+ *   reports. Nothing appears on the phone. 409 mid-backup.
+ * - `GET /api/server`: which build this is and where backups are kept.
+ * - `GET /api/settings`, `PUT /api/settings`: the server's own settings.
  * - `POST /api/devices/<id>/backup-now`: back the phone up now, whatever
  *   the schedule says. 202 `{"status":"started"}`, 404
  *   `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`.
@@ -208,8 +225,47 @@ export function createApiHandler(deps: ApiDeps) {
       await changeSettings(req, res, settingsOf);
       return;
     }
+    const isDeviceList = pathname === "/api/devices" || pathname === "/api/devices/";
+    if (isDeviceList && method === "POST") {
+      await addPhone(req, res);
+      return;
+    }
+    if (pathname === "/api/settings" && method === "PUT") {
+      await changeServerSettings(req, res);
+      return;
+    }
     // Nothing else reads the body; let it drain so the socket can be reused.
     req.resume();
+
+    if (pathname === "/api/settings") {
+      if (reading) reply(res, 200, deps.phones.settings());
+      else reply(res, 405, { error: "method-not-allowed" }, { allow: "GET, PUT" });
+      return;
+    }
+    if (pathname === "/api/server") {
+      if (reading) reply(res, 200, deps.phones.info());
+      else reply(res, 405, { error: "method-not-allowed" }, { allow: "GET" });
+      return;
+    }
+    const checkOf = API_CHECK.exec(pathname)?.[1];
+    if (checkOf !== undefined) {
+      if (method !== "POST") {
+        reply(res, 405, { error: "method-not-allowed" }, { allow: "POST" });
+        return;
+      }
+      const found = await deps.phones.check(checkOf);
+      if (found === undefined) reply(res, 404, { error: "unknown-device" });
+      else if (found === "already-running") reply(res, 409, { error: "already-running" });
+      else reply(res, 200, found);
+      return;
+    }
+    const removeOf = API_DEVICE.exec(pathname)?.[1];
+    if (removeOf !== undefined && method === "DELETE") {
+      const outcome = deps.phones.remove(removeOf);
+      if (outcome === "removed") reply(res, 200, { status: "removed" });
+      else reply(res, REFUSAL_STATUS[outcome], { error: outcome });
+      return;
+    }
 
     if (settingsOf !== undefined) {
       if (!reading) {
@@ -234,7 +290,12 @@ export function createApiHandler(deps: ApiDeps) {
       if (!isList && device === undefined) {
         reply(res, 404, { error: "not-found" });
       } else if (!reading) {
-        reply(res, 405, { error: "method-not-allowed" }, { allow: "GET" });
+        reply(
+          res,
+          405,
+          { error: "method-not-allowed" },
+          { allow: isList ? "GET, POST" : "GET, DELETE" },
+        );
       } else if (isList) {
         reply(res, 200, { devices: deps.devices.list() });
       } else {
@@ -282,6 +343,31 @@ export function createApiHandler(deps: ApiDeps) {
       deps.log("info", "settings changed", { device: deviceId, settings: result.settings });
       reply(res, 200, result.settings);
     }
+  }
+
+  async function addPhone(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const sent = await readJson(req, MAX_PHONE_BODY_BYTES);
+    if (!sent.ok) {
+      req.resume();
+      reply(res, sent.status, { error: sent.error });
+      return;
+    }
+    const result = await deps.phones.add(sent.body);
+    if (result.outcome === "added") reply(res, 201, { id: result.id });
+    else if (result.outcome === "already-added") reply(res, 409, { error: "already-added" });
+    else reply(res, 400, { error: "invalid-phone", problems: result.problems });
+  }
+
+  async function changeServerSettings(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const sent = await readJson(req);
+    if (!sent.ok) {
+      req.resume();
+      reply(res, sent.status, { error: sent.error });
+      return;
+    }
+    const result = deps.phones.changeSettings(sent.body);
+    if (result.ok) reply(res, 200, result.settings);
+    else reply(res, 400, { error: "invalid-settings", problems: result.problems });
   }
 
   function act(res: ServerResponse, deviceId: string, action: string): void {

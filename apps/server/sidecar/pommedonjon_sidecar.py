@@ -230,6 +230,32 @@ async def probe(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- check-pair-record ------------------------------------------------------
+
+# What a pair record has to hold for a phone to accept it over the network.
+PAIR_RECORD_KEYS = ("HostID", "SystemBUID", "HostCertificate", "HostPrivateKey")
+
+
+def check_pair_record(args: argparse.Namespace) -> int:
+    """Say whether a file is a pair record. Never prints anything from it."""
+    try:
+        record = plistlib.loads(Path(args.pair_record).read_bytes())
+    except Exception:  # noqa: BLE001 - any failure is the same answer
+        print_json({"ok": False, "message": "it is not a property list"})
+        return 1
+    if not isinstance(record, dict):
+        print_json({"ok": False, "message": "it is not a pair record"})
+        return 1
+    missing = [key for key in PAIR_RECORD_KEYS if not record.get(key)]
+    if missing:
+        print_json(
+            {"ok": False, "message": "it is not a pair record: no " + ", ".join(missing)}
+        )
+        return 1
+    print_json({"ok": True})
+    return 0
+
+
 # --- backup ----------------------------------------------------------------
 
 
@@ -411,6 +437,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     verify_parser.add_argument("--backup-dir", required=True, type=Path)
 
+    check_parser = commands.add_parser(
+        "check-pair-record", help="Say whether a file is a pair record."
+    )
+    check_parser.add_argument("--pair-record", required=True)
+
     args = parser.parse_args(argv)
     if args.command in ("probe", "backup") and not args.host.strip():
         # An empty address (a failed name lookup upstream) should say so,
@@ -423,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.command == "verify":
         return verify(args)
+    if args.command == "check-pair-record":
+        return check_pair_record(args)
     try:
         return asyncio.run(probe(args) if args.command == "probe" else backup(args))
     except KeyboardInterrupt:

@@ -115,6 +115,8 @@ export type DevicePolicy = Readonly<z.infer<typeof DevicePolicySchema>>;
 /** What a config file may say about policy: any subset of the settings. */
 export const PolicyOverridesSchema = DevicePolicySchema.partial();
 export type PolicyOverrides = z.infer<typeof PolicyOverridesSchema>;
+/** The same, as it is written in a file or saved: hours as "07:00", not minutes. */
+export type PolicyOverridesAsWritten = z.input<typeof PolicyOverridesSchema>;
 
 export const DEFAULT_POLICY: DevicePolicy = {
   // Not 24: with a daily habit, plugging in ten minutes earlier than

@@ -5,7 +5,12 @@ import {
   BackupStartedSchema,
   DeviceDetailSchema,
   DeviceListSchema,
+  DeviceAddedSchema,
+  DeviceCheckSchema,
   DeviceSettingsSchema,
+  ServerInfoSchema,
+  ServerSettingsSchema,
+  type DeviceCheck,
   type DeviceDetail,
   type DeviceSettings,
 } from "@pommedonjon/api-contract";
@@ -48,6 +53,18 @@ const SETTINGS: DeviceSettings = {
   staleAfterHours: 72,
 };
 
+const CHECK: DeviceCheck = {
+  reachable: true,
+  paired: true,
+  encryptionOn: true,
+  model: "iPhone17,5",
+  osVersion: "26.6.1",
+  batteryPercent: 80,
+  onCharger: false,
+  locked: true,
+  problem: null,
+};
+
 /** A stand-in for the built web app. */
 async function fakeWebApp(): Promise<string> {
   webDir = await mkdtemp(path.join(tmpdir(), "pommedonjon-web-"));
@@ -65,6 +82,8 @@ async function harness(
 ) {
   const asked: string[] = [];
   const changed: { deviceId: string; wanted: unknown }[] = [];
+  const added: unknown[] = [];
+  const removed: string[] = [];
   const pluggedIn: string[] = [];
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   server = await startApiServer({
@@ -86,6 +105,35 @@ async function harness(
         return name === ""
           ? { ok: false, problems: ["name must not be empty"] }
           : { ok: true, settings: { ...SETTINGS, ...(wanted as Partial<DeviceSettings>) } };
+      },
+    },
+    phones: {
+      add: (wanted) => {
+        added.push(wanted);
+        const name = (wanted as { name?: unknown }).name;
+        if (name === "") {
+          return Promise.resolve({ outcome: "invalid", problems: ["name must not be empty"] });
+        }
+        if (name === "Mike's iPhone") return Promise.resolve({ outcome: "already-added" });
+        return Promise.resolve({ outcome: "added", id: "laurels-iphone" });
+      },
+      remove: (deviceId) => {
+        if (deviceId === "busy") return "already-running";
+        if (deviceId !== "mike") return "unknown-device";
+        removed.push(deviceId);
+        return "removed";
+      },
+      check: (deviceId) =>
+        Promise.resolve(
+          deviceId === "busy" ? "already-running" : deviceId === "mike" ? CHECK : undefined,
+        ),
+      info: () => ({ version: "0.3.0 (build test)", backupRoot: "/backups", phones: 1 }),
+      settings: () => ({ discoveryRanges: ["192.168.1.0/24"], pollIntervalSeconds: 120 }),
+      changeSettings: (wanted) => {
+        const ranges = (wanted as { discoveryRanges?: unknown }).discoveryRanges;
+        return Array.isArray(ranges)
+          ? { ok: true, settings: { discoveryRanges: ranges as string[], pollIntervalSeconds: 120 } }
+          : { ok: false, problems: ["discoveryRanges must be a list"] };
       },
     },
     ...(web !== undefined && { webDir: web }),
@@ -123,7 +171,7 @@ async function harness(
       text: await response.text(),
     };
   };
-  return { asked, changed, pluggedIn, logs, send, fetchRaw };
+  return { asked, changed, added, removed, pluggedIn, logs, send, fetchRaw };
 }
 
 describe("the API", () => {
@@ -301,10 +349,16 @@ describe("the API for the app", () => {
     expect((await h.fetchRaw("/api/devices")).cache).toBe("no-store");
   });
 
-  it("only reads: anything but a GET is refused", async () => {
+  it("refuses a method an address does not take", async () => {
     const h = await harness();
-    expect(await h.send("POST", "/api/devices")).toMatchObject({ status: 405, allow: "GET" });
-    expect(await h.send("DELETE", "/api/devices/mike")).toMatchObject({ status: 405 });
+    expect(await h.send("PUT", "/api/devices", "{}")).toMatchObject({
+      status: 405,
+      allow: "GET, POST",
+    });
+    expect(await h.send("PUT", "/api/devices/mike", "{}")).toMatchObject({
+      status: 405,
+      allow: "GET, DELETE",
+    });
   });
 
   it("starts a backup when the app asks for one, and answers straight away", async () => {
@@ -419,6 +473,153 @@ describe("the API for a phone's settings", () => {
     });
     expect(await h.send("DELETE", "/api/devices/mike/settings")).toMatchObject({ status: 405 });
     expect(h.changed).toEqual([]);
+  });
+});
+
+describe("the API for adding and removing phones", () => {
+  const NEW = { name: "Laurel's iPhone", udid: "00000000-0000000000000002", pairRecord: "c2VjcmV0" };
+
+  it("adds a phone and answers with the id it was given", async () => {
+    const h = await harness();
+    const answer = await h.send("POST", "/api/devices", JSON.stringify(NEW));
+    expect(answer.status).toBe(201);
+    expect(DeviceAddedSchema.parse(answer.body)).toEqual({ id: "laurels-iphone" });
+    expect(h.added).toEqual([NEW]);
+  });
+
+  it("says what is wrong with a phone it will not add", async () => {
+    const h = await harness();
+    const answer = await h.send("POST", "/api/devices", JSON.stringify({ ...NEW, name: "" }));
+    expect(answer).toMatchObject({
+      status: 400,
+      body: { error: "invalid-phone", problems: ["name must not be empty"] },
+    });
+  });
+
+  it("answers 409 for a phone that is here already", async () => {
+    const h = await harness();
+    const again = JSON.stringify({ ...NEW, name: "Mike's iPhone" });
+    expect(await h.send("POST", "/api/devices", again)).toMatchObject({
+      status: 409,
+      body: { error: "already-added" },
+    });
+  });
+
+  it("takes a pair record's worth of body, and refuses far more", async () => {
+    const h = await harness();
+    const roomy = JSON.stringify({ ...NEW, pairRecord: "A".repeat(60_000) });
+    expect((await h.send("POST", "/api/devices", roomy)).status).toBe(201);
+    const huge = JSON.stringify({ ...NEW, pairRecord: "A".repeat(200_000) });
+    expect(await h.send("POST", "/api/devices", huge)).toMatchObject({
+      status: 413,
+      body: { error: "too-large" },
+    });
+  });
+
+  it("refuses a body that is not JSON", async () => {
+    const h = await harness();
+    expect(await h.send("POST", "/api/devices", "a phone please")).toMatchObject({
+      status: 400,
+      body: { error: "invalid-json" },
+    });
+    expect(h.added).toEqual([]);
+  });
+
+  it("removes a phone", async () => {
+    const h = await harness();
+    expect(await h.send("DELETE", "/api/devices/mike")).toMatchObject({
+      status: 200,
+      body: { status: "removed" },
+    });
+    expect(h.removed).toEqual(["mike"]);
+  });
+
+  it("will not remove a phone it does not have, or one being backed up", async () => {
+    const h = await harness();
+    expect(await h.send("DELETE", "/api/devices/nobody")).toMatchObject({
+      status: 404,
+      body: { error: "unknown-device" },
+    });
+    expect(await h.send("DELETE", "/api/devices/busy")).toMatchObject({
+      status: 409,
+      body: { error: "already-running" },
+    });
+    expect(h.removed).toEqual([]);
+  });
+
+  it("never gives a pair record back: no reply about a phone carries one", async () => {
+    const h = await harness();
+    for (const path of ["/api/devices", "/api/devices/mike", "/api/devices/mike/settings"]) {
+      expect(JSON.stringify((await h.send("GET", path)).body)).not.toMatch(/pair/i);
+    }
+  });
+});
+
+describe("the API for checking a phone", () => {
+  it("says what the phone reported, in the shape the contract promises", async () => {
+    const h = await harness();
+    const answer = await h.send("POST", "/api/devices/mike/check");
+    expect(answer.status).toBe(200);
+    expect(DeviceCheckSchema.parse(answer.body)).toEqual(CHECK);
+  });
+
+  it("answers 404 for a phone it does not have, and 409 for one being backed up", async () => {
+    const h = await harness();
+    expect((await h.send("POST", "/api/devices/nobody/check")).status).toBe(404);
+    expect(await h.send("POST", "/api/devices/busy/check")).toMatchObject({
+      status: 409,
+      body: { error: "already-running" },
+    });
+  });
+
+  it("does not look for a phone on a GET", async () => {
+    const h = await harness();
+    expect(await h.send("GET", "/api/devices/mike/check")).toMatchObject({
+      status: 405,
+      allow: "POST",
+    });
+  });
+});
+
+describe("the API for the server itself", () => {
+  it("says which build it is and where backups are kept", async () => {
+    const h = await harness();
+    const answer = await h.send("GET", "/api/server");
+    expect(ServerInfoSchema.parse(answer.body)).toEqual({
+      version: "0.3.0 (build test)",
+      backupRoot: "/backups",
+      phones: 1,
+    });
+  });
+
+  it("gives its settings, and changes them", async () => {
+    const h = await harness();
+    const before = await h.send("GET", "/api/settings");
+    expect(ServerSettingsSchema.parse(before.body).discoveryRanges).toEqual(["192.168.1.0/24"]);
+
+    const wanted = { discoveryRanges: ["10.0.0.0/24"] };
+    expect(await h.send("PUT", "/api/settings", JSON.stringify(wanted))).toMatchObject({
+      status: 200,
+      body: { discoveryRanges: ["10.0.0.0/24"] },
+    });
+  });
+
+  it("says what is wrong with settings it will not take", async () => {
+    const h = await harness();
+    const answer = await h.send("PUT", "/api/settings", JSON.stringify({ discoveryRanges: "all" }));
+    expect(answer).toMatchObject({
+      status: 400,
+      body: { error: "invalid-settings", problems: ["discoveryRanges must be a list"] },
+    });
+  });
+
+  it("changes nothing for a POST", async () => {
+    const h = await harness();
+    expect(await h.send("POST", "/api/settings", "{}")).toMatchObject({
+      status: 405,
+      allow: "GET, PUT",
+    });
+    expect((await h.send("POST", "/api/server")).status).toBe(405);
   });
 });
 

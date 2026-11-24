@@ -36,6 +36,19 @@ export interface DeviceEvent {
   readonly detail: Readonly<Record<string, unknown>>;
 }
 
+/** A phone as it is kept: who it is and where to look for it. */
+export interface DeviceRow {
+  /** Short name used in addresses, paths and logs, e.g. "mike". */
+  readonly id: string;
+  /** Name to show. */
+  readonly name: string;
+  readonly udid: string;
+  /** A fixed address or name, if the phone is not to be found by discovery. */
+  readonly host: string | undefined;
+  readonly port: number | undefined;
+  readonly addedAt: Date;
+}
+
 export type RunResult =
   | {
       readonly outcome: "succeeded";
@@ -47,7 +60,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -102,6 +115,28 @@ const DEVICE_SETTINGS = `
   ) STRICT;
 `;
 
+/**
+ * Added in schema 8: the phones themselves, and the few settings that
+ * belong to the server as a whole. Before this they came from a config
+ * file. A phone's pair record is not here: it is a file of its own, kept
+ * readable by the service alone.
+ */
+const DEVICES = `
+  CREATE TABLE devices (
+    id       TEXT    PRIMARY KEY,
+    name     TEXT    NOT NULL,
+    udid     TEXT    NOT NULL UNIQUE,
+    host     TEXT,
+    port     INTEGER,
+    added_at INTEGER NOT NULL
+  ) STRICT;
+
+  CREATE TABLE server_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  ) STRICT;
+`;
+
 /** Added in schema 3: where each phone was last reached. */
 const ADDRESSES = `
   CREATE TABLE device_addresses (
@@ -125,6 +160,29 @@ const optionalText = z
   .nullable()
   .transform((value) => value ?? undefined);
 const outcome = z.enum(["running", "succeeded", "failed"]);
+
+const DeviceRowSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    udid: z.string(),
+    host: optionalText,
+    port: z
+      .number()
+      .nullable()
+      .transform((value) => value ?? undefined),
+    added_at: timestamp,
+  })
+  .transform(
+    (row): DeviceRow => ({
+      id: row.id,
+      name: row.name,
+      udid: row.udid,
+      host: row.host,
+      port: row.port,
+      addedAt: row.added_at,
+    }),
+  );
 
 const RunRowSchema = z
   .object({
@@ -235,7 +293,7 @@ export class StateStore {
     }
     if (version === 0) {
       this.#db.exec(
-        `BEGIN; ${SCHEMA} ${ADDRESSES} ${DEVICE_EVENTS} ${DEVICE_SETTINGS} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`,
+        `BEGIN; ${SCHEMA} ${ADDRESSES} ${DEVICE_EVENTS} ${DEVICE_SETTINGS} ${DEVICES} PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`,
       );
       return;
     }
@@ -272,6 +330,9 @@ export class StateStore {
         PRAGMA user_version = 7;
         COMMIT;
       `);
+    }
+    if (version < 8) {
+      this.#db.exec(`BEGIN; ${DEVICES} PRAGMA user_version = 8; COMMIT;`);
     }
   }
 
@@ -457,5 +518,73 @@ export class StateStore {
            SET settings = excluded.settings, updated_at = excluded.updated_at`,
       )
       .run(deviceId, JSON.stringify(settings), at.getTime());
+  }
+
+  /** Every phone, in the order they were added. */
+  devices(): DeviceRow[] {
+    return this.#db
+      .prepare("SELECT * FROM devices ORDER BY added_at, rowid")
+      .all()
+      .map((row) => read(DeviceRowSchema, "a phone", row));
+  }
+
+  /** Add a phone. Throws if its id or UDID is already taken. */
+  addDevice(device: Omit<DeviceRow, "addedAt">, at: Date): void {
+    this.#db
+      .prepare(
+        "INSERT INTO devices (id, name, udid, host, port, added_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        device.id,
+        device.name,
+        device.udid,
+        device.host ?? null,
+        device.port ?? null,
+        at.getTime(),
+      );
+  }
+
+  renameDevice(deviceId: string, name: string): void {
+    this.#db.prepare("UPDATE devices SET name = ? WHERE id = ?").run(name, deviceId);
+  }
+
+  /**
+   * Remove a phone and what was changed about it. Its history of runs is
+   * kept: it says what happened, whether or not the phone is still here.
+   */
+  removeDevice(deviceId: string): void {
+    this.#db.exec("BEGIN");
+    try {
+      this.#db.prepare("DELETE FROM devices WHERE id = ?").run(deviceId);
+      this.#db.prepare("DELETE FROM device_settings WHERE device_id = ?").run(deviceId);
+      this.#db.prepare("DELETE FROM device_addresses WHERE device_id = ?").run(deviceId);
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /** One of the server's own settings, as it was saved. Undefined if never set. */
+  serverSetting(key: string): unknown {
+    const row = this.#db.prepare("SELECT value FROM server_settings WHERE key = ?").get(key);
+    if (row === undefined) return undefined;
+    const { value } = read(z.object({ value: z.string() }), "a server setting", row);
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      throw new Error(
+        `the state database holds a server setting this version cannot read: ${key} is not JSON`,
+      );
+    }
+  }
+
+  saveServerSetting(key: string, value: unknown): void {
+    this.#db
+      .prepare(
+        `INSERT INTO server_settings (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(key, JSON.stringify(value));
   }
 }
