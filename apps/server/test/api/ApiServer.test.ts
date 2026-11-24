@@ -1,7 +1,12 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DeviceDetailSchema, DeviceListSchema, type DeviceDetail } from "@pommedonjon/api-contract";
+import {
+  BackupStartedSchema,
+  DeviceDetailSchema,
+  DeviceListSchema,
+  type DeviceDetail,
+} from "@pommedonjon/api-contract";
 import { afterEach, describe, expect, it } from "vitest";
 import { startApiServer, type ApiServer } from "../../src/api/ApiServer.js";
 import type { BackupRequestResult, PlugInReportResult } from "../../src/daemon/Daemon.js";
@@ -25,6 +30,7 @@ const MIKE: DeviceDetail = {
   waiting: { reason: "not-due", until: "2026-11-25T06:24:20.700Z" },
   run: null,
   problem: null,
+  lastAttempt: null,
   recentRuns: [],
 };
 
@@ -273,6 +279,38 @@ describe("the API for the app", () => {
     const h = await harness();
     expect(await h.send("POST", "/api/devices")).toMatchObject({ status: 405, allow: "GET" });
     expect(await h.send("DELETE", "/api/devices/mike")).toMatchObject({ status: 405 });
+  });
+
+  it("starts a backup when the app asks for one, and answers straight away", async () => {
+    const h = await harness("started");
+    const answer = await h.send("POST", "/api/devices/mike/backup-now");
+    expect(answer).toMatchObject({ status: 202, type: "application/json" });
+    expect(BackupStartedSchema.parse(answer.body)).toEqual({ status: "started" });
+    expect(h.asked).toEqual(["mike"]);
+  });
+
+  it("refuses a backup of a phone it does not have, or one already being backed up", async () => {
+    const unknown = await harness("unknown-device");
+    expect(await unknown.send("POST", "/api/devices/nobody/backup-now")).toMatchObject({
+      status: 404,
+      body: { error: "unknown-device" },
+    });
+    await server?.close();
+
+    const busy = await harness("already-running");
+    expect(await busy.send("POST", "/api/devices/mike/backup-now")).toMatchObject({
+      status: 409,
+      body: { error: "already-running" },
+    });
+  });
+
+  it("starts nothing for a GET of the app's back-up-now address", async () => {
+    const h = await harness();
+    expect(await h.send("GET", "/api/devices/mike/backup-now")).toMatchObject({
+      status: 405,
+      allow: "POST",
+    });
+    expect(h.asked).toEqual([]);
   });
 
   it.each(["/api", "/api/", "/api/phones", "/api/devices/mike/runs", "/api/devices/Mike"])(

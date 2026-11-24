@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  BackupStartedSchema,
   DeviceDetailSchema,
   DeviceListSchema,
   DeviceSummarySchema,
@@ -15,6 +16,7 @@ const backedUp: DeviceSummary = {
   waiting: { reason: "not-due", until: "2026-11-25T06:24:20.700Z" },
   run: null,
   problem: null,
+  lastAttempt: null,
 };
 
 describe("the device summary", () => {
@@ -41,6 +43,26 @@ describe("the device summary", () => {
     expect(DeviceSummarySchema.parse(fresh)).toEqual(fresh);
   });
 
+  it("carries how the last backup that ended went", () => {
+    const afterACancel: DeviceSummary = {
+      ...backedUp,
+      lastAttempt: {
+        startedAt: "2026-11-24T10:29:01.000Z",
+        finishedAt: "2026-11-24T10:29:09.000Z",
+        outcome: "failed",
+        reason: "passcode-cancelled",
+        prompted: true,
+        durationMs: null,
+      },
+    };
+    expect(DeviceSummarySchema.parse(afterACancel)).toEqual(afterACancel);
+  });
+
+  it("takes a reply with no last attempt as having none, so an older server does not break a newer app", () => {
+    const { lastAttempt: _unsaid, ...older } = backedUp;
+    expect(DeviceSummarySchema.parse(older).lastAttempt).toBeNull();
+  });
+
   it("accepts a waiting reason it has not heard of, so a newer server does not break an older app", () => {
     const parsed = DeviceSummarySchema.parse({ ...backedUp, waiting: { reason: "something-new" } });
     expect(parsed.waiting?.reason).toBe("something-new");
@@ -57,6 +79,11 @@ describe("the device summary", () => {
 });
 
 describe("the replies", () => {
+  it("says a backup was started, and nothing else", () => {
+    expect(BackupStartedSchema.parse({ status: "started" })).toEqual({ status: "started" });
+    expect(BackupStartedSchema.safeParse({ status: "not-now" }).success).toBe(false);
+  });
+
   it("lists phones", () => {
     expect(DeviceListSchema.parse({ devices: [backedUp] }).devices).toHaveLength(1);
   });

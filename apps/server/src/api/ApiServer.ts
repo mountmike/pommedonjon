@@ -31,6 +31,8 @@ export interface ApiServer {
 const DEVICE_ID = "[a-z0-9][a-z0-9-]{0,31}";
 /** `/api/devices/<id>`, with the id in the form the config allows. */
 const API_DEVICE = new RegExp(`^/api/devices/(${DEVICE_ID})/?$`);
+/** `/api/devices/<id>/backup-now`: the app's "Back up now". */
+const API_BACKUP_NOW = new RegExp(`^/api/devices/(${DEVICE_ID})/backup-now/?$`);
 /** `/devices/<id>/<action>`: the requests the proof of concept's Shortcuts send. */
 const DEVICE_ACTION = new RegExp(`^/devices/(${DEVICE_ID})/(backup-now|plugged-in)/?$`);
 
@@ -140,6 +142,9 @@ async function serveWeb(
  * - `GET /api/devices`: every phone and its state.
  * - `GET /api/devices/<id>`: one phone, with its recent runs. 404
  *   `{"error":"unknown-device"}` for a phone that is not configured.
+ * - `POST /api/devices/<id>/backup-now`: back the phone up now, whatever
+ *   the schedule says. 202 `{"status":"started"}`, 404
+ *   `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`.
  *
  * For the phone to ask for a backup, answered as soon as the daemon has
  * decided, not when a backup ends:
@@ -167,6 +172,12 @@ export function createApiHandler(deps: ApiDeps) {
     const reading = method === "GET" || method === "HEAD";
 
     if (pathname === "/api" || pathname.startsWith("/api/")) {
+      const backupNow = API_BACKUP_NOW.exec(pathname)?.[1];
+      if (backupNow !== undefined) {
+        if (method === "POST") act(res, backupNow, "backup-now");
+        else reply(res, 405, { error: "method-not-allowed" }, { allow: "POST" });
+        return;
+      }
       const device = API_DEVICE.exec(pathname)?.[1];
       const isList = pathname === "/api/devices" || pathname === "/api/devices/";
       if (!isList && device === undefined) {

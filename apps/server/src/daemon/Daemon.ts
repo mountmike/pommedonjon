@@ -65,6 +65,22 @@ export interface WaitingFor {
   readonly until?: Date;
 }
 
+/**
+ * A backup that was asked for and is not, or not yet, a run: the daemon
+ * looks for the phone first, and a run only begins once it has answered.
+ */
+export interface RequestState {
+  /** When it was asked for. */
+  readonly at: Date;
+  /**
+   * "connecting": the phone is being looked for. "not-started": it was not
+   * found, or was not fit to back up, so there was no run.
+   */
+  readonly status: "connecting" | "not-started";
+  /** Why not, for "not-started": "unreachable", "encryption-off" and so on. */
+  readonly reason?: string;
+}
+
 export interface DaemonDeps {
   readonly config: PommedonjonConfig;
   readonly locator: Pick<DeviceLocator, "locate">;
@@ -99,6 +115,8 @@ export class Daemon {
   readonly #requested = new Set<Promise<void>>();
   /** Why each phone was not backed up on its last pass, for anyone asking. */
   readonly #waiting = new Map<string, WaitingFor>();
+  /** The last backup asked for per phone, until a run takes its place. */
+  readonly #requests = new Map<string, RequestState>();
   /** When each phone's overdue backup was last warned about: daily, not every poll. */
   readonly #staleWarnedAt = new Map<string, Date>();
   /** The signal `run` was given, so requested backups stop with the daemon. */
@@ -200,6 +218,14 @@ export class Daemon {
     const now = clock();
     log("info", "backup requested", { device: device.id, source });
     state.recordDeviceEvent(device.id, now, "requested", { source });
+    // Until a run exists there is nothing in the history to show for the
+    // request, so what became of it is kept here for anyone asking.
+    this.#requests.set(device.id, { at: now, status: "connecting" });
+    const notStarted = (reason: string): void => {
+      log("warning", "requested backup not started", { device: device.id, reason });
+      this.#requests.set(device.id, { at: now, status: "not-started", reason });
+    };
+    let reached = false;
     try {
       const { status, host } = await locator.locate(device);
       this.#observe(
@@ -209,27 +235,28 @@ export class Daemon {
       );
       if (!status.backupEncryptionEnabled) {
         // The same rule as for a scheduled backup: never an unencrypted one.
-        log("warning", "requested backup not started", {
-          device: device.id,
-          reason: "encryption-off",
-        });
+        notStarted("encryption-off");
         return;
       }
-      await runner.run(device, host, this.#signal);
+      reached = true;
+      try {
+        await runner.run(device, host, this.#signal);
+      } finally {
+        // The run is in the history now, and speaks for itself.
+        this.#requests.delete(device.id);
+      }
       // The next scheduled pass should say afresh why it is waiting.
       this.#lastLogged.delete(device.id);
     } catch (error) {
       if (error instanceof DeviceError) {
-        log("warning", "requested backup not started", {
-          device: device.id,
-          reason: error.reason === "failed" ? "probe-failed" : error.reason,
-        });
+        notStarted(error.reason === "failed" ? "probe-failed" : error.reason);
         return;
       }
       log("error", "unexpected error in a requested backup", {
         device: device.id,
         error: error instanceof Error ? error.message : String(error),
       });
+      if (!reached) this.#requests.set(device.id, { at: now, status: "not-started", reason: "error" });
     }
   }
 
@@ -281,6 +308,15 @@ export class Daemon {
    */
   waitingFor(deviceId: string): WaitingFor | undefined {
     return this.#waiting.get(deviceId);
+  }
+
+  /**
+   * What became of the last backup asked for, while no run speaks for it:
+   * still looking for the phone, or not started and why. Undefined once a
+   * run has taken its place, and when nothing has been asked for.
+   */
+  requestFor(deviceId: string): RequestState | undefined {
+    return this.#requests.get(deviceId);
   }
 
   async #consider(device: DeviceConfig, signal?: AbortSignal): Promise<DeviceOutcome> {

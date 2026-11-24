@@ -58,6 +58,14 @@ describe("describeDevice", () => {
       waiting: { reason: "not-due", until: new Date(ago(2).getTime() + 20 * HOUR).toISOString() },
       run: null,
       problem: null,
+      lastAttempt: {
+        startedAt: ago(2.1).toISOString(),
+        finishedAt: ago(2).toISOString(),
+        outcome: "succeeded",
+        reason: null,
+        prompted: true,
+        durationMs: 282_000,
+      },
     });
   });
 
@@ -122,6 +130,78 @@ describe("describeDevice", () => {
     expect(describeDevice(facts({ waiting: { reason: "on-battery" } })).waiting).toEqual({
       reason: "on-battery",
     });
+  });
+
+  it("carries how the last backup that ended went, so a failure can be explained", () => {
+    const cancelled = run({
+      id: 2,
+      startedAt: ago(1),
+      finishedAt: ago(0.99),
+      outcome: "failed",
+      failureReason: "passcode-cancelled",
+      durationMs: undefined,
+    });
+    expect(describeDevice(facts({ recentRuns: [cancelled, run()] })).lastAttempt).toMatchObject({
+      outcome: "failed",
+      reason: "passcode-cancelled",
+      finishedAt: ago(0.99).toISOString(),
+    });
+  });
+
+  it("looks past the run in progress for the last one that ended", () => {
+    const running = run({ id: 3, startedAt: ago(0.01), finishedAt: undefined, outcome: "running" });
+    expect(describeDevice(facts({ recentRuns: [running, run()] })).lastAttempt).toMatchObject({
+      outcome: "succeeded",
+    });
+  });
+
+  it("has no last attempt before any backup has ended", () => {
+    expect(describeDevice(facts({ lastSuccessAt: undefined, recentRuns: [] })).lastAttempt).toBeNull();
+  });
+
+  it("is backing up, at its first step, from the moment a backup is asked for", () => {
+    const asked = new Date(NOW.getTime() - 3000);
+    const summary = describeDevice(facts({ request: { at: asked, status: "connecting" } }));
+    expect(summary).toMatchObject({
+      state: "backing-up",
+      waiting: null,
+      run: { stage: "connecting", startedAt: asked.toISOString() },
+    });
+  });
+
+  it("lets a real run speak over a request still marked as connecting", () => {
+    const running = run({ id: 3, startedAt: ago(0.01), finishedAt: undefined, outcome: "running" });
+    const summary = describeDevice(
+      facts({
+        recentRuns: [running, run()],
+        runningEvents: [event("passcode-required", -20)],
+        request: { at: ago(0.02), status: "connecting" },
+      }),
+    );
+    expect(summary.run?.stage).toBe("passcode");
+  });
+
+  it("counts a backup that was asked for and never started as the last try", () => {
+    const asked = ago(0.1);
+    const summary = describeDevice(
+      facts({ request: { at: asked, status: "not-started", reason: "unreachable" } }),
+    );
+    expect(summary.state).toBe("backed-up");
+    expect(summary.lastAttempt).toEqual({
+      startedAt: asked.toISOString(),
+      finishedAt: asked.toISOString(),
+      outcome: "failed",
+      reason: "unreachable",
+      prompted: false,
+      durationMs: null,
+    });
+  });
+
+  it("forgets a request that never started once a run has ended since", () => {
+    const summary = describeDevice(
+      facts({ request: { at: ago(5), status: "not-started", reason: "unreachable" } }),
+    );
+    expect(summary.lastAttempt).toMatchObject({ outcome: "succeeded" });
   });
 
   it("always produces a summary the contract accepts", () => {

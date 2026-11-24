@@ -81,6 +81,20 @@ export const DeviceProblemSchema = z.enum([
 ]);
 export type DeviceProblem = z.infer<typeof DeviceProblemSchema>;
 
+export const RunSummarySchema = z.object({
+  startedAt: timestamp,
+  /** Null while it is still running. */
+  finishedAt: timestamp.nullable(),
+  outcome: z.enum(["running", "succeeded", "failed"]),
+  /** Why it failed, e.g. "device-locked" or "passcode-cancelled". */
+  reason: z.string().nullable(),
+  /** Whether the phone asked for its passcode during this run. */
+  prompted: z.boolean(),
+  /** How long the copy took, for a run that succeeded. */
+  durationMs: z.number().nullable(),
+});
+export type RunSummary = z.infer<typeof RunSummarySchema>;
+
 export const DeviceSummarySchema = z.object({
   /** Short name used in addresses, e.g. "mike". */
   id: z.string(),
@@ -97,6 +111,12 @@ export const DeviceSummarySchema = z.object({
   run: RunProgressSchema.nullable(),
   /** Set while `state` is "needs-you". */
   problem: DeviceProblemSchema.nullable(),
+  /**
+   * The most recent backup that has ended, good or bad, so a failure can be
+   * explained where the phone is shown. Null if none has ended yet, and
+   * when an older server does not say.
+   */
+  lastAttempt: RunSummarySchema.nullable().default(null),
 });
 export type DeviceSummary = z.infer<typeof DeviceSummarySchema>;
 
@@ -106,20 +126,6 @@ export const DeviceListSchema = z.object({
 });
 export type DeviceList = z.infer<typeof DeviceListSchema>;
 
-export const RunSummarySchema = z.object({
-  startedAt: timestamp,
-  /** Null while it is still running. */
-  finishedAt: timestamp.nullable(),
-  outcome: z.enum(["running", "succeeded", "failed"]),
-  /** Why it failed, e.g. "device-locked" or "passcode-cancelled". */
-  reason: z.string().nullable(),
-  /** Whether the phone asked for its passcode during this run. */
-  prompted: z.boolean(),
-  /** How long the copy took, for a run that succeeded. */
-  durationMs: z.number().nullable(),
-});
-export type RunSummary = z.infer<typeof RunSummarySchema>;
-
 /** `GET /api/devices/<id>` */
 export const DeviceDetailSchema = DeviceSummarySchema.extend({
   /** Most recent first. */
@@ -127,9 +133,18 @@ export const DeviceDetailSchema = DeviceSummarySchema.extend({
 });
 export type DeviceDetail = z.infer<typeof DeviceDetailSchema>;
 
+/** `POST /api/devices/<id>/backup-now`, when a backup was started (202). */
+export const BackupStartedSchema = z.object({
+  status: z.literal("started"),
+});
+export type BackupStarted = z.infer<typeof BackupStartedSchema>;
+
 /** The body of any reply that is not a success. */
 export const ApiErrorSchema = z.object({
-  /** A machine-readable code, e.g. "unknown-device" or "not-found". */
+  /**
+   * A machine-readable code, e.g. "unknown-device", "already-running" or
+   * "not-found".
+   */
   error: z.string(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;

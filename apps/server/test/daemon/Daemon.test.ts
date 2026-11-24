@@ -752,6 +752,40 @@ describe("Daemon.requestBackup", () => {
     await settle();
   });
 
+  it("says it is looking for the phone until a run begins, then lets the run speak", async () => {
+    const h = harness();
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+    expect(h.daemon.requestFor("mike")).toBeUndefined();
+
+    h.daemon.requestBackup("mike");
+    expect(h.daemon.requestFor("mike")).toEqual({ at: at(19), status: "connecting" });
+
+    release.open();
+    await settle();
+    expect(h.daemon.requestFor("mike")).toBeUndefined();
+  });
+
+  it.each([
+    ["the phone cannot be reached", new DeviceError("no answer", "unreachable"), "unreachable"],
+    ["the phone cannot be checked", new DeviceError("garbled", "failed"), "probe-failed"],
+    ["backup encryption is off", fakeStatus({ backupEncryptionEnabled: false }), "encryption-off"],
+  ])("remembers that a requested backup never started because %s", async (_why, probe, reason) => {
+    const h = harness();
+    h.transport.probeResult = probe;
+
+    h.daemon.requestBackup("mike");
+    await settle();
+
+    expect(h.ran).toEqual([]);
+    expect(h.daemon.requestFor("mike")).toEqual({ at: at(19), status: "not-started", reason });
+  });
+
   it("never takes an unencrypted backup, even when asked", async () => {
     const h = harness();
     h.transport.probeResult = fakeStatus({ backupEncryptionEnabled: false });

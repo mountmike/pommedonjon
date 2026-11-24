@@ -4,8 +4,8 @@ import type { Daemon } from "../daemon/Daemon.js";
 import type { StateStore } from "../state/StateStore.js";
 import { describeDevice, describeDeviceDetail, type DeviceFacts } from "./describeDevice.js";
 
-/** How many past runs a phone's detail carries. */
-const RECENT_RUNS = 10;
+/** How many past runs a phone's detail carries: weeks of history, at a backup or two a day. */
+const RECENT_RUNS = 50;
 
 export interface DeviceReader {
   list(): DeviceSummary[];
@@ -17,7 +17,7 @@ export interface DeviceReader {
 export function createDeviceReader(deps: {
   readonly config: Pick<PommedonjonConfig, "devices">;
   readonly state: Pick<StateStore, "lastSuccessAt" | "recentRuns" | "eventsFor">;
-  readonly daemon: Pick<Daemon, "waitingFor">;
+  readonly daemon: Pick<Daemon, "waitingFor" | "requestFor">;
   readonly clock: () => Date;
 }): DeviceReader {
   const { config, state, daemon, clock } = deps;
@@ -32,6 +32,7 @@ export function createDeviceReader(deps: {
       recentRuns,
       runningEvents: running ? state.eventsFor(running.id) : [],
       waiting: daemon.waitingFor(device.id),
+      request: daemon.requestFor(device.id),
     };
   }
 

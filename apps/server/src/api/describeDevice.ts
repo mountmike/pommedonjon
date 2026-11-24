@@ -7,7 +7,7 @@ import type {
   RunSummary,
 } from "@pommedonjon/api-contract";
 import type { DeviceConfig } from "../config/config.js";
-import type { WaitingFor } from "../daemon/Daemon.js";
+import type { RequestState, WaitingFor } from "../daemon/Daemon.js";
 import { isStale } from "../policy/policy.js";
 import type { RunEvent, RunRecord } from "../state/StateStore.js";
 
@@ -23,6 +23,8 @@ export interface DeviceFacts {
   readonly runningEvents: readonly RunEvent[];
   /** Why the daemon did not start a backup on its last pass. */
   readonly waiting: WaitingFor | undefined;
+  /** What became of the last backup asked for, while no run speaks for it. */
+  readonly request?: RequestState | undefined;
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -62,17 +64,39 @@ export function describeRun(run: RunRecord, events: readonly RunEvent[]): RunPro
   return { stage: "connecting", startedAt };
 }
 
+function summariseRun(run: RunRecord): RunSummary {
+  return {
+    startedAt: run.startedAt.toISOString(),
+    finishedAt: run.finishedAt?.toISOString() ?? null,
+    outcome: run.outcome,
+    reason: run.failureReason ?? null,
+    prompted: run.prompted,
+    durationMs: run.durationMs ?? null,
+  };
+}
+
 /** One phone as its owner should see it: the summary the app's first screen shows. */
 export function describeDevice(facts: DeviceFacts): DeviceSummary {
-  const { device, now, lastSuccessAt, recentRuns, runningEvents, waiting } = facts;
+  const { device, now, lastSuccessAt, recentRuns, runningEvents, waiting, request } = facts;
   const running = recentRuns.find((run) => run.outcome === "running");
+  const lastEnded = recentRuns.find((run) => run.outcome !== "running");
+  // A backup has been asked for and the phone is still being looked for:
+  // to its owner that is a backup under way, at its first step.
+  const connecting = !running && request?.status === "connecting" ? request : undefined;
+  // One that was asked for and never became a run is the last try all the
+  // same, unless a real run has ended since.
+  const notStarted =
+    request?.status === "not-started" &&
+    (!lastEnded || (lastEnded.finishedAt ?? lastEnded.startedAt).getTime() < request.at.getTime())
+      ? request
+      : undefined;
   const problem = waiting ? (PROBLEMS[waiting.reason] ?? null) : null;
   const dueAt = lastSuccessAt
     ? new Date(lastSuccessAt.getTime() + device.policy.dueAfterHours * HOUR_MS)
     : undefined;
 
   let state: DeviceState;
-  if (running) state = "backing-up";
+  if (running || connecting) state = "backing-up";
   else if (problem) state = "needs-you";
   else if (!lastSuccessAt || !dueAt) state = "never";
   else if (isStale(device.policy, lastSuccessAt, now)) state = "overdue";
@@ -88,25 +112,30 @@ export function describeDevice(facts: DeviceFacts): DeviceSummary {
     lastBackupAt: lastSuccessAt?.toISOString() ?? null,
     dueAt: dueAt?.toISOString() ?? null,
     waiting:
-      running || !waiting
+      running || connecting || !waiting
         ? null
         : {
             reason: waiting.reason,
             ...(waiting.until && { until: waiting.until.toISOString() }),
           },
-    run: running ? describeRun(running, runningEvents) : null,
-    problem: running ? null : problem,
-  };
-}
-
-function summariseRun(run: RunRecord): RunSummary {
-  return {
-    startedAt: run.startedAt.toISOString(),
-    finishedAt: run.finishedAt?.toISOString() ?? null,
-    outcome: run.outcome,
-    reason: run.failureReason ?? null,
-    prompted: run.prompted,
-    durationMs: run.durationMs ?? null,
+    run: running
+      ? describeRun(running, runningEvents)
+      : connecting
+        ? { stage: "connecting", startedAt: connecting.at.toISOString() }
+        : null,
+    problem: running || connecting ? null : problem,
+    lastAttempt: notStarted
+      ? {
+          startedAt: notStarted.at.toISOString(),
+          finishedAt: notStarted.at.toISOString(),
+          outcome: "failed",
+          reason: notStarted.reason ?? "failed",
+          prompted: false,
+          durationMs: null,
+        }
+      : lastEnded
+        ? summariseRun(lastEnded)
+        : null,
   };
 }
 
