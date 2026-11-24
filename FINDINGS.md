@@ -401,6 +401,44 @@ read back from them and from the sequence asked for, not timed separately.
   asleep, what holding one open costs the phone's battery, and whether any
   of this holds on battery overnight.
 
+### Lock state and identity in the probe (2026-11-25)
+
+Measured from the test stack's container against the owner's phone, with
+read-only lockdown queries. Nothing appeared on the phone.
+
+- **The probe now reads the lock.** `PasswordProtected`, asked for by name
+  in the same session as the battery and backup values, came back `false`
+  with the phone unlocked and in use at 8:40 am, and `true` when it was
+  asked again at 8:58 am.
+- **A probe that is not told which phone to expect says which one
+  answered.** With the pair record and the address but no UDID, the phone
+  reported its own UDID, matching the configured one, and its name. This
+  is what lets a phone be added from its pairing alone.
+- The check that a file is a pair record passed on the real one.
+
+### Away from home (2026-11-25)
+
+At 9:14 am the phone had left the house: it no longer answered at its home
+address, and it did answer a `tailscale ping` from the server in about one
+second. From the server, to the phone's tailnet address:
+
+| Tried | Result |
+|---|---|
+| TCP connect to 62078 (lockdown) | Silent for the full 5 s. Not refused |
+| TCP connect to 49152 (the newer pairing service) | Silent for the full 5 s. Not refused |
+| Read-only probe | `TimeoutError` after 14.4 s |
+
+On 2026-11-24, with the phone at home, the same port on the same address
+accepted the connection and then dropped the session (above). Why the two
+differ is not known: away against at home, mobile data against WiFi, or
+asleep against awake. Not measured: which network the phone was on.
+
+Also seen from the Mac on the home WiFi earlier the same morning: three
+`_remotepairing._tcp` adverts and one `_apple-mobdev2._tcp` advert. Which
+of the three is the phone was not worked out.
+
+What this means for backups away from home is in [REMOTE.md](REMOTE.md).
+
 ### Overnight reachability (night of 2026-11-23)
 
 A script, `scripts/presence-monitor.sh` (since removed; it is in the git history), checked the phone every five minutes from 23:46

@@ -798,7 +798,7 @@ messages cite them.
 
 | | Question | Waiting on |
 |---|---|---|
-| O8 | Remote backups over the tailnet | later |
+| O8 | Remote backups | researched (REMOTE.md); a test needs the owner and the phone |
 | O9 | Proving a backup restores | later |
 | O10 | How the first full backup is taken | later |
 | O11 | Pair record lifetime | later |
@@ -814,12 +814,24 @@ messages cite them.
 | O26 | What starts a backup: a button or a schedule | built (D27, D30); for review |
 | O27 | Sign-in | later; direction proposed |
 
-### O8. Remote backups over the tailnet
+### O8. Remote backups
 
-*Later.* First evidence, 2026-11-24: the direct path does not work over the
-tailnet. The phone accepts a connection to port 62078 on its Tailscale
-address and then drops the lockdown session. Remote backups would need the
-RemotePairing tunnel or a relay on the home network.
+*Researched 2026-11-25; nothing built. See [REMOTE.md](REMOTE.md).*
+
+- **Over the tailnet it does not work.** Measured twice: at home the phone
+  accepted the connection and dropped the session; away from home it was
+  silent on the lockdown port and on the newer pairing port, while
+  answering a tailnet ping.
+- **A guess worth an hour:** the phone wants the other end on its own
+  subnet, which a tailnet address can never be, and which a plain
+  WireGuard VPN from the home router can. If so, backups away need no code
+  at all, only the VPN subnet added to the network range.
+- **The fallback** is the developer tunnel, reported to work over a tailnet
+  for app installs. Days of work, and unproven for backups.
+- **Managing the server from away already works** over the tailnet. It
+  must not go further than a private VPN until there is sign-in (O27).
+
+Waiting on: the owner, the phone, and the router, for the WireGuard test.
 
 ### O9. Proving a backup restores
 
