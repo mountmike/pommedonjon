@@ -70,7 +70,7 @@ time comes; it is not part of the design or the build plan.
    3. The API contract and a status screen, in the web app the container
       serves.
    4. The iPhone app around the same build, and "back up now" in it.
-   5. The plug-in action inside the app (O26).
+   5. A schedule for each phone, set in the app (O26).
    6. Settings in the database; the config file goes (O24).
    7. Adding a phone from the app (O25).
    8. Sign-in (O27).
@@ -533,6 +533,11 @@ that so; nothing else about the commits changed.
 
 ### D23. One front end, in React and TypeScript, for the web and the iPhone
 
+*Reopened by the owner the same evening:* React and TypeScript stand, and
+so does one codebase for both; whether the iPhone app is built with
+Capacitor or with Expo is undecided again. What follows describes
+Capacitor.
+
 *Decided by the owner, 2026-11-24:* a React web app in TypeScript, and the
 iPhone app built from the same codebase with Capacitor, which wraps the web
 build in a native shell. The owner wants a user interface that is both from
@@ -551,13 +556,13 @@ What follows from that, by judgement, to be confirmed as each is built:
   accept requests from the app's own origin; and iOS has to be allowed to
   reach a plain-HTTP address on the local network, or the server reached
   over HTTPS.
-- **Native features are small Swift additions to the app project**, which
-  Capacitor supports without publishing a plugin. The first is the action
-  a charger automation runs (O26).
+- **Native features, if any are needed, are small Swift additions to the
+  app project**, which Capacitor supports without publishing a plugin.
+  Starting a backup needs none (O26).
 - **Building the iPhone app needs Xcode**, and keeping it on a phone for
   more than a week needs the paid Apple Developer Program.
 - The Shortcuts that call the service by address (O22) were a proof of
-  concept. The app replaces them.
+  concept. The app replaces them, with a button and a schedule (O26).
 
 ### D24. A workspace monorepo
 
@@ -608,7 +613,7 @@ messages cite them.
 | O23 | The design brief: theme, component kit, screens | next, before any screens |
 | O24 | Settings without a config file | the owner's yes to the proposal |
 | O25 | Adding a phone from the app | a test of pairing from the browser |
-| O26 | How the app hears that the phone was plugged in | a check of what iOS allows |
+| O26 | What starts a backup: a button or a schedule | decided by the owner; the schedule's details are open |
 | O27 | Sign-in | later; direction proposed |
 
 ### O8. Remote backups over the tailnet
@@ -778,17 +783,37 @@ Pairing is not the whole of it: WiFi connections have to be switched on
 for the phone and backup encryption set, with a password its owner
 chooses. Both are done over the same USB session today.
 
-### O26. How the app hears that the phone was plugged in
+### O26. What starts a backup: a button or a schedule
 
-The proof of concept used a Shortcuts automation, "when the charger is
-connected", calling the service by address (O22). In the app, the
-automation should run an action the app provides, so setting it up is
-choosing that action and not typing an address.
+*Decided by the owner, 2026-11-24.* The app has its own API. A backup
+starts because someone pressed a button in the app, or because a schedule
+set in the app says so. Nothing else is involved: no Shortcuts, and no
+automation set up by hand on the phone.
 
-To check before relying on it: that iOS offers an app no way of its own to
-be told about a plug-in, so that a one-time Shortcuts automation is still
-needed; and that an action written in Swift inside a Capacitor app can
-make the request without the app being opened.
+I had kept planning around a Shortcuts automation that tells the service
+when the charger is connected, carried over from the proof of concept
+(O22). That was my mistake about what was being asked for, and it is
+dropped from the plan.
+
+How it works, which needs nothing from iOS:
+
+- **The schedule lives on the server**, which is always running. The app
+  is where it is set; the server is what acts on it and starts the backup.
+  The phone only has to be at home.
+- **The button** is the app calling the API, as the proof of concept's
+  request already does.
+- **"When it goes on charge" stays available as a kind of schedule**,
+  without anything on the phone: the server sees it by asking the phone,
+  which is how the first automatic backups were started (attempts 15 and
+  16).
+
+Open, for the design brief (O23): what a schedule can say. Today's settings
+are "when a backup is due and the phone goes on charge", with optional
+hours to stay inside (D7). A set time of day is not built.
+
+The one constraint that no schedule removes: every backup asks for the
+passcode on the phone (FINDINGS.md), so a schedule is only useful at times
+its owner is likely to be holding it.
 
 ### O27. Sign-in
 
