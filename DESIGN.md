@@ -144,6 +144,23 @@ would have to fight them.
 The name's apple and castle keep appear in the app icon and in the empty
 state before any phone is added, and nowhere else.
 
+### Icon
+
+*Chosen by the owner, 2026-11-24, after three rounds:* **a phone that is a
+keep, with an apple's leaf.** A white phone on the theme's blue, its top
+edge a battlement, with a stem and a green leaf above it. The phone is the
+thing being kept; the battlement is the donjon; the leaf is the apple.
+
+The rough drawing the choice was made from is
+[design/icon-direction.svg](design/icon-direction.svg). It sets the
+direction and is not finished artwork: a real icon still has to be drawn to
+Apple's sizes and safe areas.
+
+Passed over on the way: an apple with a battlement, a keep with a leaf
+(liked, and folded into the choice), an apple with a keyhole, an apple in a
+gate, a shield, a monogram, a portcullis, an iPhone behind bars, and an
+apple behind dungeon bars.
+
 ### Colour
 
 **On the iPhone, the system's own named colours are used**, not fixed
@@ -252,7 +269,8 @@ Answered on 2026-11-24:
 - **The kit:** Expo UI, with the fallback as described.
 - **The theme:** System, chosen from three alternatives after the first
   proposal was not liked. See [Look](#look).
-- **The icon:** mock-ups have been put to the owner.
+- **The icon:** a phone that is a keep, with an apple's leaf. See
+  [Icon](#icon).
 
 Still open:
 
