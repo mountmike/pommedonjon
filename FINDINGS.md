@@ -315,9 +315,15 @@ NFS 4.2:
   writing or eight. One large file went at about 200 MB/s. So the limit is
   the rate of creating files, not bandwidth.
 - The remaining 97,000 files took 1 h 42 min.
-- The dataset's sync setting was Standard, which makes the NAS commit each
-  new file to disk before answering. Whether Disabled changes the rate has
-  not been measured.
+- The cause was the dataset's sync setting. On Standard the NAS commits
+  each new file to disk before answering. With sync set to Disabled on that
+  one dataset, 1,000 files of 4 KB were created at about 500 a second
+  (two rounds: 526 and 480), roughly thirty times faster.
+- The cost of Disabled is that a NAS crash can lose the last few seconds of
+  writes. That is acceptable here: ZFS comes back in a consistent earlier
+  state, so `verified.json` cannot survive without the files written before
+  it, and an interrupted backup is left unverified for the next run to
+  repair.
 - An incremental backup writes far fewer files, so this mostly matters for
   a first full backup.
 
