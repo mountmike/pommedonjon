@@ -264,8 +264,9 @@ build is running, including the commit.
 
 Both server environments use the same compose file,
 [deploy/compose.yaml](deploy/compose.yaml), as two separate stacks that set
-different variables: which image, and where the config, pair records and
-backups are on the host. [deploy/komodo.example.toml](deploy/komodo.example.toml)
+different variables: which image to run and where backups go. The config,
+pair records and run history live in volumes Docker creates on the first
+deploy, so nothing is prepared on the server beforehand. [deploy/komodo.example.toml](deploy/komodo.example.toml)
 defines the two stacks for [Komodo](https://komo.do).
 
 **A phone belongs to one environment.** Two daemons watching the same phone

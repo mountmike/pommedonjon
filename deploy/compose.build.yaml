@@ -2,6 +2,10 @@
 # pulling a published image: the test environment. Deploy with `--build`.
 services:
   pommedonjon:
+    # The image only exists where it is built. Without this, a "pull images"
+    # step before the deploy, which Komodo runs by default, fails looking
+    # for it in a registry.
+    pull_policy: build
     build:
       context: ..
       args:

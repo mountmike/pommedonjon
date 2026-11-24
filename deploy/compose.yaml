@@ -2,11 +2,20 @@
 # environment is a separate stack that sets the variables below.
 #
 #   POMMEDONJON_IMAGE         which build to run
-#   POMMEDONJON_CONFIG_DIR    host directory holding pommedonjon.json
-#   POMMEDONJON_SECRETS_DIR   host directory holding the pair records, mode 600
 #   POMMEDONJON_BACKUPS_DIR   host directory where backups live
-#   POMMEDONJON_USER          uid:gid that owns the three directories (1000:1000)
+#   POMMEDONJON_USER          uid:gid to run as; must be able to write to the
+#                             backups directory (1000:1000)
 #   TZ                        where the phones live, e.g. Europe/London
+#
+# Everything else lives in volumes Docker creates on the first deploy, so
+# nothing has to be prepared on the server:
+#
+#   config    pommedonjon.json
+#   secrets   one pair record per phone
+#   state     the run history
+#
+# New volumes are empty: the config and the pair records have to be put into
+# theirs once.
 #
 # A phone must appear in only one environment's config: two daemons watching
 # the same phone would each prompt it.
@@ -18,12 +27,11 @@ services:
     environment:
       TZ: ${TZ:-Etc/UTC}
     volumes:
-      - ${POMMEDONJON_CONFIG_DIR:?set POMMEDONJON_CONFIG_DIR}:/config:ro
-      # A pair record grants full access to a phone. Read-only here, and
-      # readable on the host only by POMMEDONJON_USER.
-      - ${POMMEDONJON_SECRETS_DIR:?set POMMEDONJON_SECRETS_DIR}:/run/secrets:ro
-      # The run history (SQLite). A named volume, so it is on the server's
-      # own disk and each environment has its own.
+      - config:/config:ro
+      # A pair record grants full access to a phone. Read-only to the app.
+      - secrets:/run/secrets:ro
+      # The run history (SQLite). On the server's own disk, never a network
+      # share.
       - state:/state
       - ${POMMEDONJON_BACKUPS_DIR:?set POMMEDONJON_BACKUPS_DIR}:/backups
     read_only: true
@@ -34,5 +42,8 @@ services:
     cap_drop:
       - ALL
 
+# Named per stack, so each environment has its own set.
 volumes:
+  config:
+  secrets:
   state:

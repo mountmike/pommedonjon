@@ -74,7 +74,7 @@ built for arm64 here.
 | 2 | On iOS 17+ classic lockdown no longer works over WiFi, so the RemotePairing tunnel is the only network path | **Wrong for iOS 26.6.1** | Measured: an incremental backup completed over WiFi through lockdown on port 62078 |
 | 3 | iOS prompts for the passcode when a backup starts | Confirmed | Measured on all four attempts over USB with encryption on. Reported: every local backup since iOS 16.1, no bypass found |
 | 4 | iOS 26.4 broke WiFi backup for iTunes on Windows | Partly | Reported: 26.4 removed the stable MAC from the Bonjour advert; hosts must match an `authTag` derived from the pair record. Apple's Windows tools are still reported broken; pymobiledevice3 added the matching in Sept 2026 |
-| 5 | Bonjour does not cross Tailscale; a spoof-and-relay workaround exists | Partly | Reported: mDNS over Tailscale is a long-open issue. The spoof is one blog post, for app installs over RemotePairing, not backups. Port 62078 is reported to refuse connections from outside the phone's subnet. *Not tested here* |
+| 5 | Bonjour does not cross Tailscale; a spoof-and-relay workaround exists | Partly | Reported: mDNS over Tailscale is a long-open issue. The spoof is one blog post, for app installs over RemotePairing, not backups. Port 62078 is reported to refuse connections from outside the phone's subnet; confirmed for the lockdown session, see [From another subnet](#from-another-subnet-2026-11-24) |
 | 6 | Reference projects are worth studying | Confirmed | See [Reference projects](#reference-projects) |
 
 ## What was measured
@@ -286,6 +286,54 @@ which may explain it; the cause was not isolated.
   query to port 62078 with the pair record still succeeded from both the Mac
   and the container. Ping and Bonjour also still worked. One port probe in
   that period found 62078 closed; the next, 50 seconds later, found it open.
+
+### From another subnet (2026-11-24)
+
+The test server is on a different VLAN (`192.168.40.0/24`) from the phone
+(`192.168.1.0/24`), behind a UniFi gateway.
+
+| Path from the server to the phone | TCP 62078 | Lockdown session |
+|---|---|---|
+| Firewall allow rule only | opens | dropped by the phone, every attempt |
+| Allow rule and masquerade onto the phone's network | opens | works; probe answered in 2 s |
+| The phone's Tailscale address | opens | dropped by the phone |
+
+- The phone accepts the TCP connection in all three cases. What it refuses
+  is the lockdown session, when the source address is not on its own subnet.
+- With the masquerade policy the phone sees the gateway's address on its
+  own network. Nothing else was changed between the failing and the working
+  probe.
+- Tested with the phone awake and on battery. Not yet tested overnight.
+- **62078 is not the only port.** A backup opens a second connection: the
+  lockdown session on 62078 asks the phone to start the backup service, and
+  the phone answers with a port for it that is different every time. Asked
+  four times, it gave 64435, 64437, 64447 and 64448. With the firewall rule
+  and the NAT policy limited to 62078, a probe worked (it only uses the
+  lockdown session) while the first backup the daemon started failed after
+  8 s with a timeout. With both widened to TCP 49152 to 65535 the service
+  ports were reachable. The range is the usual one for dynamic ports, not
+  something the phone states; only those four values have been seen.
+
+### Writing a backup to an NFS share (2026-11-24)
+
+Copying the 22 GB backup (123,287 files) from the server to the NAS over
+NFS 4.2:
+
+- New files were created at about 16 a second, whether one stream was
+  writing or eight. One large file went at about 200 MB/s. So the limit is
+  the rate of creating files, not bandwidth.
+- The remaining 97,000 files took 1 h 42 min.
+- The cause was the dataset's sync setting. On Standard the NAS commits
+  each new file to disk before answering. With sync set to Disabled on that
+  one dataset, 1,000 files of 4 KB were created at about 500 a second
+  (two rounds: 526 and 480), roughly thirty times faster.
+- The cost of Disabled is that a NAS crash can lose the last few seconds of
+  writes. That is acceptable here: ZFS comes back in a consistent earlier
+  state, so `verified.json` cannot survive without the files written before
+  it, and an interrupted backup is left unverified for the next run to
+  repair.
+- An incremental backup writes far fewer files, so this mostly matters for
+  a first full backup.
 
 ### Overnight reachability (night of 2026-11-23)
 

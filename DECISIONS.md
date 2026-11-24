@@ -445,6 +445,13 @@ Komodo. So:
 - Komodo has no notion of one stack with several environments. Both
   environments are the same compose file (`deploy/compose.yaml`) deployed
   as two stacks with different variables.
+- **Nothing is prepared on the server.** The owner's other stacks keep
+  their settings in named volumes and never in folders made by hand on the
+  host, and asked for the same here. So the config and the pair records
+  each live in a named volume that Docker creates on the first deploy; only
+  the backups directory is a path on the host, because it is the NAS. A new
+  volume is empty, so both have to be put in once. How that should happen
+  without a copy command is open (O21).
 - The stacks are defined from this repository, not from the owner's stacks
   repository, because the compose file has to travel with the code it
   builds. That is a departure from how the owner's other stacks are kept.
@@ -526,21 +533,37 @@ configured path. See Scope and D18.
 *Out of scope for the design, by the owner, 2026-11-24.* Help with the
 owner's own setup comes at deployment time.
 
-One part of it is a risk to the product and should be tested early, because
-it could change what the Compose example has to look like:
+One part of it was a risk to the product, and has now been tested on the
+owner's network (2026-11-24). The server is on a different VLAN from the
+phones.
 
-- The owner's server is on a different VLAN from the phones. That needs a
-  firewall rule allowing the server to reach each phone on TCP 62078.
-- Port 62078 is *reported* to refuse connections that come from outside the
-  phone's own subnet. That has not been tested here: every test so far came
-  from the phone's subnet.
-- If the report is true, a firewall rule alone will not be enough. The
-  container would need an address on the phones' network, or the router
-  would have to rewrite the source address.
-- Related evidence, 2026-11-24: over Tailscale the phone accepts the
-  connection and then drops the session (O8). That is a different interface
-  on the phone, not a different subnet on WiFi, so it does not settle this,
-  but it shows the phone does discriminate by where a connection comes from.
+- **A firewall rule alone is not enough.** With a rule allowing the server
+  to reach the phone on TCP 62078, the connection opened and the phone then
+  dropped the lockdown session every time. The earlier report is true: the
+  phone refuses lockdown sessions whose source address is outside its own
+  subnet. The same thing happens over Tailscale (O8).
+- **Rewriting the source address at the router fixes it.** With a
+  masquerade (source NAT) policy on the gateway for server to phones'
+  network, TCP 62078, the phone sees the gateway's address on its own
+  subnet and answers normally. The first probe took 20 s, because it had to
+  sweep for the phone; the second took 2 s.
+- **Both have to cover more than port 62078.** A backup opens a second
+  connection, to a port the phone picks afresh each time (64435 to 64448
+  were seen). Limited to 62078, the probe passed and the backup timed out.
+  The owner's rule and NAT policy now cover TCP 49152 to 65535.
+- The firewall rule is still what decides which devices the server may
+  reach. The NAT policy only changes the address the phone sees.
+- Nothing in the image or the Compose example changes. The alternative,
+  giving the container an address on the phones' network, was not needed.
+
+Worth carrying into the README: a server on another subnet needs both an
+allow rule and source NAT towards the phones, on TCP 49152 to 65535. Without
+the NAT the symptom is a connection that opens and is then closed by the
+phone; with only 62078 allowed it is a probe that works and a backup that
+times out as it starts.
+
+A probe that passes while a backup cannot start is a trap for whoever sets
+this up. A check that also opens a service port would catch it; not built.
 
 ### O6. Where pair records live
 
@@ -696,3 +719,40 @@ two server environments, the options:
 ### O19. The name
 
 *Closed by the owner, 2026-11-24.* See D21.
+
+### O20. Who owns the backups on the NAS
+
+*Closed by the owner, 2026-11-24.* For a moment the plan was to run the test
+stack as root, because the new NAS dataset was owned by root. The owner
+chose instead to create a dedicated `pommedonjon` account on the NAS.
+
+How it fits together, with no user IDs needing to match:
+
+- the dataset belongs to the NAS's `pommedonjon` account;
+- the NFS share maps every write to that account (Mapall);
+- the container keeps running as its normal unprivileged user, 1000.
+
+Checked from the server: a container running as 1000 can create and delete
+files on the mounted share. The unprivileged container of D15 stands.
+
+Worth carrying into the README when storage gets its own section: a share
+that maps all writes to one account is the simplest way to give the
+container somewhere to write on a NAS.
+
+### O21. Getting the config and pair records in without copying files
+
+The deploy stack keeps them in named volumes (D20), which start empty. The
+owner asked whether pommedonjon could create its config on demand, and
+expects a web UI to manage it eventually.
+
+Most of the config has a sensible default or is fixed by the image: where
+backups and state go, the schedule. Two things cannot be invented: which
+phones to back up, which comes down to having a pair record for each, and
+which network range to look for them in.
+
+*Decided by the owner, 2026-11-24:* for the proof of concept, copy the two
+files into the volumes by hand after the first deploy. Later versions get a
+UI that does it. The idea of the app building its own config from the pair
+records it finds, needing only a network range, is kept for then. No code
+has been changed for this.
+

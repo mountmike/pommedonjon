@@ -47,6 +47,9 @@ ENV HOME=/tmp \
 # /run/secrets   one pair record per phone, as Compose secrets
 # /state         the SQLite database; a local disk
 # /backups       where backups live
+# Owned by the user the image runs as, so that a fresh named volume, which
+# Docker initialises from these directories, is writable from the first run.
+RUN mkdir -p /state /backups && chown node:node /state /backups
 VOLUME ["/state", "/backups"]
 
 # Unprivileged: nothing here needs root, USB or host networking.
