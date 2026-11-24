@@ -80,7 +80,8 @@ time comes; it is not part of the design or the build plan.
    5. A phone's name and schedule changed in the app, kept in the database
       (D26). *Done.* The config file is not gone yet: it still says which
       phones there are and where things are kept, until step 7.
-   6. A schedule for each phone, set in the app (O26).
+   6. A schedule for each phone, set in the app (O26, D27). *Done,* except
+      "the owner opens the app" as a moment, which needs the iPhone app.
    7. Adding and removing a phone from the app (O25); the config file goes
       (O24).
    8. The same app on the iPhone.
@@ -633,6 +634,50 @@ live. Layering keeps it honest until step 7 removes it (O24).
 This is on the unauthenticated API (D25): anyone who can reach the port can
 change a phone's schedule.
 
+### D27. Automatic mode: moments, not a trigger
+
+*Built 2026-11-25 to the rules the owner agreed (O26; DESIGN.md, "Automatic
+mode"). The points below were my calls, made while the owner was away.
+**For review.***
+
+The old `trigger` setting is gone. In its place a backup that is wanted
+starts at a *moment*: just after a plug-in, when the phone is found
+unlocked (once wanted for 4 hours), or any time on a charger (once wanted
+for a day). Each can be switched off, and automatic backups can be switched
+off altogether.
+
+1. **An unlock is seen by polling, not by listening.** The probe the daemon
+   already makes every two minutes now also reads whether the phone is
+   locked. Listening to the phone's notifications would catch a brief
+   unlock, but it means holding a connection open, and what that costs the
+   battery is not measured (FINDINGS.md). Polling costs nothing extra.
+   Revisit if unlocks are missed in practice.
+2. **A moment is used once.** After a prompt nobody answered, the same
+   plug-in, or the same stretch of being unlocked, does not prompt again;
+   the next one does. This replaces "ask again every 10 minutes", which the
+   owner's rules ruled out. The 10 minutes stay as a floor between prompts.
+3. **Sitting on a charger asks again after four hours.** That rung has no
+   moment to wait for, so it needed a number. Four hours matches the pause
+   after a Cancel. It is a constant, not a setting.
+4. **Three unanswered prompts in 24 hours, then none until the oldest is a
+   day old.** The owner's rule, counted over a rolling day, not a calendar
+   one. Settable in the config file (`maxUnansweredPerDay`), not in the app.
+5. **A phone never backed up is on the first rung only.** There is nothing
+   to count "wanted for" from, and a phone just added should not be
+   prompted while it sits unattended on a charger. Its first backup comes at
+   a plug-in or from Back up now.
+6. **A phone that does not say whether it is locked counts as locked.**
+7. **`trigger` is removed, not kept alongside.** `"on-charger"` is now
+   `startOnChargerAfterHours: 0`. Settings saved from the app are converted
+   by the database upgrade; a config file that still says `trigger` is
+   refused with a message naming it. Only the test stack exists and its
+   file does not use it.
+8. **Which moment started a backup is logged, not stored.** The run history
+   does not yet say why a backup began.
+
+Not built: "the owner opens the app" as a moment, which needs the app to
+know which phone it is on.
+
 ## Open
 
 Still needing a decision or a test. Items settled since the first review are
@@ -648,13 +693,13 @@ messages cite them.
 | O12 | Persistent misconfiguration is silent | later |
 | O14 | Onboarding the second phone | next, with the second phone |
 | O15 | Connections that fail or drop | partly settled |
-| O16 | Plugged in, or on a charger? To be settled by the field trial | the field trial decides |
+| O16 | Plugged in, or on a charger? | overtaken by D27: both, in turn. The trial now judges the waits |
 | O18 | Which phone goes to which environment | needs the owner |
 | O21 | Getting the config and pair records in without copying files | now O24 and O25 |
 | O23 | The design brief: theme, component kit, screens | agreed; nothing waiting |
 | O24 | Settings without a config file | partly built (D26); the rest with adding a phone |
 | O25 | Adding a phone from the app | a test of pairing from the browser |
-| O26 | What starts a backup: a button or a schedule | decided, rules agreed; to be built |
+| O26 | What starts a backup: a button or a schedule | built (D27), bar "the app is open" |
 | O27 | Sign-in | later; direction proposed |
 
 ### O8. Remote backups over the tailnet

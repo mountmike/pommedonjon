@@ -126,6 +126,17 @@ On the Schedule screen this is three things to set, not a rule editor: how
 often, quiet hours, and a switch for each kind of moment. "Only when I ask"
 turns the automatic mode off.
 
+**Built 2026-11-25** (DECISIONS.md, D27), except "its owner opens the app",
+which waits for the iPhone app. How it differs from the table above:
+
+- An unlock is seen at the service's regular check on the phone, every two
+  minutes while a backup is wanted, not by listening for it. A phone
+  unlocked for a few seconds between checks is missed.
+- "Wait for the next good moment" is exact: a plug-in or a stretch of being
+  unlocked is used once. Sitting on a charger is not a moment, so that rung
+  asks again four hours after an unanswered prompt.
+- A phone that has never been backed up is on the first rung only.
+
 ## Look
 
 ### Theme

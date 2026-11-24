@@ -121,24 +121,52 @@ connection from another subnet and then closes it.
 
 ### When a backup starts
 
+Every backup needs the passcode typed on the phone, so the service does not
+back up at a set time. It waits for a moment when the phone's owner is
+likely to be holding it, and gets less choosy the longer a backup has been
+wanted:
+
+| Once a backup has been wanted for | It starts |
+|---|---|
+| any time at all | in the minutes after the phone is plugged in at home |
+| 4 hours | also when the phone is found unlocked at home |
+| a day | also any time the phone is on a charger at home |
+
+A backup is *wanted* once the last good one is older than `dueAfterHours`.
+All of this can be set for each phone in the web app, or here:
+
 | Policy setting | Default | Meaning |
 |---|---|---|
-| `dueAfterHours` | 20 | A backup is due once the last good one is this old. |
-| `trigger` | `"plugged-in"` | `"plugged-in"`: only shortly after the phone goes onto power. `"on-charger"`: any time it is on power. |
-| `pluggedInWindowMinutes` | 30 | With `"plugged-in"`: how long after going onto power a backup may start. |
-| `window` | `null` | Optional hours to stay inside, e.g. `{"start": "07:00", "end": "22:00"}`. |
-| `retryAfterTimeoutMinutes` | 10 | How soon to ask again after an unanswered passcode prompt. |
+| `automatic` | `true` | `false`: nothing starts unless someone asks for it. |
+| `dueAfterHours` | 20 | A backup is wanted once the last good one is this old. |
+| `startWhenPluggedIn` | `true` | Start shortly after the phone goes onto power. |
+| `pluggedInWindowMinutes` | 30 | How long after going onto power that is. |
+| `startWhenUnlockedAfterHours` | 4 | Once wanted this long, also start when the phone is unlocked. `null` for never. |
+| `startOnChargerAfterHours` | 24 | Once wanted this long, also start any time it is on power. `null` for never, 0 for from the start. |
+| `window` | `null` | Optional hours to stay inside, e.g. `{"start": "07:00", "end": "22:00"}`. The app calls the hours outside it quiet hours. |
+| `retryAfterTimeoutMinutes` | 10 | The least time between an unanswered passcode prompt and the next. |
+| `maxUnansweredPerDay` | 3 | After this many unanswered prompts in 24 hours, no more that day. |
 | `retryAfterCancelMinutes` | 240 | How long to leave the phone alone after you tap Cancel on the prompt. |
 | `retryAfterFailureMinutes` | 10 | How soon to try again after any other failure. |
-| `staleAfterHours` | 72 | When a backup counts as stale. |
+| `staleAfterHours` | 72 | When a phone counts as overdue. |
 
-With `"plugged-in"`, a phone left charging overnight is not prompted when its
-backup falls due at 3 a.m.; it is backed up at the next plug-in. With
-`"on-charger"` it would be, and would be asked again every
-`retryAfterTimeoutMinutes` until answered.
+A moment is used once. If nobody answers the prompt, the service waits for
+the next plug-in or the next unlock; a phone that just sits on a charger is
+asked again after four hours. So a phone left charging overnight is not
+prompted when its backup falls due at 3 a.m.: it is backed up at the next
+plug-in, or when it is next unlocked once four hours have gone by.
 
-pommedonjon has to see the phone go onto power to call it a plug-in. A phone
-already charging when the service starts waits for its next plug-in.
+How the service knows:
+
+- **Plugged in:** it has to see the phone go onto power. A phone already
+  charging when the service starts waits for its next plug-in.
+- **Unlocked:** each time it checks on a phone (every `pollIntervalSeconds`
+  while a backup is wanted), the phone says whether it is locked. Being
+  unlocked for a few seconds between two checks is missed.
+- **At home:** the phone answers on the network.
+
+A phone that has never been backed up waits for a plug-in, or for someone
+to press Back up now.
 
 ### The web app
 
@@ -151,8 +179,9 @@ example `http://<server>:8377`. It shows:
   prompt to "checking";
 - how the last try went if it did not work, and why;
 - on each phone's own page, its past backups day by day;
-- a phone's name and schedule, to change: how often, when a backup may
-  start, quiet hours, and when it counts as overdue.
+- a phone's name and schedule, to change: automatic or only on request,
+  how often, which moments may start a backup, quiet hours, and when it
+  counts as overdue.
 
 What is changed in the app is kept in the state database and wins over the
 config file from then on. It takes effect within one poll, with no restart.
