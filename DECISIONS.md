@@ -56,14 +56,25 @@ time comes; it is not part of the design or the build plan.
    how the schedule and the process behave in ordinary use. Added by the
    owner, 2026-11-24. Started that evening on the test stack, with the first
    backup the daemon began by itself. See O16 for what it has to settle.
-3. **Web UI and service interface:** the next phase, by the owner,
-   2026-11-24, provided the proof of concept in O22 works. It takes over
-   what notifications were mostly for: a status page that shows when a
-   phone has gone too long without a good backup. It is also where adding
-   phones and settings without copying files belongs (O21), and where
-   authentication comes in.
-4. **Later:** push or email notifications (O1); a native iOS app, which the
-   owner wants once the concept is proven; O8 to O15.
+3. **The app and its service interface:** the next phase, by the owner,
+   2026-11-24. One front end for the web and the iPhone (D23) over a JSON
+   API, in a workspace monorepo (D24). It takes over what notifications
+   were mostly for, with a status screen that shows when a phone has gone
+   too long without a good backup, and it replaces both the config file
+   (O24) and the Shortcuts of the proof of concept (O22). Planned as steps,
+   each usable by itself; none is started:
+
+   1. Restructure the repository into workspaces, with no change in
+      behaviour.
+   2. A design brief: theme, component kit and the screens (O23).
+   3. The API contract and a status screen, in the web app the container
+      serves.
+   4. The iPhone app around the same build, and "back up now" in it.
+   5. The plug-in action inside the app (O26).
+   6. Settings in the database; the config file goes (O24).
+   7. Adding a phone from the app (O25).
+   8. Sign-in (O27).
+4. **Later:** push or email notifications (O1); O8 to O15.
 
 ## Decided
 
@@ -520,6 +531,62 @@ Commits are published under the owner's GitHub no-reply address, not a
 personal one. The history was rewritten once, before the first push, to make
 that so; nothing else about the commits changed.
 
+### D23. One front end, in React and TypeScript, for the web and the iPhone
+
+*Decided by the owner, 2026-11-24:* a React web app in TypeScript, and the
+iPhone app built from the same codebase with Capacitor, which wraps the web
+build in a native shell. The owner wants a user interface that is both from
+the start, and as much front-end code shared as possible.
+
+I had recommended Expo (React Native with a web target). The owner chose
+Capacitor: the web app is the app, and the whole of it is shared.
+
+What follows from that, by judgement, to be confirmed as each is built:
+
+- **The container serves the web build beside the API**, from the same
+  address, so there is still one container and the web app needs no
+  set-up.
+- **The iPhone app carries its own copy of the web build.** So it has to
+  be told where the server is, on a first-run screen; the API has to
+  accept requests from the app's own origin; and iOS has to be allowed to
+  reach a plain-HTTP address on the local network, or the server reached
+  over HTTPS.
+- **Native features are small Swift additions to the app project**, which
+  Capacitor supports without publishing a plugin. The first is the action
+  a charger automation runs (O26).
+- **Building the iPhone app needs Xcode**, and keeping it on a phone for
+  more than a week needs the paid Apple Developer Program.
+- The Shortcuts that call the service by address (O22) were a proof of
+  concept. The app replaces them.
+
+### D24. A workspace monorepo
+
+*Decided by the owner, 2026-11-24:* pnpm workspaces, to keep the modules
+apart and to share code between the web app and the iPhone app.
+
+Proposed layout, by judgement:
+
+| Workspace | Holds |
+|---|---|
+| `apps/server` | Today's daemon, the API, and the Python sidecar it drives |
+| `apps/web` | The React app, with the Capacitor iPhone project inside it |
+| `packages/api-contract` | Zod schemas for every request and reply. The server validates with them and the app takes its types from them (D14) |
+| `packages/api-client` | The typed client the app calls the server with |
+
+One image is still published: the server with the web build inside it.
+
+### D25. No sign-in in the proof of concept
+
+*Decided by the owner, 2026-11-24:* the first version of the app has no
+sign-in. Proper sign-in comes later (O27), and will not be a user and
+password store of pommedonjon's own.
+
+What that means while it lasts, and should be kept in view: the API will
+grow from "make a phone show its prompt" to changing settings and taking
+in pair records, with nothing checking who is asking. It belongs on a
+trusted network only. Two rules hold regardless: the API never hands a
+pair record back out, and it never serves the contents of a backup.
+
 ## Open
 
 Still needing a decision or a test. Items settled since the first review are
@@ -537,7 +604,12 @@ messages cite them.
 | O15 | Connections that fail or drop | partly settled |
 | O16 | Plugged in, or on a charger? To be settled by the field trial | the field trial decides |
 | O18 | Which phone goes to which environment | needs the owner |
-| O21 | Getting the config and pair records in without copying files | the web UI phase |
+| O21 | Getting the config and pair records in without copying files | now O24 and O25 |
+| O23 | The design brief: theme, component kit, screens | next, before any screens |
+| O24 | Settings without a config file | the owner's yes to the proposal |
+| O25 | Adding a phone from the app | a test of pairing from the browser |
+| O26 | How the app hears that the phone was plugged in | a check of what iOS allows |
+| O27 | Sign-in | later; direction proposed |
 
 ### O8. Remote backups over the tailnet
 
@@ -646,6 +718,93 @@ files into the volumes by hand after the first deploy. Later versions get a
 UI that does it. The idea of the app building its own config from the pair
 records it finds, needing only a network range, is kept for then. No code
 has been changed for this.
+
+### O23. The design brief: theme, component kit, screens
+
+*Asked for by the owner, 2026-11-24*, before any screens are built: a plan
+for the look, the component library and the way it is used.
+
+To be written for the owner's review: the principles (a phone's state at a
+glance, one main action, honest about the passcode), the list of screens
+and how one leads to the next, colour and type for light and dark, and the
+theme. The name gives it one, an apple and a castle keep, to be used with
+restraint.
+
+The component kit is open. With a web app in a native shell, the choice is
+between a general web kit styled to feel at home on a phone and one built
+to look like iOS. To be compared against their current documentation, with
+a recommendation and a sample screen.
+
+### O24. Settings without a config file
+
+The owner asked whether the config file can go away entirely. *Proposed:*
+yes.
+
+- Where things are (the port, the backups and state directories) is fixed
+  by the image or set as environment variables.
+- Everything else lives in the database and is changed from the app: the
+  phones, each one's schedule, and the pair records.
+- **The network range may stop being a setting.** Once the app runs on the
+  phone, every request it makes tells the server the phone's current
+  address. Sweeping a range (D6) becomes the fallback for a phone without
+  the app.
+- No migration is needed: only the test stack exists, and its one phone
+  can be added again through the app.
+- A consequence: the app needs to write where pair records are stored.
+  Today that volume is mounted read-only (D19).
+
+### O25. Adding a phone from the app
+
+*What the owner wants, 2026-11-24:* add a phone that has been paired
+before, and also find a phone freshly plugged into the computer, from the
+browser, and copy its pairing.
+
+- **Paired before:** import its pair record. No obstacle.
+- **Freshly plugged in, from the browser:** possible in principle through
+  WebUSB, and unproven. Reported, not tested here: it works only in
+  Chrome-family browsers; the projects that do it are small and
+  experimental; only one program can hold the phone's USB connection at a
+  time, and on Linux the system's own service has to be disabled first. On
+  a Mac, Apple's service holds that connection, and nothing found says it
+  can be shared.
+- **To do first:** a short, time-boxed test of pairing from Chrome on the
+  owner's Mac.
+- **The fallback, known to work:** a one-line helper run on the computer,
+  which creates the pairing or reads the existing one and sends it to the
+  server. The Mac's pair record can be read without root (FINDINGS.md,
+  "Pair record portability").
+
+Pairing is not the whole of it: WiFi connections have to be switched on
+for the phone and backup encryption set, with a password its owner
+chooses. Both are done over the same USB session today.
+
+### O26. How the app hears that the phone was plugged in
+
+The proof of concept used a Shortcuts automation, "when the charger is
+connected", calling the service by address (O22). In the app, the
+automation should run an action the app provides, so setting it up is
+choosing that action and not typing an address.
+
+To check before relying on it: that iOS offers an app no way of its own to
+be told about a plug-in, so that a one-time Shortcuts automation is still
+needed; and that an action written in Swift inside a Capacitor app can
+make the request without the app being opened.
+
+### O27. Sign-in
+
+*Later, by the owner (D25).* The owner's direction: not a password store
+of our own; sign in with an existing account.
+
+*Proposed:*
+
+- **Standard OIDC as the base**, one implementation that covers Google and
+  self-hosted identity providers. GitHub does not follow the standard and
+  would need its own adapter.
+- **Sign in with Apple as an extra inside the iPhone app.** On the web,
+  Apple requires each domain and return address to be registered against a
+  developer account, which someone hosting pommedonjon on their own domain
+  cannot do under the app's identity.
+- Each installation keeps a list of who may sign in.
 
 ## Settled
 
