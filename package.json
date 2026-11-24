@@ -15,6 +15,7 @@
     "release:version": "changeset version",
     "dev": "docker compose -f compose.dev.yaml run --rm --build pommedonjon",
     "deploy:test": "node tools/deploy/src/deploy-test.ts",
+    "preview": "pnpm build && node tools/preview/src/preview.ts",
     "packages": "pnpm --filter \"./packages/*\" build"
   },
   "devDependencies": {

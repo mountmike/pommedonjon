@@ -298,6 +298,7 @@ it:
 | `apps/app` | The app, built with Expo: one codebase for the web app and the iPhone app. The server serves its web build |
 | `packages/api-contract` | The shape of every reply between the two, as Zod schemas both sides use |
 | `tools/deploy` | The command that deploys to the test environment |
+| `tools/preview` | The command that shows the app with made-up phones |
 
 In each, source is under `src/` and tests under `test/`, in the same folder
 layout. The server's tests use fakes for the phone and the sidecar
@@ -330,6 +331,20 @@ pnpm dev backup --device phone-one
 **One daemon per phone.** Two daemons watching the same phone would each
 prompt it. If a server already backs a phone up, leave that phone out of
 `local/dev`'s config or stick to one-off commands.
+
+### Looking at the app without a phone
+
+```bash
+pnpm preview
+```
+
+builds everything and serves the app at <http://localhost:8399> with three
+made-up phones: one backed up, one due, one overdue. No real phone is
+contacted and no backup is made. What it writes goes under `local/preview/`
+and is made afresh each time.
+
+[.claude/launch.json](.claude/launch.json) gives the same command to Claude
+Code, so it can open the preview in its own browser.
 
 ### Environments
 

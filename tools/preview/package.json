@@ -1,0 +1,18 @@
+{
+  "name": "@pommedonjon/preview-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runs the server and the web app on this machine with made-up phones.",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}

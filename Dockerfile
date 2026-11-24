@@ -12,6 +12,7 @@ COPY apps/server/package.json apps/server/
 COPY apps/app/package.json apps/app/
 COPY packages/api-contract/package.json packages/api-contract/
 COPY tools/deploy/package.json tools/deploy/
+COPY tools/preview/package.json tools/preview/
 RUN pnpm install --frozen-lockfile --filter "pommedonjon..." --filter "@pommedonjon/app..."
 COPY tsconfig.base.json ./
 COPY packages packages
