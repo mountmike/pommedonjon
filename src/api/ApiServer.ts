@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { BackupRequestResult, PlugInReportResult } from "../daemon/Daemon.js";
-import type { Logger } from "../notify/Notifier.js";
+import type { Logger } from "../log.js";
 
 export interface ApiDeps {
   /** Ask for a phone to be backed up now. */

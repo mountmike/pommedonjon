@@ -152,17 +152,6 @@ describe("StateStore history for the policy", () => {
   });
 });
 
-describe("StateStore alerts", () => {
-  it("remembers the latest time each kind of alert went out per device", () => {
-    expect(store.lastAlertAt("mike", "stale")).toBeUndefined();
-    store.recordAlert("mike", "stale", t("2026-11-24T09:00:00Z"));
-    store.recordAlert("mike", "stale", t("2026-11-25T09:00:00Z"));
-    store.recordAlert("sam", "stale", t("2026-11-20T09:00:00Z"));
-    expect(store.lastAlertAt("mike", "stale")).toEqual(t("2026-11-25T09:00:00Z"));
-    expect(store.lastAlertAt("mike", "failing")).toBeUndefined();
-  });
-});
-
 describe("StateStore on disk", () => {
   let dir: string;
   beforeEach(async () => {
@@ -253,6 +242,13 @@ describe("StateStore on disk", () => {
     upgraded.recordDeviceEvent("mike", t("2026-11-24T08:00:00Z"), "power", { to: "on-power" });
     expect(upgraded.deviceEventsSince("mike", new Date(0))).toHaveLength(1);
     upgraded.close();
+
+    // And took away the table for alerts, which are no longer kept.
+    const after = new DatabaseSync(file);
+    expect(
+      after.prepare("SELECT name FROM sqlite_master WHERE name = 'alerts'").all(),
+    ).toEqual([]);
+    after.close();
 
     // Opening it again does not try to upgrade twice.
     new StateStore(file).close();

@@ -47,7 +47,7 @@ export type RunResult =
       readonly message: string;
     };
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
   CREATE TABLE runs (
@@ -71,13 +71,6 @@ const SCHEMA = `
     detail  TEXT    NOT NULL
   ) STRICT;
   CREATE INDEX run_events_by_run ON run_events (run_id, id);
-
-  CREATE TABLE alerts (
-    device_id TEXT    NOT NULL,
-    kind      TEXT    NOT NULL,
-    sent_at   INTEGER NOT NULL,
-    PRIMARY KEY (device_id, kind)
-  ) STRICT;
 `;
 
 /**
@@ -204,7 +197,7 @@ function read<Output>(schema: z.ZodType<Output>, what: string, row: unknown): Ou
 
 /**
  * The daemon's memory: every backup attempt, what happened during it, and
- * which alerts have gone out. One SQLite file, one process.
+ * what was noticed about each phone in between. One SQLite file, one process.
  */
 export class StateStore {
   readonly #db: DatabaseSync;
@@ -245,6 +238,10 @@ export class StateStore {
     }
     if (version < 4) {
       this.#db.exec(`BEGIN; ${DEVICE_EVENTS} PRAGMA user_version = 4; COMMIT;`);
+    }
+    if (version < 5) {
+      // Stale-backup alerts are no longer remembered between restarts.
+      this.#db.exec("BEGIN; DROP TABLE IF EXISTS alerts; PRAGMA user_version = 5; COMMIT;");
     }
   }
 
@@ -382,17 +379,6 @@ export class StateStore {
       .map((row) => read(AttemptRowSchema, "a run", row));
   }
 
-  /** When an alert of this kind last went out for this device. */
-  lastAlertAt(deviceId: string, kind: string): Date | undefined {
-    return read(
-      whenRow("sent_at"),
-      "an alert time",
-      this.#db
-        .prepare("SELECT sent_at FROM alerts WHERE device_id = ? AND kind = ?")
-        .get(deviceId, kind),
-    );
-  }
-
   /** Where this device was last reached, if it has been found before. */
   lastAddress(deviceId: string): string | undefined {
     return read(
@@ -412,14 +398,5 @@ export class StateStore {
          ON CONFLICT (device_id) DO UPDATE SET host = excluded.host, seen_at = excluded.seen_at`,
       )
       .run(deviceId, host, at.getTime());
-  }
-
-  recordAlert(deviceId: string, kind: string, at: Date): void {
-    this.#db
-      .prepare(
-        `INSERT INTO alerts (device_id, kind, sent_at) VALUES (?, ?, ?)
-         ON CONFLICT (device_id, kind) DO UPDATE SET sent_at = excluded.sent_at`,
-      )
-      .run(deviceId, kind, at.getTime());
   }
 }

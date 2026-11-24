@@ -4,7 +4,7 @@ import {
   type DeviceConfig,
   type PommedonjonConfig,
 } from "../../src/config/config.js";
-import type { LogLevel, Notification } from "../../src/notify/Notifier.js";
+import type { LogLevel } from "../../src/log.js";
 import type { RunReport } from "../../src/runner/BackupRunner.js";
 import { DeviceLocator } from "../../src/discovery/DeviceLocator.js";
 import { StateStore } from "../../src/state/StateStore.js";
@@ -42,7 +42,6 @@ afterEach(() => {
 
 function harness(devices: DeviceConfig[] = [deviceConfig()]) {
   const transport = new FakeTransport();
-  const sent: Notification[] = [];
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   const ran: string[] = [];
   let now = at(19);
@@ -51,7 +50,6 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     backupRoot: "/backups",
     stateDir: "/state",
     pollIntervalSeconds: 120,
-    headsUpLeadSeconds: 5,
     sidecar: { pythonPath: undefined, scriptPath: undefined },
     discovery: { ranges: [], scanIntervalSeconds: 300 },
     devices,
@@ -75,7 +73,6 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
   let onSleep = (): void => undefined;
   const scanner = { enabled: false, candidates: () => Promise.resolve<string[]>([]) };
   const hosts: string[] = [];
-  const runOptions: unknown[] = [];
   const daemon = new Daemon({
     config,
     locator: new DeviceLocator({
@@ -86,20 +83,13 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
       clock: () => now,
     }),
     runner: {
-      run: (device, host, _signal, options) => {
+      run: (device, host) => {
         ran.push(device.id);
         hosts.push(host);
-        runOptions.push(options);
         return runImpl(device);
       },
     },
     state,
-    notifier: {
-      notify: (n) => {
-        sent.push(n);
-        return Promise.resolve();
-      },
-    },
     log: (level, message, fields) => logs.push({ level, message, fields }),
     clock: () => now,
     sleep: async (ms) => {
@@ -113,11 +103,9 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
   return {
     daemon,
     transport,
-    sent,
     logs,
     ran,
     hosts,
-    runOptions,
     scanner,
     sleeps,
     setNow: (date: Date) => {
@@ -439,8 +427,11 @@ describe('Daemon with the "plugged-in" trigger', () => {
   });
 });
 
-describe("Daemon stale alerts", () => {
-  it("alerts once a day while the last good backup is too old", async () => {
+describe("Daemon stale warning", () => {
+  const staleWarnings = (h: ReturnType<typeof harness>) =>
+    h.logs.filter((entry) => entry.message === "no good backup for too long");
+
+  it("warns once a day while the last good backup is too old", async () => {
     const h = harness();
     const runId = state.startRun("mike", at(19, 0, -4));
     state.finishRun(runId, at(19, 6, -4), {
@@ -453,25 +444,47 @@ describe("Daemon stale alerts", () => {
     await h.daemon.tick();
     h.setNow(at(8, 2));
     await h.daemon.tick();
-    expect(h.sent.filter((n) => n.kind === "backup-stale")).toEqual([
+    expect(staleWarnings(h)).toEqual([
       {
-        kind: "backup-stale",
-        deviceId: "mike",
-        deviceName: "Mike's iPhone",
-        lastSuccessAt: at(19, 6, -4),
+        level: "warning",
+        message: "no good backup for too long",
+        fields: {
+          device: "mike",
+          lastSuccessAt: at(19, 6, -4).toISOString(),
+          staleAfterHours: DEFAULT_POLICY.staleAfterHours,
+        },
       },
     ]);
 
     h.setNow(at(8, 3, 1));
     await h.daemon.tick();
-    expect(h.sent.filter((n) => n.kind === "backup-stale")).toHaveLength(2);
+    expect(staleWarnings(h)).toHaveLength(2);
   });
 
-  it("does not alert about a device that has never been backed up", async () => {
+  it("starts the day afresh once a good backup has been taken", async () => {
+    const h = harness();
+    const old = state.startRun("mike", at(19, 0, -4));
+    state.finishRun(old, at(19, 6, -4), { outcome: "succeeded", durationMs: 1 });
+    h.transport.probeResult = new DeviceError("no answer", "unreachable");
+    h.setNow(at(8));
+    await h.daemon.tick();
+    expect(staleWarnings(h)).toHaveLength(1);
+
+    // A good backup, then four more days without one.
+    const fresh = state.startRun("mike", at(9));
+    state.finishRun(fresh, at(9, 6), { outcome: "succeeded", durationMs: 1 });
+    h.setNow(at(9, 10));
+    await h.daemon.tick();
+    h.setNow(at(8, 0, 4));
+    await h.daemon.tick();
+    expect(staleWarnings(h)).toHaveLength(2);
+  });
+
+  it("does not warn about a device that has never been backed up", async () => {
     const h = harness();
     h.transport.probeResult = new DeviceError("no answer", "unreachable");
     await h.daemon.tick();
-    expect(h.sent).toEqual([]);
+    expect(staleWarnings(h)).toEqual([]);
   });
 });
 
@@ -870,22 +883,6 @@ describe("Daemon.reportPlugIn", () => {
     await settle();
     expect(h.ran).toEqual(["mike"]);
   });
-
-  it("tells the runner the owner is at the phone, as a request to back up now does", async () => {
-    const h = harness([plugInPolicy()]);
-    h.daemon.reportPlugIn("mike");
-    await settle();
-    h.setNow(at(19, 0, 2));
-    h.daemon.requestBackup("mike");
-    await settle();
-    expect(h.runOptions).toEqual([{ ownerIsWaiting: true }, { ownerIsWaiting: true }]);
-  });
-
-  it("does not skip the notice for a backup the schedule started", async () => {
-    const h = harness();
-    await h.daemon.tick();
-    expect(h.runOptions).toEqual([undefined]);
-  });
 });
 
 describe("Daemon.run", () => {
@@ -918,7 +915,6 @@ describe("Daemon.run", () => {
         backupRoot: "/backups",
         stateDir: "/state",
         pollIntervalSeconds: 120,
-        headsUpLeadSeconds: 5,
         sidecar: {},
         discovery: { ranges: [], scanIntervalSeconds: 300 },
         devices: [],
@@ -926,7 +922,6 @@ describe("Daemon.run", () => {
       locator: { locate: () => Promise.reject(new Error("unused")) },
       runner: { run: () => Promise.reject(new Error("unused")) },
       state,
-      notifier: { notify: () => Promise.resolve() },
       log: (_level, message, fields) => logs.push({ message, fields }),
       clock: () => at(19),
       version: "0.3.1 (build 3f2a9c1)",

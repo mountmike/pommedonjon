@@ -2,7 +2,6 @@
   "backupRoot": "/backups",
   "stateDir": "/state",
   "pollIntervalSeconds": 120,
-  "headsUpLeadSeconds": 5,
   "discovery": {
     "ranges": ["192.0.2.0/24"],
     "scanIntervalSeconds": 300

@@ -4,7 +4,7 @@ import type { PommedonjonConfig } from "./config/config.js";
 import { Daemon } from "./daemon/Daemon.js";
 import { DeviceLocator } from "./discovery/DeviceLocator.js";
 import { PortScanner } from "./discovery/PortScanner.js";
-import { LogNotifier, type Logger, type Notifier } from "./notify/Notifier.js";
+import type { Logger } from "./log.js";
 import { BackupRunner } from "./runner/BackupRunner.js";
 import { Sidecar } from "./sidecar/Sidecar.js";
 import { StateStore } from "./state/StateStore.js";
@@ -41,7 +41,6 @@ export interface App {
   readonly state: StateStore;
   readonly runner: BackupRunner;
   readonly daemon: Daemon;
-  readonly notifier: Notifier;
   close(): void;
 }
 
@@ -64,9 +63,6 @@ export function createApp(
   const state = new StateStore(path.join(config.stateDir, "pommedonjon.sqlite"));
 
   const store = new BackupStore(config.backupRoot);
-  // No delivery channel has been chosen yet, so notifications only reach the
-  // service log.
-  const notifier = new LogNotifier(log);
   const clock = () => new Date();
 
   const locator = new DeviceLocator({
@@ -87,18 +83,14 @@ export function createApp(
     store,
     verifier: new SidecarBackupVerifier(sidecar),
     state,
-    notifier,
     log,
     clock,
-    sleep,
-    headsUpLeadSeconds: config.headsUpLeadSeconds,
   });
   const daemon = new Daemon({
     config,
     locator,
     runner,
     state,
-    notifier,
     log,
     clock,
     version: describeBuild(readBuildInfo(env)),
@@ -112,7 +104,6 @@ export function createApp(
     state,
     runner,
     daemon,
-    notifier,
     close: () => state.close(),
   };
 }

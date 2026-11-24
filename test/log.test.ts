@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLogLine, LogNotifier, type LogLevel } from "../../src/notify/Notifier.js";
+import { formatLogLine } from "../src/log.js";
 
 const NOW = new Date("2026-11-24T08:35:09.432Z");
 
@@ -43,26 +43,5 @@ describe("formatLogLine", () => {
       level: "info",
       message: "idle",
     });
-  });
-});
-
-describe("LogNotifier", () => {
-  it("logs a failed backup's reason and message without losing which notification it was", async () => {
-    const lines: { level: LogLevel; message: string; fields: unknown }[] = [];
-    const notifier = new LogNotifier((level, message, fields) => {
-      lines.push({ level, message, fields });
-    });
-
-    await notifier.notify({
-      kind: "backup-failed",
-      deviceId: "mike",
-      deviceName: "Mike's iPhone",
-      reason: "unreachable",
-      message: "TimeoutError",
-    });
-
-    expect(lines).toHaveLength(1);
-    expect(lines[0]?.message).toBe("notification: backup-failed");
-    expect(lines[0]?.fields).toMatchObject({ reason: "unreachable", message: "TimeoutError" });
   });
 });

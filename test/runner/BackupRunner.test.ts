@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_POLICY, type DeviceConfig } from "../../src/config/config.js";
-import type { Notification, Notifier } from "../../src/notify/Notifier.js";
 import { StateStore } from "../../src/state/StateStore.js";
 import { BackupStore } from "../../src/storage/BackupStore.js";
 import type { BackupVerification, BackupVerifier } from "../../src/storage/BackupVerifier.js";
@@ -42,24 +41,11 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function harness(
-  options: {
-    verification?: BackupVerification;
-    notify?: (n: Notification) => Promise<void>;
-  } = {},
-) {
+function harness(options: { verification?: BackupVerification } = {}) {
   const transport = new FakeTransport();
-  const sent: Notification[] = [];
   const order: string[] = [];
   const verified: string[] = [];
 
-  const notifier: Notifier = {
-    notify: async (n) => {
-      order.push(`notify:${n.kind}`);
-      await options.notify?.(n);
-      sent.push(n);
-    },
-  };
   const verifier: BackupVerifier = {
     verify: (dir) => {
       order.push("verify");
@@ -74,65 +60,34 @@ function harness(
     return originalStart(backupOptions);
   };
 
-  const sleeps: number[] = [];
   const logs: { level: string; message: string; fields: unknown }[] = [];
   const runner = new BackupRunner({
     transport,
     store,
     verifier,
     state,
-    notifier,
     log: (level, message, fields) => {
       logs.push({ level, message, fields });
     },
     clock: () => new Date("2026-11-24T20:00:00Z"),
-    sleep: (ms) => {
-      order.push("sleep");
-      sleeps.push(ms);
-      return Promise.resolve();
-    },
-    headsUpLeadSeconds: 5,
   });
-  return { runner, transport, store, sent, order, sleeps, verified, logs };
+  return { runner, transport, store, order, verified, logs };
 }
 
 describe("BackupRunner", () => {
-  it("warns the owner, waits, backs up, then verifies, in that order", async () => {
+  it("backs up, then verifies, and says so in the log", async () => {
     const h = harness();
     h.transport.onBackup = (run) => run.succeed(355_000);
 
     const report = await h.runner.run(device, HOST);
 
-    expect(h.order).toEqual([
-      "notify:backup-starting",
-      "sleep",
-      "backup",
-      "verify",
-      "notify:backup-succeeded",
-    ]);
-    expect(h.sleeps).toEqual([5000]);
+    expect(h.order).toEqual(["backup", "verify"]);
     expect(report).toEqual({
       runId: report.runId,
       outcome: "succeeded",
       durationMs: 355_000,
     });
-  });
-
-  it("does not make an owner who has just asked for the backup wait for it", async () => {
-    const h = harness();
-    h.transport.onBackup = (run) => run.succeed(1000);
-
-    const report = await h.runner.run(device, HOST, undefined, { ownerIsWaiting: true });
-
-    // Still announced, for the log and whatever listens later; just no pause.
-    expect(h.order).toEqual([
-      "notify:backup-starting",
-      "backup",
-      "verify",
-      "notify:backup-succeeded",
-    ]);
-    expect(h.sleeps).toEqual([]);
-    expect(report.outcome).toBe("succeeded");
+    expect(h.logs.map((entry) => entry.message)).toEqual(["backup starting", "backup succeeded"]);
   });
 
   it("backs up over TCP at the address it was given, into the device's directory", async () => {
@@ -246,7 +201,11 @@ describe("BackupRunner", () => {
       failureReason: "device-locked",
       prompted: true,
     });
-    expect(h.sent.at(-1)).toMatchObject({ kind: "backup-failed", reason: "device-locked" });
+    expect(h.logs.at(-1)).toMatchObject({
+      level: "warning",
+      message: "backup failed",
+      fields: { reason: "device-locked" },
+    });
   });
 
   it("does not preserve a backup that fails verification", async () => {
@@ -321,19 +280,16 @@ describe("BackupRunner", () => {
     expect(await h.store.verified("mike")).toBeUndefined();
   });
 
-  it("keeps an earlier verified mark when a run never reaches the phone", async () => {
-    const h = harness({
-      notify: (n) =>
-        n.kind === "backup-starting" && h.transport.backups.length > 0
-          ? Promise.reject(new Error("push service unreachable"))
-          : Promise.resolve(),
-    });
+  it("keeps an earlier verified mark when a run is cancelled before it touches the backup", async () => {
+    const h = harness();
     await h.runner.run(device, HOST);
     const before = await h.store.verified("mike");
+    const controller = new AbortController();
+    controller.abort();
 
-    const report = await h.runner.run(device, HOST);
+    const report = await h.runner.run(device, HOST, controller.signal);
 
-    expect(report).toMatchObject({ outcome: "failed", reason: "heads-up-failed" });
+    expect(report).toMatchObject({ outcome: "failed", reason: "cancelled" });
     expect(await h.store.verified("mike")).toEqual(before);
   });
 
@@ -350,34 +306,7 @@ describe("BackupRunner", () => {
     );
   });
 
-  it("never starts a backup if the heads-up could not be sent", async () => {
-    const h = harness({
-      notify: (n) =>
-        n.kind === "backup-starting"
-          ? Promise.reject(new Error("push service unreachable"))
-          : Promise.resolve(),
-    });
-
-    const report = await h.runner.run(device, HOST);
-
-    expect(report).toMatchObject({ outcome: "failed", reason: "heads-up-failed" });
-    expect(h.transport.backups).toEqual([]);
-    expect(state.getRun(report.runId)).toMatchObject({ prompted: false });
-  });
-
-  it("keeps the recorded outcome when the result notification fails", async () => {
-    const h = harness({
-      notify: (n) =>
-        n.kind === "backup-succeeded"
-          ? Promise.reject(new Error("push service unreachable"))
-          : Promise.resolve(),
-    });
-    const report = await h.runner.run(device, HOST);
-    expect(report.outcome).toBe("succeeded");
-    expect(state.getRun(report.runId)?.outcome).toBe("succeeded");
-  });
-
-  it("stops without starting a backup when cancelled during the heads-up wait", async () => {
+  it("stops without starting a backup when already cancelled", async () => {
     const h = harness();
     const controller = new AbortController();
     controller.abort();

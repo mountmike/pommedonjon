@@ -45,7 +45,6 @@ describe("parseConfig", () => {
       backupRoot: "/etc/pommedonjon/backups",
       stateDir: "/var/lib/pommedonjon",
       pollIntervalSeconds: 120,
-      headsUpLeadSeconds: 5,
       sidecar: { pythonPath: undefined, scriptPath: undefined },
       discovery: { ranges: [], scanIntervalSeconds: 300 },
       devices: [
@@ -172,7 +171,7 @@ describe("parseConfig", () => {
     [{ pollIntervalSecond: 60 }, /pollIntervalSecond is not a recognised setting/],
     [{ defaultPolicy: { window: { start: "25:00", end: "01:00" } } }, /window.start/],
     [{ defaultPolicy: { window: { start: "09:00", end: "09:00" } } }, /must differ/],
-    [{ headsUpLeadSeconds: 900 }, /between 0 and 300/],
+    [{ headsUpLeadSeconds: 5 }, /headsUpLeadSeconds is not a recognised setting/],
     [{ defaultPolicy: { trigger: "on-unlock" } }, /trigger must be "plugged-in" or "on-charger"/],
     [{ defaultPolicy: { dueAfterHours: 0 } }, /dueAfterHours must be at least 1/],
     [{ defaultPolicy: { minIntervalHours: 20 } }, /minIntervalHours is not a recognised setting/],

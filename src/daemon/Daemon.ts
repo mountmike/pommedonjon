@@ -1,5 +1,5 @@
 import type { DeviceConfig, PommedonjonConfig } from "../config/config.js";
-import type { Logger, Notifier } from "../notify/Notifier.js";
+import type { Logger } from "../log.js";
 import { isStale, readyToStart, schedule, type WaitReason } from "../policy/policy.js";
 import {
   INITIAL_POWER_STATE,
@@ -64,7 +64,6 @@ export interface DaemonDeps {
   readonly locator: Pick<DeviceLocator, "locate">;
   readonly runner: Pick<BackupRunner, "run">;
   readonly state: StateStore;
-  readonly notifier: Notifier;
   readonly log: Logger;
   readonly clock: () => Date;
   /** Which build this is, for the start-up log line. */
@@ -76,7 +75,6 @@ export interface DaemonDeps {
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far back the schedule looks for an earlier failure to pace itself by. */
 const HISTORY_MS = DAY_MS;
-const STALE_ALERT = "stale";
 
 /**
  * Decides, for each device, whether now is the moment to back up, and runs
@@ -93,6 +91,8 @@ export class Daemon {
   readonly #busy = new Set<string>();
   /** Backups started on request that have not finished yet. */
   readonly #requested = new Set<Promise<void>>();
+  /** When each phone's overdue backup was last warned about: daily, not every poll. */
+  readonly #staleWarnedAt = new Map<string, Date>();
   /** The signal `run` was given, so requested backups stop with the daemon. */
   #signal: AbortSignal | undefined;
 
@@ -207,8 +207,7 @@ export class Daemon {
         });
         return;
       }
-      // Either way the owner is at the phone, so the prompt needs no notice.
-      await runner.run(device, host, this.#signal, { ownerIsWaiting: true });
+      await runner.run(device, host, this.#signal);
       // The next scheduled pass should say afresh why it is waiting.
       this.#lastLogged.delete(device.id);
     } catch (error) {
@@ -263,7 +262,7 @@ export class Daemon {
     const now = clock();
     const lastSuccessAt = state.lastSuccessAt(device.id);
 
-    await this.#alertIfStale(device, lastSuccessAt, now);
+    this.#warnIfStale(device, lastSuccessAt, now);
 
     // A backup started on request is in hand: leave the phone to it.
     if (this.#busy.has(device.id)) {
@@ -353,29 +352,24 @@ export class Daemon {
     return after;
   }
 
-  async #alertIfStale(
-    device: DeviceConfig,
-    lastSuccessAt: Date | undefined,
-    now: Date,
-  ): Promise<void> {
-    const { state, notifier, log } = this.deps;
-    if (!lastSuccessAt || !isStale(device.policy, lastSuccessAt, now)) return;
-    const lastAlert = state.lastAlertAt(device.id, STALE_ALERT);
-    if (lastAlert && now.getTime() - lastAlert.getTime() < DAY_MS) return;
-    try {
-      await notifier.notify({
-        kind: "backup-stale",
-        deviceId: device.id,
-        deviceName: device.name,
-        lastSuccessAt,
-      });
-      state.recordAlert(device.id, STALE_ALERT, now);
-    } catch (error) {
-      log("error", "could not send the stale-backup alert", {
-        device: device.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+  /**
+   * Say so, once a day, while a phone has gone too long without a good
+   * backup. A backup service usually fails by stopping quietly, and until
+   * there is a status page the log is where that has to show.
+   */
+  #warnIfStale(device: DeviceConfig, lastSuccessAt: Date | undefined, now: Date): void {
+    if (!lastSuccessAt || !isStale(device.policy, lastSuccessAt, now)) {
+      this.#staleWarnedAt.delete(device.id);
+      return;
     }
+    const warnedAt = this.#staleWarnedAt.get(device.id);
+    if (warnedAt && now.getTime() - warnedAt.getTime() < DAY_MS) return;
+    this.#staleWarnedAt.set(device.id, now);
+    this.deps.log("warning", "no good backup for too long", {
+      device: device.id,
+      lastSuccessAt: lastSuccessAt.toISOString(),
+      staleAfterHours: device.policy.staleAfterHours,
+    });
   }
 
   #logChange(outcome: DeviceOutcome): void {

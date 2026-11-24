@@ -1,5 +1,5 @@
 import type { DeviceConfig } from "../config/config.js";
-import type { Logger } from "../notify/Notifier.js";
+import type { Logger } from "../log.js";
 import {
   DeviceError,
   type DeviceStatus,

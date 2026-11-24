@@ -1,5 +1,5 @@
 import type { DeviceConfig } from "../config/config.js";
-import type { Logger, Notifier } from "../notify/Notifier.js";
+import type { Logger } from "../log.js";
 import type { StateStore } from "../state/StateStore.js";
 import type { BackupStore } from "../storage/BackupStore.js";
 import type { BackupVerifier } from "../storage/BackupVerifier.js";
@@ -21,7 +21,7 @@ export type RunReport =
       readonly outcome: "failed";
       /**
        * A transport failure reason ("device-locked", "unreachable", ...) or
-       * one of this runner's own: "heads-up-failed", "verification-failed".
+       * this runner's own "verification-failed".
        */
       readonly reason: string;
       readonly message: string;
@@ -32,21 +32,8 @@ export interface BackupRunnerDeps {
   readonly store: BackupStore;
   readonly verifier: BackupVerifier;
   readonly state: StateStore;
-  readonly notifier: Notifier;
   readonly log: Logger;
   readonly clock: () => Date;
-  /** Resolves after the delay, or early if the signal aborts. */
-  readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
-  /** Gap between the heads-up notification and the backup starting. */
-  readonly headsUpLeadSeconds: number;
-}
-
-export interface RunOptions {
-  /**
-   * The owner has just asked for this backup and is waiting for the prompt,
-   * so there is nobody to give notice to: start without the heads-up pause.
-   */
-  readonly ownerIsWaiting?: boolean;
 }
 
 /** Progress is recorded only when it crosses one of these steps. */
@@ -66,8 +53,10 @@ function describe(error: unknown): string {
 }
 
 /**
- * Carries one backup from start to finish: warn the owner, back up, verify
- * the result, and record what happened. Whatever goes wrong, the run is
+ * Carries one backup from start to finish: back up, verify the result, and
+ * record what happened. The phone's own passcode prompt is the only notice
+ * its owner gets, so whoever calls this should have reason to think they
+ * are at the phone. Whatever goes wrong, the run is
  * recorded as finished, and the backup is only marked as verified when it
  * is.
  */
@@ -78,19 +67,14 @@ export class BackupRunner {
    * @param host Where the phone is, as found by whoever decided to back it
    *   up. The runner does not go looking for it.
    */
-  async run(
-    device: DeviceConfig,
-    host: string,
-    signal?: AbortSignal,
-    options: RunOptions = {},
-  ): Promise<RunReport> {
-    const { state, clock, log, notifier } = this.deps;
+  async run(device: DeviceConfig, host: string, signal?: AbortSignal): Promise<RunReport> {
+    const { state, clock, log } = this.deps;
     const runId = state.startRun(device.id, clock());
     log("info", "backup starting", { device: device.id, runId });
 
     let report: RunReport;
     try {
-      const { durationMs } = await this.#attempt(device, host, runId, signal, options);
+      const { durationMs } = await this.#attempt(device, host, runId, signal);
       state.finishRun(runId, clock(), { outcome: "succeeded", durationMs });
       report = { runId, outcome: "succeeded", durationMs };
       log("info", "backup succeeded", { device: device.id, runId, durationMs });
@@ -105,31 +89,6 @@ export class BackupRunner {
       log("warning", "backup failed", { device: device.id, runId, reason, message });
     }
 
-    // The outcome is already recorded; a notifier fault must not change it.
-    try {
-      await notifier.notify(
-        report.outcome === "succeeded"
-          ? {
-              kind: "backup-succeeded",
-              deviceId: device.id,
-              deviceName: device.name,
-              durationMs: report.durationMs,
-            }
-          : {
-              kind: "backup-failed",
-              deviceId: device.id,
-              deviceName: device.name,
-              reason: report.reason,
-              message: report.message,
-            },
-      );
-    } catch (error) {
-      log("error", "could not send the result notification", {
-        device: device.id,
-        runId,
-        error: describe(error),
-      });
-    }
     return report;
   }
 
@@ -138,29 +97,9 @@ export class BackupRunner {
     host: string,
     runId: number,
     signal: AbortSignal | undefined,
-    options: RunOptions,
   ): Promise<{ durationMs: number }> {
-    const { transport, store, verifier, state, notifier, clock, sleep, log } = this.deps;
+    const { transport, store, verifier, state, clock, log } = this.deps;
 
-    // The passcode prompt explains nothing, so an unannounced one is
-    // indistinguishable from something to distrust. No heads-up, no backup.
-    try {
-      await notifier.notify({
-        kind: "backup-starting",
-        deviceId: device.id,
-        deviceName: device.name,
-      });
-    } catch (error) {
-      throw new RunFailure(
-        "heads-up-failed",
-        `the heads-up notification could not be sent, so no backup was started: ${describe(error)}`,
-      );
-    }
-    // The pause gives the notice time to arrive before the prompt does.
-    // Someone who has just asked for the backup needs no notice.
-    if (!options.ownerIsWaiting) {
-      await sleep(this.deps.headsUpLeadSeconds * 1000, signal);
-    }
     if (signal?.aborted) throw new BackupError("backup cancelled", "cancelled");
 
     // From here the backup on disk is being changed, so it stops counting as

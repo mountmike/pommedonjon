@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { startApiServer } from "./api/ApiServer.js";
 import { createApp, type App } from "./app.js";
 import { ConfigError, loadConfig, type DeviceConfig } from "./config/config.js";
-import { jsonLogger } from "./notify/Notifier.js";
+import { jsonLogger } from "./log.js";
 import { buildReport, formatReport } from "./report/report.js";
 import { inspectPairRecord } from "./credentials/pairRecord.js";
 import { DeviceError } from "./transport/DeviceTransport.js";

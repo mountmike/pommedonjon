@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { startApiServer, type ApiServer } from "../../src/api/ApiServer.js";
 import type { BackupRequestResult, PlugInReportResult } from "../../src/daemon/Daemon.js";
-import type { LogLevel } from "../../src/notify/Notifier.js";
+import type { LogLevel } from "../../src/log.js";
 
 let server: ApiServer | undefined;
 afterEach(async () => {

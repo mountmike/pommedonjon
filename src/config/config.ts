@@ -146,8 +146,6 @@ const ConfigFileSchema = z.strictObject(
     stateDir: text,
     /** How often each device is considered for a backup. */
     pollIntervalSeconds: number({ min: 10 }).default(120),
-    /** Gap between the heads-up notification and the backup starting. */
-    headsUpLeadSeconds: number({ min: 0, max: 300 }).default(5),
     sidecar: z
       .strictObject(
         { pythonPath: text.optional(), scriptPath: text.optional() },

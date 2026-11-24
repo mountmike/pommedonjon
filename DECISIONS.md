@@ -260,11 +260,12 @@ along with notifications, and then dropped:
   (D7, O22), so the prompt arrives while they are holding the phone. The
   prompt is the notice (O1).
 
-**Built.** The runner still announces a backup through its notification
-hook, which only writes to the service log, and still pauses for
-`headsUpLeadSeconds` (5 s) before a backup the schedule started. A backup
-asked for from the phone skips the pause. With no heads-up to wait for, the
-hook and the pause are left over; whether to remove them is with the owner.
+**Built.** There is no heads-up and no pause: a backup starts as soon as it
+is decided. The notification hook, the `headsUpLeadSeconds` setting and the
+record of sent alerts were removed on 2026-11-24, with the owner's
+agreement, as left over. What notifications were still for is in O1; the
+one warning that matters, a phone gone too long without a good backup, is
+written to the log once a day until there is a status page to show it.
 
 ### D10. Encrypted backups only
 
