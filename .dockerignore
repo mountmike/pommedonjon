@@ -8,6 +8,7 @@ local/
 **/node_modules/
 **/dist/
 **/coverage/
+**/.expo/
 **/__pycache__/
 *.md
 compose*.yaml

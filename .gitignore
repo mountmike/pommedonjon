@@ -48,6 +48,8 @@ spike-logs/
 # --- Project ---
 node_modules/
 dist/
+.expo/
+expo-env.d.ts
 coverage/
 *.tsbuildinfo
 .pnpm-store/
@@ -67,3 +69,7 @@ data/
 .DS_Store
 .idea/
 .vscode/
+
+# Generated native projects for the app
+apps/app/ios/
+apps/app/android/

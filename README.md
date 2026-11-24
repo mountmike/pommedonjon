@@ -140,6 +140,15 @@ backup falls due at 3 a.m.; it is backed up at the next plug-in. With
 pommedonjon has to see the phone go onto power to call it a plug-in. A phone
 already charging when the service starts waits for its next plug-in.
 
+### The web app
+
+With `api.port` set, the server also serves a web app at that address, for
+example `http://<server>:8377`. It shows every phone and its state, what
+each is waiting for, and a running backup step by step. It is read-only so
+far; [DESIGN.md](DESIGN.md) describes where it is going. The same
+information is available as JSON from `GET /api/devices` and
+`GET /api/devices/<id>`.
+
 ### Backing up on request
 
 Set `api.port` and the service also takes two requests, meant to be sent
@@ -286,6 +295,8 @@ it:
 | Workspace | Holds |
 |---|---|
 | `apps/server` | The daemon, its API and the Python sidecar. The product's version and changelog live here |
+| `apps/app` | The app, built with Expo: one codebase for the web app and the iPhone app. The server serves its web build |
+| `packages/api-contract` | The shape of every reply between the two, as Zod schemas both sides use |
 | `tools/deploy` | The command that deploys to the test environment |
 
 In each, source is under `src/` and tests under `test/`, in the same folder

@@ -4,5 +4,15 @@
   "commit": false,
   "access": "restricted",
   "baseBranch": "main",
-  "privatePackages": { "version": true, "tag": true }
+  "privatePackages": {
+    "version": true,
+    "tag": true
+  },
+  "fixed": [
+    [
+      "pommedonjon",
+      "@pommedonjon/app",
+      "@pommedonjon/api-contract"
+    ]
+  ]
 }

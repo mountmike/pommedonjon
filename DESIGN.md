@@ -249,10 +249,14 @@ Why this one: the owner wants a real iPhone app (D23), and this is the kit
 that puts actual native controls on the phone while still producing the web
 app.
 
-**What is not yet known,** and the first screen will settle: how polished
-its web output is, and its release status. If either disappoints, the
-fallback is NativeWind with React Native Reusables: one hand-styled look on
-both platforms, more of it ours to maintain, and no native controls.
+**Checked on the web, 2026-11-24,** with the first screen built: its
+buttons and switch look right in light and dark and take the theme's blue.
+Its list rows come out plain on the web, with no card behind them and no
+dividers, so on the web our own card goes around them. Good enough to keep.
+Not yet seen: the same components on an iPhone, which is where they are
+native. The fallback, if that disappoints, remains NativeWind with React
+Native Reusables: one hand-styled look on both platforms, more of it ours
+to maintain, and no native controls.
 
 Considered and not recommended: Tamagui (the most capable for web plus
 native, and the heaviest to set up for an app this small), gluestack-ui
