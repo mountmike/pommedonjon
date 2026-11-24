@@ -130,38 +130,44 @@ turns the automatic mode off.
 
 ### Theme
 
-The name is an apple (*pomme*) and a castle keep (*donjon*): something
-ordinary, kept somewhere solid. The look should be calm and sturdy with a
-little warmth, and not a medieval costume.
+*Chosen by the owner, 2026-11-24:* **System.** The app looks like the
+iPhone's own apps: the grouped grey background, white cards, the system's
+blue for the main action, and the system's green, orange and red for a
+phone's state. The first proposal, warm stone with a green button, was not
+liked; two other alternatives (a dark, high-contrast one and a cream and
+red one) were shown and passed over.
 
-- Warm stone for surfaces, in place of pure grey.
-- Colour carries state and nothing else. There is no brand colour competing
-  with it.
-- The motif appears in two places only: the app icon, and the empty state
-  before any phone is added. Direction for the icon: an apple whose top edge
-  is a battlement.
+Why it suits this app: the controls are the phone's own (see [Component
+kit](#component-kit)), and they already look like this. A custom palette
+would have to fight them.
+
+The name's apple and castle keep appear in the app icon and in the empty
+state before any phone is added, and nowhere else.
 
 ### Colour
 
-Four state colours on warm neutrals, for light and dark. Every text pairing
-below was computed and meets the 4.5 to 1 contrast needed for body text.
+**On the iPhone, the system's own named colours are used**, not fixed
+values: they follow light and dark, and the phone's accessibility settings
+(increased contrast, for instance), with nothing for the app to do.
 
-| Token | Used for | Light | Dark |
-|---|---|---|---|
-| `background` | Behind everything | `#F6F4F0` | `#151412` |
-| `surface` | Cards, sheets | `#FFFFFF` | `#201E1B` |
-| `ink` | Text | `#1F1D1A` | `#F1EEE8` |
-| `muted` | Secondary text | `#5F5A52` | `#A8A297` |
-| `line` | Hairlines, decorative only | `#DDD8CF` | `#38342E` |
-| `safe` | Backed up; the main button | `#256B45` | `#6FD19A` |
-| `due` | Due, never backed up | `#8A5A0B` | `#F0C062` |
-| `overdue` | Overdue, needs you | `#A8321F` | `#F59480` |
-| `busy` | A backup in progress | `#2B5C94` | `#8FBBEE` |
+**On the web, these values stand in for them.** Every text pairing was
+computed and meets the 4.5 to 1 contrast needed for body text.
 
-Each state colour also has a pale tint for the area behind it (for example
-`safe` on `#E3F1E8` in light, `#1C3327` in dark). Lowest contrast measured:
-`due` text on its own tint in light, 5.1 to 1; `muted` on `background`,
-6.2 to 1.
+| Token | Used for | On the iPhone | Web, light | Web, dark |
+|---|---|---|---|---|
+| `background` | Behind everything | grouped background | `#F2F2F7` | `#000000` |
+| `surface` | Cards, sheets | secondary grouped background | `#FFFFFF` | `#1C1C1E` |
+| `ink` | Text | label | `#000000` | `#FFFFFF` |
+| `muted` | Secondary text | secondary label | `#6C6C70` | `#AEAEB2` |
+| `tint` | The main button, links, a backup in progress | the app's tint, system blue | `#0066CC` | `#4DA3FF` |
+| `safe` | Backed up | system green | `#1E7B34` | `#30D158` |
+| `due` | Due, never backed up | system orange | `#8A4B00` | `#FF9F0A` |
+| `overdue` | Overdue, needs you | system red | `#C4281C` | `#FF6961` |
+
+The web values are darker than the system's in light mode, and the web's
+dark button carries dark text, because the system's own blue with white
+text measures 3.7 to 1, under the threshold. Lowest contrast measured on the
+web: `muted` on `background` in light, 4.7 to 1.
 
 The app follows the system's light or dark setting.
 
@@ -173,7 +179,7 @@ The app follows the system's light or dark setting.
 - **Sizes:** 34 for a phone's state, 22 for headings, 17 for body, 15 and 13
   for secondary text.
 - **Space:** multiples of 4: 4, 8, 12, 16, 24, 32.
-- **Shape:** cards with 16 corners, buttons with 12. Anything tappable is at
+- **Shape:** cards with 12 corners, buttons with 10, as the system's own. Anything tappable is at
   least 44 points tall.
 - **Icons:** the system's symbols, one per state: a filled tick, a clock, a
   warning triangle, a progress ring.
@@ -244,9 +250,8 @@ Answered on 2026-11-24:
   app can press any phone's button and change any schedule. Accepted for
   now.
 - **The kit:** Expo UI, with the fallback as described.
-- **The theme:** the one in [Look](#look) was not liked. Three alternatives
-  have been put to the owner; the Theme and Colour sections stand until one
-  is chosen, and then get rewritten.
+- **The theme:** System, chosen from three alternatives after the first
+  proposal was not liked. See [Look](#look).
 - **The icon:** mock-ups have been put to the owner.
 
 Still open:
