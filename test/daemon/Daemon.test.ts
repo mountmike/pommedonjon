@@ -75,6 +75,7 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
   let onSleep = (): void => undefined;
   const scanner = { enabled: false, candidates: () => Promise.resolve<string[]>([]) };
   const hosts: string[] = [];
+  const runOptions: unknown[] = [];
   const daemon = new Daemon({
     config,
     locator: new DeviceLocator({
@@ -85,9 +86,10 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
       clock: () => now,
     }),
     runner: {
-      run: (device, host) => {
+      run: (device, host, _signal, options) => {
         ran.push(device.id);
         hosts.push(host);
+        runOptions.push(options);
         return runImpl(device);
       },
     },
@@ -115,6 +117,7 @@ function harness(devices: DeviceConfig[] = [deviceConfig()]) {
     logs,
     ran,
     hosts,
+    runOptions,
     scanner,
     sleeps,
     setNow: (date: Date) => {
@@ -735,7 +738,7 @@ describe("Daemon.requestBackup", () => {
     expect(state.deviceEventsSince("mike", at(0))).toContainEqual({
       at: at(19),
       kind: "requested",
-      detail: {},
+      detail: { source: "request" },
     });
   });
 
@@ -763,6 +766,125 @@ describe("Daemon.requestBackup", () => {
     release.open();
     await running;
     expect(h.logs.at(-1)?.message).toBe("pommedonjon stopped");
+  });
+});
+
+describe("Daemon.reportPlugIn", () => {
+  /** The default policy: backups wait for a plug-in the daemon has seen. */
+  const plugInPolicy = () => deviceConfig({ policy: DEFAULT_POLICY });
+
+  it("backs up a phone that says it was plugged in when a backup is due, without having seen it happen", async () => {
+    const h = harness([plugInPolicy()]);
+    // Polling found it already charging, so by its own lights it is still
+    // waiting for a plug-in.
+    expect(await h.daemon.tick()).toMatchObject([
+      { action: "waited", reason: "waiting-for-plug-in" },
+    ]);
+
+    expect(h.daemon.reportPlugIn("mike")).toEqual({ outcome: "started" });
+    await settle();
+
+    expect(h.ran).toEqual(["mike"]);
+    expect(state.deviceEventsSince("mike", at(0))).toContainEqual({
+      at: at(19),
+      kind: "requested",
+      detail: { source: "plug-in" },
+    });
+  });
+
+  it("starts nothing when no backup is due, and says when one will be", async () => {
+    const h = harness([plugInPolicy()]);
+    const earlier = state.startRun("mike", at(18));
+    state.finishRun(earlier, at(18, 5), { outcome: "succeeded", durationMs: 1 });
+
+    const due = new Date(at(18, 5).getTime() + DEFAULT_POLICY.dueAfterHours * 60 * 60 * 1000);
+    expect(h.daemon.reportPlugIn("mike")).toEqual({
+      outcome: "not-now",
+      reason: "not-due",
+      until: due,
+    });
+    await settle();
+
+    expect(h.ran).toEqual([]);
+    expect(h.logs).toContainEqual({
+      level: "info",
+      message: "plug-in reported, no backup started",
+      fields: { device: "mike", reason: "not-due", until: due.toISOString() },
+    });
+    expect(state.deviceEventsSince("mike", at(0))).toContainEqual({
+      at: at(19),
+      kind: "plug-in-reported",
+      detail: { reason: "not-due", until: due.toISOString() },
+    });
+  });
+
+  it("leaves the phone alone after its owner dismissed a prompt, unlike a request to back up now", async () => {
+    const h = harness();
+    h.setRun(failRun("passcode-cancelled", at(19)));
+    await h.daemon.tick();
+    h.setNow(at(19, 30));
+
+    expect(h.daemon.reportPlugIn("mike")).toMatchObject({
+      outcome: "not-now",
+      reason: "backing-off",
+    });
+    await settle();
+    expect(h.ran).toEqual(["mike"]);
+  });
+
+  it("keeps to the allowed hours", async () => {
+    const h = harness([
+      deviceConfig({
+        policy: { ...DEFAULT_POLICY, window: { startMinutes: 7 * 60, endMinutes: 9 * 60 } },
+      }),
+    ]);
+    expect(h.daemon.reportPlugIn("mike")).toMatchObject({
+      outcome: "not-now",
+      reason: "outside-window",
+    });
+    await settle();
+    expect(h.ran).toEqual([]);
+  });
+
+  it("does not know a device that is not configured", () => {
+    const h = harness();
+    expect(h.daemon.reportPlugIn("laurel")).toEqual({ outcome: "unknown-device" });
+  });
+
+  it("says a backup is already running rather than starting another", async () => {
+    const h = harness();
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+
+    expect(h.daemon.requestBackup("mike")).toBe("started");
+    expect(h.daemon.reportPlugIn("mike")).toEqual({ outcome: "already-running" });
+    await settle();
+    expect(h.daemon.reportPlugIn("mike")).toEqual({ outcome: "already-running" });
+
+    release.open();
+    await settle();
+    expect(h.ran).toEqual(["mike"]);
+  });
+
+  it("tells the runner the owner is at the phone, as a request to back up now does", async () => {
+    const h = harness([plugInPolicy()]);
+    h.daemon.reportPlugIn("mike");
+    await settle();
+    h.setNow(at(19, 0, 2));
+    h.daemon.requestBackup("mike");
+    await settle();
+    expect(h.runOptions).toEqual([{ ownerIsWaiting: true }, { ownerIsWaiting: true }]);
+  });
+
+  it("does not skip the notice for a backup the schedule started", async () => {
+    const h = harness();
+    await h.daemon.tick();
+    expect(h.runOptions).toEqual([undefined]);
   });
 });
 
