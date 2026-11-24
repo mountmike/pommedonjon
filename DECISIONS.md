@@ -608,7 +608,7 @@ messages cite them.
 | O23 | The design brief: theme, component kit, screens | next, before any screens |
 | O24 | Settings without a config file | the owner's yes to the proposal |
 | O25 | Adding a phone from the app | a test of pairing from the browser |
-| O26 | What starts a backup: a button or a schedule | decided by the owner; the automatic mode waits on a lock-state test |
+| O26 | What starts a backup: a button or a schedule | decided by the owner; the automatic mode's rules are for the design brief |
 | O27 | Sign-in | later; direction proposed |
 
 ### O8. Remote backups over the tailnet
@@ -813,7 +813,7 @@ What it could use:
 |---|---|---|
 | At home | The phone answers on the network | Yes |
 | On power, and just plugged in | The server asks the phone | Yes (attempts 15 and 16) |
-| Unlocked, or just unlocked | The server asks the phone | **Not yet measured.** The phone reports a value that should say; whether it changes with the lock on iOS 26 is the first thing to test |
+| Unlocked, or just unlocked | The server asks the phone, or listens to it | **Yes, measured 2026-11-24.** A value the phone reports follows the lock, and the phone also announces locking, waking and unlocking as they happen (FINDINGS.md, "Lock state, seen from the server") |
 | The app is open | The app tells the server | Certain, once there is an app. The strongest sign of all that the owner is there |
 | When prompts were answered before | The run history (O16) | Recorded since the trial began |
 | A cancel | The transport (O17) | Yes; already buys a long pause (D8) |
@@ -823,6 +823,12 @@ backup is due, wait for the best moment on offer, in this order: the app
 is opened; the phone has just been unlocked at home; it has just been
 plugged in. If none comes within a set time, fall back to asking on the
 charger, inside any hours the owner allows.
+
+So the automatic mode can time a prompt to the moment its owner unlocks
+the phone. What that costs is not known yet: hearing it as it happens means
+holding a connection to the phone open, and whether that survives the
+phone sleeping, and what it does to the battery, are unmeasured. A sensible
+first rule: only listen once a backup is due.
 
 This brings back O2 (prompt just after an unlock), which was closed when
 prompting a locked phone turned out to be acceptable. Acceptable is not

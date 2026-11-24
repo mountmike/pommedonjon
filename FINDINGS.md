@@ -27,6 +27,8 @@ As of 2026-11-24, on one iPhone running iOS 26.6.1:
   VLAN, writing to a NAS over NFS, the daemon saw the phone go on charge,
   started a backup, retried after a failure and produced a verified
   incremental (attempts 15 and 16).
+- **The server can see the phone being unlocked**, as it happens, from
+  another VLAN and without anything showing on the phone.
 - **The phone can ask for its own backup.** A Shortcut on the home screen
   starts one with the prompt 5.4 s after the tap, and a charger automation
   reports each plug-in without asking (see DECISIONS.md O22).
@@ -357,6 +359,47 @@ NFS 4.2:
   repair.
 - An incremental backup writes far fewer files, so this mostly matters for
   a first full backup.
+
+### Lock state, seen from the server (2026-11-24)
+
+Measured from the server, on another VLAN, with read-only lockdown queries
+while the owner locked and unlocked the phone twice over 75 seconds. Nothing
+appeared on the phone.
+
+Two things were watched: the lockdown value `PasswordProtected`, asked for
+once a second, and three notifications relayed by the phone's notification
+service over a connection held open.
+
+| Time | What the owner did | `PasswordProtected` | Notifications |
+|---|---|---|---|
+| +0.8 s | (phone unlocked) | false | |
+| +9.7 to 10.0 s | Locked it | true | screen blanked, lock complete, lock state |
+| +12.0 s | Woke it | | screen changed |
+| +13.1 s | Face ID recognised them | false | |
+| +16.8 s | Went past the lock screen | | lock state |
+| +34.7 s | Locked it | true | screen blanked, lock state, lock complete |
+| +45.7 s | Woke it | | screen changed |
+| +46.4 s | Face ID recognised them | false | |
+| +48.6 s | Went past the lock screen | | lock state |
+| +66.3 to 67.1 s | Locked it | true | screen blanked, lock complete, lock state |
+
+The right-hand columns are measured; what the owner did at each moment is
+read back from them and from the sequence asked for, not timed separately.
+
+- **`PasswordProtected` follows the lock** on iOS 26.6.1: true while
+  locked, false once the phone has recognised its owner. It is not just
+  "this phone has a passcode".
+- **The notifications arrive as it happens**, with no polling: the screen
+  going on or off, the phone locking, and the owner passing the lock
+  screen.
+- **The value turns false a few seconds before the lock-state
+  notification.** Read as: the phone unlocks when Face ID succeeds, and the
+  notification comes when the owner swipes past the lock screen.
+- The screen notification is the same for on and off. Which it was has to
+  be worked out from the order.
+- Not measured: how long a listening connection survives with the phone
+  asleep, what holding one open costs the phone's battery, and whether any
+  of this holds on battery overnight.
 
 ### Overnight reachability (night of 2026-11-23)
 
