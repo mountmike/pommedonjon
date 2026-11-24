@@ -118,6 +118,23 @@ describe("BackupRunner", () => {
     });
   });
 
+  it("does not make an owner who has just asked for the backup wait for it", async () => {
+    const h = harness();
+    h.transport.onBackup = (run) => run.succeed(1000);
+
+    const report = await h.runner.run(device, HOST, undefined, { ownerIsWaiting: true });
+
+    // Still announced, for the log and whatever listens later; just no pause.
+    expect(h.order).toEqual([
+      "notify:backup-starting",
+      "backup",
+      "verify",
+      "notify:backup-succeeded",
+    ]);
+    expect(h.sleeps).toEqual([]);
+    expect(report.outcome).toBe("succeeded");
+  });
+
   it("backs up over TCP at the address it was given, into the device's directory", async () => {
     const h = harness();
     await h.runner.run(device, HOST);
