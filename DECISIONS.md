@@ -141,8 +141,8 @@ stored on the server. See D19.
 *Decided by the owner, 2026-11-24: discovery is in scope for the first
 build.* This replaces "configured address only".
 
-What exists today: each phone has a `host` in the config, which is an IP
-address or a DNS name. Nothing else identifies where the phone is.
+What existed before: each phone had a `host` in the config, an IP address
+or a DNS name, and nothing else said where the phone was.
 
 How stable that is:
 
@@ -155,7 +155,7 @@ How stable that is:
 - So a fixed address is only as stable as two settings the owner has to get
   right, on the router and on the phone.
 
-What happens today when the address is wrong: the probe fails and the phone
+What happened then when the address was wrong: the probe fails and the phone
 is treated as away, indefinitely. It can never back up the wrong phone,
 because the connection is authenticated with that phone's pair record and
 the UDID it reports is checked (D4).
@@ -245,20 +245,26 @@ A cancel can be told apart (O17) and buys a pause of four hours
 nag the same evening, short enough that a cancel at breakfast does not cost
 the evening's backup.
 
-### D9. Heads-up before a backup: deferred with notifications
+### D9. No heads-up before a backup
 
-*Revised 2026-11-24.* The original rule was "no heads-up, no backup",
-because a locked phone showed a bare keypad with no explanation.
+*Settled by the owner, 2026-11-24, in two steps.*
 
-The evidence is now mixed. The owner has since seen a prompt with a message
-on an unlocked phone, and a keypad with a message on a locked one (attempt
-12). The bare keypad was seen once (attempt 8).
+The original rule was "no heads-up, no backup", because a locked phone
+showed a bare keypad with no explanation (attempt 8). It was first deferred
+along with notifications, and then dropped:
 
-- Notifications are their own later phase (O1), so the first build starts
-  backups without a heads-up reaching the phone.
-- The runner keeps its notification hook, which writes to the service log.
-- Prompting a locked phone is acceptable to the owner, now that a locked
-  prompt has been seen with a message (O2).
+- The prompt has since been seen with a message, on an unlocked phone and
+  on a locked one (attempt 12). Prompting a locked phone is acceptable to
+  the owner (O2).
+- A backup now starts when its owner plugs the phone in or taps a button
+  (D7, O22), so the prompt arrives while they are holding the phone. The
+  prompt is the notice (O1).
+
+**Built.** The runner still announces a backup through its notification
+hook, which only writes to the service log, and still pauses for
+`headsUpLeadSeconds` (5 s) before a backup the schedule started. A backup
+asked for from the phone skips the pause. With no heads-up to wait for, the
+hook and the pause are left over; whether to remove them is with the owner.
 
 ### D10. Encrypted backups only
 
@@ -417,8 +423,7 @@ the project runs on Node 26.
 How that is built, by judgement:
 
 - **Every commit on `main` becomes an image** tagged `edge` and
-  `sha-<commit>`. The test stack follows `edge`, so merging is deploying to
-  test.
+  `sha-<commit>`.
 - **A release is the merge of the "Version Packages" pull request** that
   Changesets maintains. The pipeline then tags `v<version>` and pushes the
   image as `<version>`, `<major>.<minor>` and `latest`. Production follows a
@@ -433,11 +438,13 @@ How that is built, by judgement:
 - **The image carries its commit**, shown by `--version` and in the
   start-up log, since every build between two releases has the same version.
 
-Since then:
+Since then, all of it has run: the repository is on GitHub (D22), commits
+on `main` publish `edge`, and merging the "Version Packages" pull request
+released 0.1.0.
 
-- The repository is on GitHub (D22) and the workflow's test job has run and
-  passed on the first pull request. Its release and image jobs only run on
-  `main` and have not run yet.
+*From the owner, 2026-11-24:* while the only thing running pommedonjon is
+the test stack, work goes onto one branch, `dev`, with no pull requests.
+`main` keeps its protection and moves when the owner asks.
 
 **Test does not go through the pipeline at all.** The owner asked for the
 quickest path from a development session to a test environment managed by
@@ -463,8 +470,10 @@ Komodo. So:
   repository, because the compose file has to travel with the code it
   builds. That is a departure from how the owner's other stacks are kept.
 
-Not verified: any of it against a real Komodo. The API calls follow the
-documentation; no key has been available to try them.
+Verified against the owner's Komodo (2.2.0): a deploy from a development
+session takes about 75 seconds. Reading the stack's log through the API
+needs a permission the key was not given, so `pnpm deploy:test logs` does
+not work there yet; the log is read on the server instead.
 
 One constraint the environments must respect: **a phone may be watched by
 only one daemon.** Two would each prompt it. So test and production cannot
@@ -503,6 +512,135 @@ personal one. The history was rewritten once, before the first push, to make
 that so; nothing else about the commits changed.
 
 ## Open
+
+Still needing a decision or a test. Items settled since the first review are
+under [Settled](#settled) below; they keep their numbers because commit
+messages cite them.
+
+| | Question | Waiting on |
+|---|---|---|
+| O8 | Remote backups over the tailnet | later |
+| O9 | Proving a backup restores | later |
+| O10 | How the first full backup is taken | later |
+| O11 | Pair record lifetime | later |
+| O12 | Persistent misconfiguration is silent | later |
+| O14 | Onboarding the second phone | next, with the second phone |
+| O15 | Connections that fail or drop | partly settled |
+| O16 | Plugged in, or on a charger? To be settled by the field trial | the field trial decides |
+| O18 | Which phone goes to which environment | needs the owner |
+| O21 | Getting the config and pair records in without copying files | the web UI phase |
+
+### O8. Remote backups over the tailnet
+
+*Later.* First evidence, 2026-11-24: the direct path does not work over the
+tailnet. The phone accepts a connection to port 62078 on its Tailscale
+address and then drops the lockdown session. Remote backups would need the
+RemotePairing tunnel or a relay on the home network.
+
+### O9. Proving a backup restores
+
+*Later.* Decrypting needs the backup password. Either the service is given
+it (a second secret to protect), or decryption checks are run by hand.
+
+### O10. How the first full backup is taken
+
+*Later.* A first backup is about 22 GB. Over USB to the Mac it took 13
+minutes; over WiFi it has not been timed. Seeding the server's directory
+from a USB backup works, and is how the owner's NAS was started: every
+backup there since has been an incremental. A phone with no computer to
+seed from would have to do the full one over WiFi.
+
+### O11. Pair record lifetime
+
+*Later.* One report says pair records can expire after days without contact.
+Not verified. If true, the service needs a re-pairing procedure and an
+alert.
+
+### O12. Persistent misconfiguration is silent
+
+*Later.* A rejected pair record or a failing probe is logged once and then
+waited on. Nothing alerts until the backup goes stale.
+
+### O14. Onboarding the second phone
+
+*Later.* It needs pairing on a Mac and backup encryption with a password its
+owner knows.
+
+### O15. Connections that fail or drop
+
+*Partly settled on evidence, 2026-11-24; the rest later.*
+
+- Settled: one failed connection does not mean the phone is away. The
+  sidecar now keeps dialling for 12 seconds. On battery the phone took up
+  to 6.7 seconds to accept a connection.
+- Open: a backup whose connection drops after the prompt has appeared
+  (attempt 12: passcode typed, session lost anyway). It is recorded as
+  `unreachable` although the owner was prompted. How soon to retry, and
+  whether that counts as an unanswered prompt, is not decided.
+- Open: the later connections a backup opens still have a one-second limit.
+
+### O16. Plugged in, or on a charger? To be settled by the field trial
+
+*The owner's call, 2026-11-24: test it for a week or two and watch.*
+
+- *On a charger* (a state): start whenever the phone is on power and a
+  backup is due. A phone left charging overnight can become due while its
+  owner is asleep, and with retries after every timeout (D8) it would light
+  up repeatedly until morning.
+- *Plugged in* (an event): start only in the minutes after the phone goes
+  onto power, while the owner is still holding it.
+
+My recommendation is the event, but this is a question about habits, not
+about the protocol, so it gets measured. What the trial has to record for
+each day: when the phone went onto and off power, when a backup became due,
+when each prompt was shown and whether it was answered, timed out or
+cancelled, and how long the backup took. What it has to answer:
+
+- How often does a prompt arrive when nobody is there to answer it?
+- Does a backup happen every day the phone is charged at home?
+- How many prompts does a normal day produce?
+
+Settled already: due after 20 hours, not 24 (D7).
+
+**Built for the trial:** the daemon stores every change in a phone's power
+state and every change in why it is waiting, alongside the run history, and
+`pommedonjon report` lays them out day by day with totals that answer the
+three questions above, including the hour at which unanswered prompts
+arrived. `--json` gives the same for analysis. A record in the database was
+chosen over the log because a container restart loses the log.
+
+### O18. Which phone goes to which environment
+
+A phone can only be given to one running daemon (D20). With two phones and
+two server environments, the options:
+
+- **Test has the owner's phone, production has the second phone.** New
+  builds reach the owner first; the other person only ever gets a released
+  version. Recommended.
+- **One environment at a time.** Test has both phones during the trial;
+  production replaces it afterwards.
+- **Test has no phone of its own** and is only for one-off commands.
+
+### O21. Getting the config and pair records in without copying files
+
+The deploy stack keeps them in named volumes (D20), which start empty. The
+owner asked whether pommedonjon could create its config on demand, and
+expects a web UI to manage it eventually.
+
+Most of the config has a sensible default or is fixed by the image: where
+backups and state go, the schedule. Two things cannot be invented: which
+phones to back up, which comes down to having a pair record for each, and
+which network range to look for them in.
+
+*Decided by the owner, 2026-11-24:* for the proof of concept, copy the two
+files into the volumes by hand after the first deploy. Later versions get a
+UI that does it. The idea of the app building its own config from the pair
+records it finds, needing only a network range, is kept for then. No code
+has been changed for this.
+
+## Settled
+
+Were open; now decided, built or ruled out of scope.
 
 ### O1. Notification channel
 
@@ -567,7 +705,7 @@ phones.
 - Nothing in the image or the Compose example changes. The alternative,
   giving the container an address on the phones' network, was not needed.
 
-Worth carrying into the README: a server on another subnet needs both an
+Carried into the README: a server on another subnet needs both an
 allow rule and source NAT towards the phones, on TCP 49152 to 65535. Without
 the NAT the symptom is a connection that opens and is then closed by the
 phone; with only 62078 allowed it is a probe that works and a backup that
@@ -614,90 +752,13 @@ Considered:
   evidence: tested 2026-11-24 from the Mac, the lockdown port accepts a
   connection on the Tailscale address and the phone then drops the session,
   while the same probe to the WiFi address succeeds.
-- **The phone announces itself**, from an app or a Shortcut. Exact and
-  cheap, and the owner is interested. It belongs with the notifications
-  phase (O1).
-
-### O8. Remote backups over the tailnet
-
-*Later.* First evidence, 2026-11-24: the direct path does not work over the
-tailnet. The phone accepts a connection to port 62078 on its Tailscale
-address and then drops the lockdown session. Remote backups would need the
-RemotePairing tunnel or a relay on the home network.
-
-### O9. Proving a backup restores
-
-*Later.* Decrypting needs the backup password. Either the service is given
-it (a second secret to protect), or decryption checks are run by hand.
-
-### O10. How the first full backup is taken
-
-*Later.* A first backup is about 22 GB. Over USB to the Mac it took 13
-minutes; over WiFi it has not been timed. Seeding the server's directory
-from a USB backup works (attempt 9 ran on a seeded copy).
-
-### O11. Pair record lifetime
-
-*Later.* One report says pair records can expire after days without contact.
-Not verified. If true, the service needs a re-pairing procedure and an
-alert.
-
-### O12. Persistent misconfiguration is silent
-
-*Later.* A rejected pair record or a failing probe is logged once and then
-waited on. Nothing alerts until the backup goes stale.
+- **The phone announces itself**, from an app or a Shortcut. Since built,
+  as a way to start a backup and not as discovery (O22): the phone says it
+  was plugged in, and the service still finds it by address.
 
 ### O13. Licence
 
 *Closed by the owner, 2026-11-24.* See D22.
-
-### O14. Onboarding the second phone
-
-*Later.* It needs pairing on a Mac and backup encryption with a password its
-owner knows.
-
-### O15. Connections that fail or drop
-
-*Partly settled on evidence, 2026-11-24; the rest later.*
-
-- Settled: one failed connection does not mean the phone is away. The
-  sidecar now keeps dialling for 12 seconds. On battery the phone took up
-  to 6.7 seconds to accept a connection.
-- Open: a backup whose connection drops after the prompt has appeared
-  (attempt 12: passcode typed, session lost anyway). It is recorded as
-  `unreachable` although the owner was prompted. How soon to retry, and
-  whether that counts as an unanswered prompt, is not decided.
-- Open: the later connections a backup opens still have a one-second limit.
-
-### O16. Plugged in, or on a charger? To be settled by the field trial
-
-*The owner's call, 2026-11-24: test it for a week or two and watch.*
-
-- *On a charger* (a state): start whenever the phone is on power and a
-  backup is due. A phone left charging overnight can become due while its
-  owner is asleep, and with retries after every timeout (D8) it would light
-  up repeatedly until morning.
-- *Plugged in* (an event): start only in the minutes after the phone goes
-  onto power, while the owner is still holding it.
-
-My recommendation is the event, but this is a question about habits, not
-about the protocol, so it gets measured. What the trial has to record for
-each day: when the phone went onto and off power, when a backup became due,
-when each prompt was shown and whether it was answered, timed out or
-cancelled, and how long the backup took. What it has to answer:
-
-- How often does a prompt arrive when nobody is there to answer it?
-- Does a backup happen every day the phone is charged at home?
-- How many prompts does a normal day produce?
-
-Settled already: due after 20 hours, not 24 (D7).
-
-**Built for the trial:** the daemon stores every change in a phone's power
-state and every change in why it is waiting, alongside the run history, and
-`pommedonjon report` lays them out day by day with totals that answer the
-three questions above, including the hour at which unanswered prompts
-arrived. `--json` gives the same for analysis. A record in the database was
-chosen over the log because a container restart loses the log.
 
 ### O17. Telling a cancel from a timeout
 
@@ -714,18 +775,6 @@ that error, as cancelled.
 
 Limits: one observation, on an unlocked phone. Not seen yet: a prompt
 cancelled from the lock screen, or a wrong passcode, which may look the same.
-
-### O18. Which phone goes to which environment
-
-A phone can only be given to one running daemon (D20). With two phones and
-two server environments, the options:
-
-- **Test has the owner's phone, production has the second phone.** New
-  builds reach the owner first; the other person only ever gets a released
-  version. Recommended.
-- **One environment at a time.** Test has both phones during the trial;
-  production replaces it afterwards.
-- **Test has no phone of its own** and is only for one-off commands.
 
 ### O19. The name
 
@@ -749,23 +798,6 @@ files on the mounted share. The unprivileged container of D15 stands.
 Worth carrying into the README when storage gets its own section: a share
 that maps all writes to one account is the simplest way to give the
 container somewhere to write on a NAS.
-
-### O21. Getting the config and pair records in without copying files
-
-The deploy stack keeps them in named volumes (D20), which start empty. The
-owner asked whether pommedonjon could create its config on demand, and
-expects a web UI to manage it eventually.
-
-Most of the config has a sensible default or is fixed by the image: where
-backups and state go, the schedule. Two things cannot be invented: which
-phones to back up, which comes down to having a pair record for each, and
-which network range to look for them in.
-
-*Decided by the owner, 2026-11-24:* for the proof of concept, copy the two
-files into the volumes by hand after the first deploy. Later versions get a
-UI that does it. The idea of the app building its own config from the pair
-records it finds, needing only a network range, is kept for then. No code
-has been changed for this.
 
 ### O22. "Back up now", sent from the phone
 
