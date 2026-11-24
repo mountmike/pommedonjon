@@ -1,6 +1,6 @@
-import { Button, Host, Picker, Switch } from "@expo/ui";
+import { Button, Host, Picker } from "@expo/ui";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { DeviceSettings } from "@pommedonjon/api-contract";
-import { ApiError, fetchSettings, saveSettings } from "../../../api/client";
+import { ApiError, fetchSettings, removePhone, saveSettings } from "../../../api/client";
 import {
   chargerWaitChoices,
   DEFAULT_CHARGER_WAIT_HOURS,
@@ -28,6 +28,7 @@ import {
   type Choice,
 } from "../../../phones/settingsWords";
 import { radius, space, type, useTheme } from "../../../theme/tokens";
+import { Note, Problems, Row, Section, Toggle } from "../../../ui/Screen";
 
 type Loaded =
   | { readonly status: "loading" }
@@ -39,6 +40,13 @@ type Saving =
   | { readonly status: "saving" }
   | { readonly status: "failed"; readonly problems: readonly string[] };
 
+type Removing =
+  | { readonly status: "idle" }
+  /** Asked once; waiting to be told again. */
+  | { readonly status: "confirming" }
+  | { readonly status: "removing" }
+  | { readonly status: "failed"; readonly message: string };
+
 /** A phone's name and schedule, to change and save. */
 export default function PhoneSettingsScreen() {
   const theme = useTheme();
@@ -47,6 +55,7 @@ export default function PhoneSettingsScreen() {
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
   const [settings, setSettings] = useState<DeviceSettings | undefined>();
   const [saving, setSaving] = useState<Saving>({ status: "idle" });
+  const [removing, setRemoving] = useState<Removing>({ status: "idle" });
   const back = { pathname: "/phones/[id]", params: { id } } as const;
 
   // Loaded once: this is a form, and must not change under its owner's hands.
@@ -91,6 +100,17 @@ export default function PhoneSettingsScreen() {
         status: "failed",
         problems: known && error.problems.length > 0 ? error.problems : [`Couldn't save. ${why}`],
       });
+    }
+  }
+
+  async function remove() {
+    setRemoving({ status: "removing" });
+    try {
+      await removePhone(id);
+      router.replace("/");
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Something went wrong.";
+      setRemoving({ status: "failed", message });
     }
   }
 
@@ -255,12 +275,7 @@ export default function PhoneSettingsScreen() {
               </Row>
             </Section>
 
-            {saving.status === "failed" &&
-              saving.problems.map((problem) => (
-                <Text key={problem} style={[styles.problem, { color: theme.tone.overdue }]}>
-                  {problem}
-                </Text>
-              ))}
+            {saving.status === "failed" && <Problems problems={saving.problems} />}
 
             <View style={styles.actions}>
               <Host matchContents>
@@ -274,64 +289,53 @@ export default function PhoneSettingsScreen() {
                 <Button label="Cancel" variant="text" onPress={() => router.replace(back)} />
               </Host>
             </View>
+
+            <Section title="Remove">
+              {removing.status === "confirming" || removing.status === "removing" ? (
+                <>
+                  <Text style={[styles.confirm, { color: theme.ink }]}>
+                    Remove {settings.name}? It will no longer be backed up, and its pairing on the
+                    server is destroyed. The backups already made stay on the server.
+                  </Text>
+                  <View style={styles.actions}>
+                    <Host matchContents>
+                      <Button
+                        label={removing.status === "removing" ? "Removing…" : "Yes, remove it"}
+                        disabled={removing.status === "removing"}
+                        onPress={() => void remove()}
+                      />
+                    </Host>
+                    <Host matchContents>
+                      <Button
+                        label="Keep it"
+                        variant="text"
+                        onPress={() => setRemoving({ status: "idle" })}
+                      />
+                    </Host>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Host matchContents>
+                    <Button
+                      label="Remove this phone"
+                      variant="outlined"
+                      onPress={() => setRemoving({ status: "confirming" })}
+                    />
+                  </Host>
+                  {removing.status === "failed" && (
+                    <Text style={[styles.problem, { color: theme.tone.overdue }]}>
+                      {removing.message}
+                    </Text>
+                  )}
+                </>
+              )}
+            </Section>
           </>
         )}
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  const theme = useTheme();
-  return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: theme.muted }]} accessibilityRole="header">
-        {title}
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.surface }]}>{children}</View>
-    </View>
-  );
-}
-
-/** A switch with its label. */
-function Toggle({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <Host matchContents>
-      <Switch label={label} value={value} onValueChange={onChange} />
-    </Host>
-  );
-}
-
-function Row({
-  label,
-  indented = false,
-  children,
-}: {
-  label: string;
-  /** Belongs to the switch above it. */
-  indented?: boolean;
-  children: ReactNode;
-}) {
-  const theme = useTheme();
-  return (
-    <View style={[styles.row, indented && styles.indented]}>
-      <Text style={[styles.rowLabel, { color: theme.ink }]}>{label}</Text>
-      {children}
-    </View>
-  );
-}
-
-function Note({ children }: { children: ReactNode }) {
-  const theme = useTheme();
-  return <Text style={[styles.note, { color: theme.muted }]}>{children}</Text>;
 }
 
 /** A picker over a list of choices. */
@@ -396,6 +400,7 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   problem: { fontSize: type.secondary },
+  confirm: { fontSize: type.body },
   actions: { flexDirection: "row", alignItems: "center", gap: space.md },
   centre: { paddingVertical: space.xxl },
   message: { fontSize: type.body, textAlign: "center" },

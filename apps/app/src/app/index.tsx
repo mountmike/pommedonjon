@@ -1,6 +1,7 @@
 import { Button, Host } from "@expo/ui";
+import { Link } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PhoneCard } from "../phones/PhoneCard";
 import { useDevices } from "../phones/useDevices";
@@ -19,6 +20,18 @@ export default function PhonesScreen() {
           Phones
         </Text>
         <Phones key={attempt} onRetry={() => setAttempt((count) => count + 1)} />
+        <View style={styles.links}>
+          <Link href="/add" asChild>
+            <Pressable accessibilityRole="link">
+              <Text style={[styles.link, { color: theme.tint }]}>Add a phone</Text>
+            </Pressable>
+          </Link>
+          <Link href="/settings" asChild>
+            <Pressable accessibilityRole="link">
+              <Text style={[styles.link, { color: theme.tint }]}>Server</Text>
+            </Pressable>
+          </Link>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -44,7 +57,7 @@ function Phones({ onRetry }: { onRetry: () => void }) {
   if (state.data.length === 0) {
     return (
       <Text style={[styles.message, styles.centre, { color: theme.muted }]}>
-        No phones have been added yet.
+        No phones yet. Add one to start backing it up.
       </Text>
     );
   }
@@ -73,6 +86,8 @@ const styles = StyleSheet.create({
     gap: space.lg,
   },
   heading: { fontSize: type.state, fontWeight: "700" },
+  links: { flexDirection: "row", gap: space.xl, paddingHorizontal: space.xs },
+  link: { fontSize: type.body },
   list: { gap: space.md },
   centre: { alignItems: "center", gap: space.md, paddingVertical: space.xxl },
   message: { fontSize: type.body, textAlign: "center" },

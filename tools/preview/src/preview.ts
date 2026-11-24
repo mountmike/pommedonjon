@@ -14,7 +14,7 @@
  * made afresh on every start.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -79,6 +79,10 @@ const PHONES: readonly {
 
 /** The part of the server's state store this needs. */
 interface Store {
+  addDevice(
+    device: { id: string; name: string; udid: string; host: string | undefined; port: undefined },
+    at: Date,
+  ): void;
   startRun(deviceId: string, at: Date): number;
   recordEvent(runId: number, at: Date, event: { type: string }): void;
   finishRun(
@@ -91,25 +95,6 @@ interface Store {
   close(): void;
 }
 
-function writeConfig(): string {
-  const file = path.join(DIR, "pommedonjon.json");
-  const config = {
-    backupRoot: path.join(DIR, "backups"),
-    stateDir: path.join(DIR, "state"),
-    api: { port: PORT },
-    devices: PHONES.map((phone, index) => ({
-      id: phone.id,
-      name: phone.name,
-      udid: `00000000-${String(index + 1).padStart(16, "0")}`,
-      host: phone.host,
-      // No such file: there is no pairing, because there is no phone.
-      pairRecordPath: path.join(DIR, `no-pairing-${index + 1}`),
-    })),
-  };
-  writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
-  return file;
-}
-
 async function seedState(): Promise<void> {
   const module: unknown = await import(
     pathToFileURL(path.join(SERVER, "state/StateStore.js")).href
@@ -117,7 +102,18 @@ async function seedState(): Promise<void> {
   const { StateStore } = module as { StateStore: new (file: string) => Store };
   const store = new StateStore(path.join(DIR, "state/pommedonjon.sqlite"));
   const hoursAgo = (hours: number): Date => new Date(Date.now() - hours * 3_600_000);
-  for (const phone of PHONES) {
+  PHONES.forEach((phone, index) => {
+    // No pairing is put beside them: there is no phone to pair with.
+    store.addDevice(
+      {
+        id: phone.id,
+        name: phone.name,
+        udid: `00000000-${String(index + 1).padStart(16, "0")}`,
+        host: phone.host,
+        port: undefined,
+      },
+      hoursAgo(200 - index),
+    );
     for (const past of phone.runs) {
       const finished = hoursAgo(past.hoursAgo);
       // A good backup takes minutes; a refused one is over in a minute.
@@ -136,7 +132,7 @@ async function seedState(): Promise<void> {
           : { outcome: "failed", reason: past.failed, message: "made up for the preview" },
       );
     }
-  }
+  });
   store.close();
 }
 
@@ -154,15 +150,21 @@ async function main(): Promise<number> {
   rmSync(DIR, { recursive: true, force: true });
   mkdirSync(path.join(DIR, "state"), { recursive: true });
   mkdirSync(path.join(DIR, "backups"), { recursive: true });
-  const config = writeConfig();
   await seedState();
 
   console.log(`the app, with made-up phones: http://localhost:${PORT}`);
-  const server = spawn(
-    process.execPath,
-    [path.join(SERVER, "cli.js"), "daemon", "--config", config],
-    { stdio: "inherit", env: { ...process.env, POMMEDONJON_WEB_DIR: WEB } },
-  );
+  const server = spawn(process.execPath, [path.join(SERVER, "cli.js"), "daemon"], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      POMMEDONJON_STATE_DIR: path.join(DIR, "state"),
+      POMMEDONJON_BACKUP_ROOT: path.join(DIR, "backups"),
+      POMMEDONJON_PORT: String(PORT),
+      POMMEDONJON_WEB_DIR: WEB,
+      // Never an earlier version's config file: this is a made-up world.
+      POMMEDONJON_CONFIG: "",
+    },
+  });
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => server.kill(signal));
   }

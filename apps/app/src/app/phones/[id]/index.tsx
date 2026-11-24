@@ -1,8 +1,11 @@
 import { Button, Host } from "@expo/ui";
 import { Link, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import type { DeviceCheck } from "@pommedonjon/api-contract";
+import { ApiError, checkPhone } from "../../../api/client";
+import { describeCheck } from "../../../phones/addPhone";
 import { BackupNowButton } from "../../../phones/BackupNowButton";
 import { History } from "../../../phones/History";
 import { StateDisplay } from "../../../phones/StateDisplay";
@@ -13,7 +16,7 @@ import { radius, space, type, useTheme } from "../../../theme/tokens";
 /** One phone: its state, "Back up now", and its history day by day. */
 export default function PhoneScreen() {
   const theme = useTheme();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, check } = useLocalSearchParams<{ id: string; check?: string }>();
   // Remounting is the simplest honest "try again": it starts over.
   const [attempt, setAttempt] = useState(0);
 
@@ -25,13 +28,96 @@ export default function PhoneScreen() {
             <Text style={[styles.backText, { color: theme.tint }]}>‹ Phones</Text>
           </Pressable>
         </Link>
-        <Phone key={attempt} id={id} onRetry={() => setAttempt((count) => count + 1)} />
+        <Phone
+          key={attempt}
+          id={id}
+          checkAtOnce={check === "1"}
+          onRetry={() => setAttempt((count) => count + 1)}
+        />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function Phone({ id, onRetry }: { id: string; onRetry: () => void }) {
+type Checking =
+  | { readonly status: "idle" }
+  | { readonly status: "checking" }
+  | { readonly status: "done"; readonly check: DeviceCheck }
+  | { readonly status: "failed"; readonly message: string };
+
+/** Has the server look for the phone, and shows what it said. */
+function Connection({ id, atOnce }: { id: string; atOnce: boolean }) {
+  const theme = useTheme();
+  const [checking, setChecking] = useState<Checking>({ status: "idle" });
+
+  async function look() {
+    setChecking({ status: "checking" });
+    try {
+      setChecking({ status: "done", check: await checkPhone(id) });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Something went wrong.";
+      setChecking({ status: "failed", message });
+    }
+  }
+
+  // A phone that has just been added is looked for straight away.
+  useEffect(() => {
+    if (atOnce) void look();
+    // Only when the screen opens: `look` is not something to re-run on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const found = checking.status === "done" ? describeCheck(checking.check) : undefined;
+  return (
+    <View style={[styles.card, { backgroundColor: theme.surface }]}>
+      {found?.lines.map((line) => (
+        <View key={line.text} style={styles.checkLine}>
+          <Text
+            style={[
+              styles.checkGlyph,
+              { color: line.ok === null ? theme.muted : line.ok ? theme.tone.safe : theme.tone.overdue },
+            ]}>
+            {line.ok === null ? "–" : line.ok ? "✓" : "×"}
+          </Text>
+          <Text style={[styles.summary, { color: theme.ink }]}>{line.text}</Text>
+        </View>
+      ))}
+      {found?.detail !== undefined && (
+        <Text style={[styles.checkDetail, { color: theme.muted }]}>{found.detail}</Text>
+      )}
+      {checking.status === "failed" && (
+        <Text style={[styles.checkDetail, { color: theme.tone.due }]}>{checking.message}</Text>
+      )}
+      <Host matchContents style={styles.change}>
+        <Button
+          label={
+            checking.status === "checking"
+              ? "Looking…"
+              : checking.status === "idle"
+                ? "Check this phone"
+                : "Check again"
+          }
+          variant="outlined"
+          disabled={checking.status === "checking"}
+          onPress={() => void look()}
+        />
+      </Host>
+      <Text style={[styles.checkDetail, { color: theme.muted }]}>
+        The server looks for the phone on your network. Nothing appears on the phone.
+      </Text>
+    </View>
+  );
+}
+
+function Phone({
+  id,
+  checkAtOnce,
+  onRetry,
+}: {
+  id: string;
+  checkAtOnce: boolean;
+  onRetry: () => void;
+}) {
   const theme = useTheme();
   const { state, now, refresh } = useDevice(id);
   const settings = useSettings(id).state;
@@ -85,6 +171,10 @@ function Phone({ id, onRetry }: { id: string; onRetry: () => void }) {
         </Link>
       </View>
       <Text style={[styles.section, { color: theme.ink }]} accessibilityRole="header">
+        Connection
+      </Text>
+      <Connection id={id} atOnce={checkAtOnce} />
+      <Text style={[styles.section, { color: theme.ink }]} accessibilityRole="header">
         History
       </Text>
       <History runs={device.recentRuns} now={now} />
@@ -108,7 +198,10 @@ const styles = StyleSheet.create({
   heading: { fontSize: type.state, fontWeight: "700" },
   card: { borderRadius: radius.card, padding: space.lg, gap: space.lg },
   section: { fontSize: type.heading, fontWeight: "700", marginTop: space.sm },
-  summary: { fontSize: type.body },
+  summary: { fontSize: type.body, flex: 1 },
+  checkLine: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
+  checkGlyph: { width: 20, textAlign: "center", fontSize: type.body, fontWeight: "700" },
+  checkDetail: { fontSize: type.small },
   change: { alignSelf: "flex-start" },
   changeText: { fontSize: type.body },
   centre: { alignItems: "center", gap: space.md, paddingVertical: space.xxl },
