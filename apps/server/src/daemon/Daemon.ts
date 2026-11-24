@@ -59,6 +59,12 @@ type RequestSource =
   /** The phone said it had just been plugged in, and a backup was due. */
   | "plug-in";
 
+/** Why no backup is starting, and when that could change if it is knowable. */
+export interface WaitingFor {
+  readonly reason: string;
+  readonly until?: Date;
+}
+
 export interface DaemonDeps {
   readonly config: PommedonjonConfig;
   readonly locator: Pick<DeviceLocator, "locate">;
@@ -91,6 +97,8 @@ export class Daemon {
   readonly #busy = new Set<string>();
   /** Backups started on request that have not finished yet. */
   readonly #requested = new Set<Promise<void>>();
+  /** Why each phone was not backed up on its last pass, for anyone asking. */
+  readonly #waiting = new Map<string, WaitingFor>();
   /** When each phone's overdue backup was last warned about: daily, not every poll. */
   readonly #staleWarnedAt = new Map<string, Date>();
   /** The signal `run` was given, so requested backups stop with the daemon. */
@@ -253,8 +261,26 @@ export class Daemon {
       });
       outcome = { deviceId: device.id, action: "waited", reason: "error" };
     }
+    if (outcome.action === "waited") {
+      this.#waiting.set(device.id, {
+        reason: outcome.reason,
+        ...(outcome.until && { until: outcome.until }),
+      });
+    } else {
+      this.#waiting.delete(device.id);
+    }
     this.#logChange(outcome);
     return outcome;
+  }
+
+  /**
+   * Why a phone is not being backed up right now, as found on its last
+   * pass. Undefined before its first pass, and just after a backup. This is
+   * what is known, not a fresh look: a phone is only asked about itself
+   * when a backup is nearly due.
+   */
+  waitingFor(deviceId: string): WaitingFor | undefined {
+    return this.#waiting.get(deviceId);
   }
 
   async #consider(device: DeviceConfig, signal?: AbortSignal): Promise<DeviceOutcome> {

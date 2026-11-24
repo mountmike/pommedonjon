@@ -9,12 +9,13 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "typecheck": "pnpm packages && pnpm -r typecheck",
+    "test": "pnpm packages && pnpm -r test",
     "changeset": "changeset",
     "release:version": "changeset version",
     "dev": "docker compose -f compose.dev.yaml run --rm --build pommedonjon",
-    "deploy:test": "node tools/deploy/src/deploy-test.ts"
+    "deploy:test": "node tools/deploy/src/deploy-test.ts",
+    "packages": "pnpm --filter \"./packages/*\" build"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3"

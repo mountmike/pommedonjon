@@ -9,11 +9,14 @@ RUN npm install --global pnpm@12
 # for the lockfile to be accepted: add a line when a workspace is added.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json apps/server/
+COPY packages/api-contract/package.json packages/api-contract/
 COPY tools/deploy/package.json tools/deploy/
 RUN pnpm install --frozen-lockfile --filter "pommedonjon..."
 COPY tsconfig.base.json ./
+COPY packages packages
 COPY apps/server apps/server
-RUN pnpm --filter pommedonjon build
+# The server and the workspace packages it depends on, in that order.
+RUN pnpm --filter "pommedonjon..." build
 # A self-contained copy of the server: its build output, the sidecar, and
 # only the dependencies it needs at run time.
 RUN pnpm --filter pommedonjon deploy --prod /out

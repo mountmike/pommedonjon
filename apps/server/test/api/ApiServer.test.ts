@@ -1,17 +1,47 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { DeviceDetailSchema, DeviceListSchema, type DeviceDetail } from "@pommedonjon/api-contract";
 import { afterEach, describe, expect, it } from "vitest";
 import { startApiServer, type ApiServer } from "../../src/api/ApiServer.js";
 import type { BackupRequestResult, PlugInReportResult } from "../../src/daemon/Daemon.js";
 import type { LogLevel } from "../../src/log.js";
 
 let server: ApiServer | undefined;
+let webDir: string | undefined;
 afterEach(async () => {
   await server?.close();
   server = undefined;
+  if (webDir) await rm(webDir, { recursive: true, force: true });
+  webDir = undefined;
 });
+
+const MIKE: DeviceDetail = {
+  id: "mike",
+  name: "Mike's iPhone",
+  state: "backed-up",
+  lastBackupAt: "2026-11-24T10:24:20.700Z",
+  dueAt: "2026-11-25T06:24:20.700Z",
+  waiting: { reason: "not-due", until: "2026-11-25T06:24:20.700Z" },
+  run: null,
+  problem: null,
+  recentRuns: [],
+};
+
+/** A stand-in for the built web app. */
+async function fakeWebApp(): Promise<string> {
+  webDir = await mkdtemp(path.join(tmpdir(), "pommedonjon-web-"));
+  await mkdir(path.join(webDir, "_expo", "static", "js"), { recursive: true });
+  await writeFile(path.join(webDir, "index.html"), "<!doctype html><title>pommedonjon</title>");
+  await writeFile(path.join(webDir, "_expo", "static", "js", "app-abc123.js"), "console.log(1)");
+  await writeFile(path.join(webDir, "favicon.ico"), "icon");
+  return webDir;
+}
 
 async function harness(
   answer: BackupRequestResult | Error = "started",
   plugInAnswer: PlugInReportResult = { outcome: "started" },
+  web?: string,
 ) {
   const asked: string[] = [];
   const pluggedIn: string[] = [];
@@ -19,6 +49,14 @@ async function harness(
   server = await startApiServer({
     // Any free port.
     port: 0,
+    devices: {
+      list: () => {
+        const { recentRuns: _runs, ...summary } = MIKE;
+        return [summary];
+      },
+      get: (deviceId) => (deviceId === "mike" ? MIKE : undefined),
+    },
+    ...(web !== undefined && { webDir: web }),
     requestBackup: (deviceId) => {
       asked.push(deviceId);
       if (answer instanceof Error) throw answer;
@@ -43,7 +81,17 @@ async function harness(
       body: (await response.json()) as unknown,
     };
   };
-  return { asked, pluggedIn, logs, send };
+  /** For replies that are not JSON: the web app's files. */
+  const fetchRaw = async (path: string, method = "GET") => {
+    const response = await fetch(`${base}${path}`, { method });
+    return {
+      status: response.status,
+      type: response.headers.get("content-type"),
+      cache: response.headers.get("cache-control"),
+      text: await response.text(),
+    };
+  };
+  return { asked, pluggedIn, logs, send, fetchRaw };
 }
 
 describe("the API", () => {
@@ -53,7 +101,7 @@ describe("the API", () => {
     expect(h.logs).toContainEqual({
       level: "info",
       message: "listening for requests",
-      fields: { port: server?.port },
+      fields: { port: server?.port, webApp: false },
     });
   });
 
@@ -131,7 +179,7 @@ describe("the API", () => {
     expect(h.logs).toContainEqual({
       level: "error",
       message: "could not handle a request",
-      fields: { device: "mike", action: "backup-now", error: "no database" },
+      fields: { method: "POST", path: "/devices/mike/backup-now", error: "no database" },
     });
   });
 
@@ -188,5 +236,126 @@ describe("the API", () => {
     server = undefined;
     await expect(fetch(`http://127.0.0.1:${port}/devices/mike/backup-now`, { method: "POST" })).rejects.toThrow();
     expect(h.asked).toEqual([]);
+  });
+});
+
+describe("the API for the app", () => {
+  it("lists every phone, in the shape the contract promises", async () => {
+    const h = await harness();
+    const response = await h.send("GET", "/api/devices");
+    expect(response).toMatchObject({ status: 200, type: "application/json" });
+    expect(DeviceListSchema.parse(response.body).devices.map((device) => device.id)).toEqual([
+      "mike",
+    ]);
+  });
+
+  it("gives one phone with its recent runs", async () => {
+    const h = await harness();
+    const response = await h.send("GET", "/api/devices/mike");
+    expect(response.status).toBe(200);
+    expect(DeviceDetailSchema.parse(response.body)).toEqual(MIKE);
+  });
+
+  it("answers 404 for a phone it does not have", async () => {
+    const h = await harness();
+    expect(await h.send("GET", "/api/devices/laurel")).toMatchObject({
+      status: 404,
+      body: { error: "unknown-device" },
+    });
+  });
+
+  it("is never cached: what a phone is doing changes by the second", async () => {
+    const h = await harness();
+    expect((await h.fetchRaw("/api/devices")).cache).toBe("no-store");
+  });
+
+  it("only reads: anything but a GET is refused", async () => {
+    const h = await harness();
+    expect(await h.send("POST", "/api/devices")).toMatchObject({ status: 405, allow: "GET" });
+    expect(await h.send("DELETE", "/api/devices/mike")).toMatchObject({ status: 405 });
+  });
+
+  it.each(["/api", "/api/", "/api/phones", "/api/devices/mike/runs", "/api/devices/Mike"])(
+    "answers 404 as JSON for %s, even with a web app to fall back on",
+    async (path) => {
+      const h = await harness("started", { outcome: "started" }, await fakeWebApp());
+      expect(await h.send("GET", path)).toMatchObject({
+        status: 404,
+        type: "application/json",
+        body: { error: "not-found" },
+      });
+    },
+  );
+});
+
+describe("serving the web app", () => {
+  const withWeb = async () => harness("started", { outcome: "started" }, await fakeWebApp());
+
+  it("says so when it starts", async () => {
+    const h = await withWeb();
+    expect(h.logs[0]).toMatchObject({ fields: { webApp: true } });
+  });
+
+  it("serves the page at the root, and keeps it fresh", async () => {
+    const h = await withWeb();
+    expect(await h.fetchRaw("/")).toEqual({
+      status: 200,
+      type: "text/html; charset=utf-8",
+      cache: "no-cache",
+      text: "<!doctype html><title>pommedonjon</title>",
+    });
+  });
+
+  it("serves a built asset with its type, to be kept for good", async () => {
+    const h = await withWeb();
+    expect(await h.fetchRaw("/_expo/static/js/app-abc123.js")).toEqual({
+      status: 200,
+      type: "text/javascript; charset=utf-8",
+      cache: "public, max-age=31536000, immutable",
+      text: "console.log(1)",
+    });
+  });
+
+  it("gives the page for an address inside the app, which does its own routing", async () => {
+    const h = await withWeb();
+    expect(await h.fetchRaw("/phones/mike")).toMatchObject({
+      status: 200,
+      type: "text/html; charset=utf-8",
+    });
+  });
+
+  it("answers 404 for an asset that is not there, instead of returning the page", async () => {
+    const h = await withWeb();
+    expect(await h.fetchRaw("/_expo/static/js/gone.js")).toMatchObject({ status: 404 });
+  });
+
+  it("answers a HEAD without the body", async () => {
+    const h = await withWeb();
+    expect(await h.fetchRaw("/", "HEAD")).toMatchObject({ status: 200, text: "" });
+  });
+
+  it.each([
+    "/../secret.txt",
+    "/..%2Fsecret.txt",
+    "/%2e%2e/%2e%2e/secret.txt",
+    "/_expo/../../secret.txt",
+    "/%00",
+    "/%E0%A4%A",
+  ])("never serves anything outside the web app's directory: %s", async (path) => {
+    const h = await withWeb();
+    await writeFile(`${webDir}/../secret.txt`, "the pair record");
+    const response = await h.fetchRaw(path);
+    expect(response.text).not.toContain("the pair record");
+    await rm(`${webDir}/../secret.txt`, { force: true });
+  });
+
+  it("does not let a POST fetch the page", async () => {
+    const h = await withWeb();
+    expect(await h.send("POST", "/")).toMatchObject({ status: 404, body: { error: "not-found" } });
+  });
+
+  it("answers 404 for a page when there is no web app", async () => {
+    const h = await harness();
+    expect(await h.send("GET", "/")).toMatchObject({ status: 404, body: { error: "not-found" } });
   });
 });

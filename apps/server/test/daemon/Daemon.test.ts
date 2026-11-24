@@ -427,6 +427,45 @@ describe('Daemon with the "plugged-in" trigger', () => {
   });
 });
 
+describe("Daemon.waitingFor", () => {
+  it("knows nothing about a phone before its first pass", () => {
+    const h = harness();
+    expect(h.daemon.waitingFor("mike")).toBeUndefined();
+  });
+
+  it("says why a phone was not backed up on its last pass, and until when", async () => {
+    const h = harness();
+    const earlier = state.startRun("mike", at(18));
+    state.finishRun(earlier, at(18, 5), { outcome: "succeeded", durationMs: 1 });
+    await h.daemon.tick();
+    expect(h.daemon.waitingFor("mike")).toEqual({
+      reason: "not-due",
+      until: new Date(at(18, 5).getTime() + DEFAULT_POLICY.dueAfterHours * 60 * 60 * 1000),
+    });
+  });
+
+  it("follows the reason as it changes", async () => {
+    const h = harness();
+    h.transport.probeResult = new DeviceError("no answer", "unreachable");
+    await h.daemon.tick();
+    expect(h.daemon.waitingFor("mike")).toEqual({ reason: "unreachable" });
+
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    await h.daemon.tick();
+    expect(h.daemon.waitingFor("mike")).toEqual({ reason: "on-battery" });
+  });
+
+  it("forgets the reason once a backup has been taken", async () => {
+    const h = harness();
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+    await h.daemon.tick();
+    h.transport.probeResult = fakeStatus();
+    await h.daemon.tick();
+    expect(h.ran).toEqual(["mike"]);
+    expect(h.daemon.waitingFor("mike")).toBeUndefined();
+  });
+});
+
 describe("Daemon stale warning", () => {
   const staleWarnings = (h: ReturnType<typeof harness>) =>
     h.logs.filter((entry) => entry.message === "no good backup for too long");

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { startApiServer } from "./api/ApiServer.js";
+import { createDeviceReader } from "./api/DeviceReader.js";
+import { findWebApp } from "./api/webApp.js";
 import { createApp, type App } from "./app.js";
 import { ConfigError, loadConfig, type DeviceConfig } from "./config/config.js";
 import { jsonLogger } from "./log.js";
@@ -187,11 +189,19 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     switch (command) {
       case "daemon": {
+        const webDir = findWebApp(process.env);
         const api =
           app.config.api === undefined
             ? undefined
             : await startApiServer({
                 port: app.config.api.port,
+                devices: createDeviceReader({
+                  config: app.config,
+                  state: app.state,
+                  daemon: app.daemon,
+                  clock: () => new Date(),
+                }),
+                ...(webDir !== undefined && { webDir }),
                 requestBackup: (deviceId) => app.daemon.requestBackup(deviceId),
                 reportPlugIn: (deviceId) => app.daemon.reportPlugIn(deviceId),
                 log: jsonLogger,
