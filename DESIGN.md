@@ -237,18 +237,48 @@ native, and the heaviest to set up for an app this small), gluestack-ui
 
 ## Questions for the owner
 
+Answered on 2026-11-24:
+
+- **Quiet hours:** 10 pm to 7 am is the default.
+- **Other people's phones:** with no sign-in (D25), anyone who can open the
+  app can press any phone's button and change any schedule. Accepted for
+  now.
+- **The kit:** Expo UI, with the fallback as described.
+- **The theme:** the one in [Look](#look) was not liked. Three alternatives
+  have been put to the owner; the Theme and Colour sections stand until one
+  is chosen, and then get rewritten.
+- **The icon:** mock-ups have been put to the owner.
+
+Still open:
+
 1. **The ladder.** Is plug-in first, unlock after four hours, any time on
    the charger after a day the right order and the right waits?
-2. **Quiet hours.** Is 10 pm to 7 am a sensible default?
-3. **Which phone am I?** The app cannot read the phone's identity. Two ways
-   to know: the server recognises the phone by the address the request came
-   from, or the owner picks "this is my phone" once. Proposed: recognise by
-   address, fall back to asking.
-4. **Other people's phones.** With no sign-in (D25), anyone who can open the
-   app can press any phone's button and change any schedule. Acceptable for
-   the proof of concept?
-5. **The kit.** Go with Expo UI and the fallback as described?
-6. **The icon.** Is "an apple with a battlement" the right direction?
+
+### Which phone is the app running on?
+
+*The owner, 2026-11-24:* not by network address, which changes. It should
+be worked out from something that ties the app to the phone the server
+backs up.
+
+The obstacle: iOS hides a phone's own identifiers from apps, and the backup
+is encrypted, so the app cannot read an id that the server also holds. Two
+ways do tie them together without asking anyone:
+
+- **The server proves it when the app first calls.** It connects back to
+  the address the call came from and tries each phone's pairing; the phone
+  that answers is the phone. The address is only where to knock, and the
+  pairing is the proof, exactly as when finding a phone (D6). The server
+  then gives the app a token to keep, so this happens once and a changed
+  address afterwards does not matter.
+- **The server leaves a note in the app's own folder.** A paired computer
+  can read and write an app's documents folder over the same connection it
+  backs up through, if the app allows file sharing. The server would write
+  the phone's id there and the app would read it. This does not depend on
+  the network at all. Reported, not tested here; it needs the app to exist
+  first.
+
+Proposed: start with the first, and test the second once the app is on a
+phone.
 
 ## Not in the first version
 
