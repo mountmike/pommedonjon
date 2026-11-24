@@ -47,10 +47,27 @@ export function howOftenChoices(current: number): Choice<number>[] {
   return including(HOW_OFTEN, current, (hours) => `Every ${span(hours)}`);
 }
 
-export const TRIGGER_CHOICES: readonly Choice<DeviceSettings["trigger"]>[] = [
-  { value: "plugged-in", label: "Just after I plug it in" },
-  { value: "on-charger", label: "Any time it's on a charger" },
-];
+/** How long a backup has to have waited before a less choosy moment is used. */
+function waitLabel(hours: number): string {
+  return hours === 0 ? "No time at all" : span(hours);
+}
+
+function waitChoices(offered: readonly number[], current: number | null): Choice<number>[] {
+  const choices = offered.map((hours) => ({ value: hours, label: waitLabel(hours) }));
+  return current === null ? choices : including(choices, current, waitLabel);
+}
+
+/** Before an unlock is used: it interrupts someone about to use the phone. */
+export const DEFAULT_UNLOCK_WAIT_HOURS = 4;
+export function unlockWaitChoices(current: number | null): Choice<number>[] {
+  return waitChoices([0, 1, 4, 12], current);
+}
+
+/** Before any time on a charger is used: nobody may be there to answer. */
+export const DEFAULT_CHARGER_WAIT_HOURS = 24;
+export function chargerWaitChoices(current: number | null): Choice<number>[] {
+  return waitChoices([0, 4, 24, 48], current);
+}
 
 export function plugInChoices(current: number): Choice<number>[] {
   return including(
@@ -108,23 +125,47 @@ export function withChange(
 export function problemsWith(settings: DeviceSettings): string[] {
   const problems: string[] = [];
   if (settings.name.trim() === "") problems.push("Give the phone a name.");
+  if (
+    settings.automatic &&
+    !settings.startWhenPluggedIn &&
+    settings.startWhenUnlockedAfterHours === null &&
+    settings.startOnChargerAfterHours === null
+  ) {
+    problems.push("Switch on at least one moment, or turn automatic backups off.");
+  }
   if (settings.quietHours && settings.quietHours.start === settings.quietHours.end) {
     problems.push("Quiet hours need a different start and end.");
   }
   return problems;
 }
 
+/** A list in words: "a", "a or b", "a, b, or c". */
+function either(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} or ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, or ${items.at(-1)}`;
+}
+
 /** A phone's schedule in a sentence or two, for its page. */
 export function scheduleSummary(settings: DeviceSettings): string {
+  const overdue = `Shown as overdue after ${span(settings.staleAfterHours)} without a backup.`;
+  if (!settings.automatic) return `Backs up only when you press Back up now. ${overdue}`;
+
   const often = howOftenChoices(settings.dueAfterHours)
     .find((choice) => choice.value === settings.dueAfterHours)
     ?.label.toLowerCase();
-  const when =
-    settings.trigger === "plugged-in"
-      ? `within ${plural(settings.pluggedInWindowMinutes, "minute")} of plugging in at home`
-      : "any time it is on a charger at home";
+  const waited = (hours: number) => (hours === 0 ? "" : ` once it has waited ${span(hours)}`);
+  const moments = [
+    ...(settings.startWhenPluggedIn ? ["when you plug in at home"] : []),
+    ...(settings.startWhenUnlockedAfterHours === null
+      ? []
+      : [`when you unlock it${waited(settings.startWhenUnlockedAfterHours)}`]),
+    ...(settings.startOnChargerAfterHours === null
+      ? []
+      : [`any time it is on a charger${waited(settings.startOnChargerAfterHours)}`]),
+  ];
   const quiet = settings.quietHours
     ? ` Quiet from ${hourLabel(settings.quietHours.start)} to ${hourLabel(settings.quietHours.end)}.`
     : "";
-  return `Backs up ${often ?? "regularly"}, ${when}.${quiet} Shown as overdue after ${span(settings.staleAfterHours)} without a backup.`;
+  return `Backs up ${often ?? "regularly"}: ${either(moments)}.${quiet} ${overdue}`;
 }

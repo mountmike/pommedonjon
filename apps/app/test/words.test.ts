@@ -78,21 +78,27 @@ describe("describeState", () => {
     expect(describeState(phone(), NOW, STYLE)).toEqual({
       title: "Backed up",
       detail: "2 hours ago",
-      next: "Next backup when you plug in at home after 3:30 pm tomorrow.",
+      next: "Next backup due after 3:30 pm tomorrow.",
       tone: "safe",
       glyph: "✓",
     });
   });
 
   it.each([
-    ["on-battery", "Will start when you plug in at home."],
-    ["waiting-for-plug-in", "Will start when you plug in at home."],
-    ["plug-in-window-passed", "Will start the next time you plug in at home."],
-    ["probe-failed", "Couldn't check on the phone just now. It will keep trying."],
-    ["a-reason-from-a-newer-server", "Waiting for a good moment."],
-  ])("says what a due backup is waiting for: %s", (reason, next) => {
+    [["plugged-in"], "Will start the next time you plug in at home."],
+    [["plugged-in", "unlocked"], "Will start the next time you plug in or unlock the phone at home."],
+    [["unlocked"], "Will start the next time you unlock the phone at home."],
+    [
+      ["plugged-in", "unlocked", "on-charger"],
+      "Will start the next time the phone is on a charger or unlocked at home.",
+    ],
+    [["plugged-in", "on-charger"], "Will start the next time the phone is on a charger at home."],
+    [[], "Waiting for a good moment."],
+    [undefined, "Waiting for a good moment."],
+  ])("names the moments a due backup is waiting for: %j", (moments, next) => {
+    const waiting = { reason: "on-battery", ...(moments && { moments }) };
     const words = describeState(
-      phone({ state: "due", lastBackupAt: hoursAgo(24.5).toISOString(), waiting: { reason } }),
+      phone({ state: "due", lastBackupAt: hoursAgo(24.5).toISOString(), waiting }),
       NOW,
       STYLE,
     );
@@ -102,6 +108,38 @@ describe("describeState", () => {
       next,
       tone: "due",
     });
+  });
+
+  it.each([
+    ["waiting-for-plug-in", "Will start the next time you plug in at home."],
+    ["plug-in-window-passed", "Will start the next time you plug in at home."],
+    ["moment-used", "Will start the next time you plug in at home."],
+    ["manual-only", "Backs up only when you ask."],
+    ["probe-failed", "Couldn't check on the phone just now. It will keep trying."],
+    ["a-reason-from-a-newer-server", "Waiting for a good moment."],
+  ])("says what a due backup is waiting for: %s", (reason, next) => {
+    const words = describeState(
+      phone({
+        state: "due",
+        lastBackupAt: hoursAgo(24.5).toISOString(),
+        waiting: { reason, moments: ["plugged-in"] },
+      }),
+      NOW,
+      STYLE,
+    );
+    expect(words.next).toBe(next);
+  });
+
+  it("says it is quiet hours, and until when", () => {
+    const words = describeState(
+      phone({
+        state: "due",
+        waiting: { reason: "outside-window", until: hoursAgo(-9.5).toISOString() },
+      }),
+      NOW,
+      STYLE,
+    );
+    expect(words.next).toBe("Quiet hours. Waiting until 7:00 am tomorrow.");
   });
 
   it("says when it will try again after a failed attempt", () => {

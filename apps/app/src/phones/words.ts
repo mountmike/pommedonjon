@@ -22,22 +22,44 @@ export interface StateWords {
   readonly glyph: string;
 }
 
+/**
+ * The moments that would start a backup, as the end of "Will start the
+ * next time ...". Undefined when there are none to name.
+ */
+function momentWords(moments: readonly string[] | undefined): string | undefined {
+  const has = (moment: string) => moments?.includes(moment) ?? false;
+  // Any time on a charger takes in plugging in.
+  if (has("on-charger")) {
+    return has("unlocked")
+      ? "the phone is on a charger or unlocked at home"
+      : "the phone is on a charger at home";
+  }
+  if (has("plugged-in")) {
+    return has("unlocked") ? "you plug in or unlock the phone at home" : "you plug in at home";
+  }
+  return has("unlocked") ? "you unlock the phone at home" : undefined;
+}
+
 /** What the service is waiting for before it starts a backup. */
 function waitingWords(waiting: Waiting | null, now: Date, style: TimeStyle): string | undefined {
   if (!waiting) return undefined;
   const until = waiting.until ? at(new Date(waiting.until), now, style) : undefined;
+  const moment = momentWords(waiting.moments);
   switch (waiting.reason) {
+    case "manual-only":
+      return "Backs up only when you ask.";
     case "not-due":
-      return until ? `Next backup when you plug in at home after ${until}.` : undefined;
+      return until ? `Next backup due after ${until}.` : undefined;
     case "on-battery":
     case "waiting-for-plug-in":
-      return "Will start when you plug in at home.";
     case "plug-in-window-passed":
-      return "Will start the next time you plug in at home.";
+    case "moment-used":
+    case "waiting-for-moment":
+      return moment ? `Will start the next time ${moment}.` : "Waiting for a good moment.";
     case "backing-off":
       return until ? `Will try again after ${until}.` : "Will try again soon.";
     case "outside-window":
-      return until ? `Waiting until ${until}.` : "Waiting for the hours you allow.";
+      return until ? `Quiet hours. Waiting until ${until}.` : "Quiet hours.";
     case "unreachable":
       return "Will start when the phone is back at home.";
     case "probe-failed":

@@ -14,13 +14,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { DeviceSettings } from "@pommedonjon/api-contract";
 import { ApiError, fetchSettings, saveSettings } from "../../../api/client";
 import {
+  chargerWaitChoices,
+  DEFAULT_CHARGER_WAIT_HOURS,
   DEFAULT_QUIET_HOURS,
+  DEFAULT_UNLOCK_WAIT_HOURS,
   howOftenChoices,
   overdueChoices,
   plugInChoices,
   problemsWith,
   timeChoices,
-  TRIGGER_CHOICES,
+  unlockWaitChoices,
   withChange,
   type Choice,
 } from "../../../phones/settingsWords";
@@ -126,72 +129,120 @@ export default function PhoneSettingsScreen() {
             </Section>
 
             <Section title="Schedule">
-              <Row label="Back up">
-                <Choose
-                  label="How often to back up"
-                  choices={howOftenChoices(settings.dueAfterHours)}
-                  value={settings.dueAfterHours}
-                  onChange={(dueAfterHours) => change({ dueAfterHours })}
-                />
-              </Row>
-              <Row label="Start">
-                <Choose
-                  label="When a backup may start"
-                  choices={TRIGGER_CHOICES}
-                  value={settings.trigger}
-                  onChange={(trigger) => change({ trigger })}
-                />
-              </Row>
-              {settings.trigger === "plugged-in" && (
-                <Row label="Within">
+              <Toggle
+                label="Back up automatically"
+                value={settings.automatic}
+                onChange={(automatic) => change({ automatic })}
+              />
+              {settings.automatic ? (
+                <Row label="Back up">
                   <Choose
-                    label="How long after plugging in"
-                    choices={plugInChoices(settings.pluggedInWindowMinutes)}
-                    value={settings.pluggedInWindowMinutes}
-                    onChange={(pluggedInWindowMinutes) => change({ pluggedInWindowMinutes })}
+                    label="How often to back up"
+                    choices={howOftenChoices(settings.dueAfterHours)}
+                    value={settings.dueAfterHours}
+                    onChange={(dueAfterHours) => change({ dueAfterHours })}
                   />
                 </Row>
+              ) : (
+                <Note>Backups only happen when you press Back up now.</Note>
               )}
-              <Note>
-                A backup only starts while the phone is at home, and the phone asks for your
-                passcode each time.
-              </Note>
             </Section>
 
-            <Section title="Quiet hours">
-              <Host matchContents>
-                <Switch
+            {settings.automatic && (
+              <Section title="When a backup may start">
+                <Toggle
+                  label="When I plug it in at home"
+                  value={settings.startWhenPluggedIn}
+                  onChange={(startWhenPluggedIn) => change({ startWhenPluggedIn })}
+                />
+                {settings.startWhenPluggedIn && (
+                  <Row label="Within" indented>
+                    <Choose
+                      label="How long after plugging in"
+                      choices={plugInChoices(settings.pluggedInWindowMinutes)}
+                      value={settings.pluggedInWindowMinutes}
+                      onChange={(pluggedInWindowMinutes) => change({ pluggedInWindowMinutes })}
+                    />
+                  </Row>
+                )}
+                <Toggle
+                  label="When I unlock it at home"
+                  value={settings.startWhenUnlockedAfterHours !== null}
+                  onChange={(on) =>
+                    change({ startWhenUnlockedAfterHours: on ? DEFAULT_UNLOCK_WAIT_HOURS : null })
+                  }
+                />
+                {settings.startWhenUnlockedAfterHours !== null && (
+                  <Row label="Once a backup has waited" indented>
+                    <Choose
+                      label="How long a backup waits before an unlock starts it"
+                      choices={unlockWaitChoices(settings.startWhenUnlockedAfterHours)}
+                      value={settings.startWhenUnlockedAfterHours}
+                      onChange={(startWhenUnlockedAfterHours) =>
+                        change({ startWhenUnlockedAfterHours })
+                      }
+                    />
+                  </Row>
+                )}
+                <Toggle
+                  label="Any time it's on a charger at home"
+                  value={settings.startOnChargerAfterHours !== null}
+                  onChange={(on) =>
+                    change({ startOnChargerAfterHours: on ? DEFAULT_CHARGER_WAIT_HOURS : null })
+                  }
+                />
+                {settings.startOnChargerAfterHours !== null && (
+                  <Row label="Once a backup has waited" indented>
+                    <Choose
+                      label="How long a backup waits before any time on a charger starts it"
+                      choices={chargerWaitChoices(settings.startOnChargerAfterHours)}
+                      value={settings.startOnChargerAfterHours}
+                      onChange={(startOnChargerAfterHours) => change({ startOnChargerAfterHours })}
+                    />
+                  </Row>
+                )}
+                <Note>
+                  Every backup needs your passcode on the phone, so it starts at moments when
+                  you're likely to be holding it. If nobody answers, it waits for the next
+                  moment, and stops asking for the day after three.
+                </Note>
+              </Section>
+            )}
+
+            {settings.automatic && (
+              <Section title="Quiet hours">
+                <Toggle
                   label="No backups during quiet hours"
                   value={settings.quietHours !== null}
-                  onValueChange={(on) => change({ quietHours: on ? { ...DEFAULT_QUIET_HOURS } : null })}
+                  onChange={(on) => change({ quietHours: on ? { ...DEFAULT_QUIET_HOURS } : null })}
                 />
-              </Host>
-              {settings.quietHours !== null && (
-                <>
-                  <Row label="From">
-                    <Choose
-                      label="Quiet hours start"
-                      choices={timeChoices(settings.quietHours.start)}
-                      value={settings.quietHours.start}
-                      onChange={(start) =>
-                        change({ quietHours: { start, end: settings.quietHours?.end ?? start } })
-                      }
-                    />
-                  </Row>
-                  <Row label="Until">
-                    <Choose
-                      label="Quiet hours end"
-                      choices={timeChoices(settings.quietHours.end)}
-                      value={settings.quietHours.end}
-                      onChange={(end) =>
-                        change({ quietHours: { start: settings.quietHours?.start ?? end, end } })
-                      }
-                    />
-                  </Row>
-                  <Note>By the server's clock. "Back up now" still works in quiet hours.</Note>
-                </>
-              )}
-            </Section>
+                {settings.quietHours !== null && (
+                  <>
+                    <Row label="From" indented>
+                      <Choose
+                        label="Quiet hours start"
+                        choices={timeChoices(settings.quietHours.start)}
+                        value={settings.quietHours.start}
+                        onChange={(start) =>
+                          change({ quietHours: { start, end: settings.quietHours?.end ?? start } })
+                        }
+                      />
+                    </Row>
+                    <Row label="Until" indented>
+                      <Choose
+                        label="Quiet hours end"
+                        choices={timeChoices(settings.quietHours.end)}
+                        value={settings.quietHours.end}
+                        onChange={(end) =>
+                          change({ quietHours: { start: settings.quietHours?.start ?? end, end } })
+                        }
+                      />
+                    </Row>
+                    <Note>By the server's clock. "Back up now" still works in quiet hours.</Note>
+                  </>
+                )}
+              </Section>
+            )}
 
             <Section title="Warning">
               <Row label="Show as overdue after">
@@ -242,10 +293,36 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+/** A switch with its label. */
+function Toggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <Host matchContents>
+      <Switch label={label} value={value} onValueChange={onChange} />
+    </Host>
+  );
+}
+
+function Row({
+  label,
+  indented = false,
+  children,
+}: {
+  label: string;
+  /** Belongs to the switch above it. */
+  indented?: boolean;
+  children: ReactNode;
+}) {
   const theme = useTheme();
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, indented && styles.indented]}>
       <Text style={[styles.rowLabel, { color: theme.ink }]}>{label}</Text>
       {children}
     </View>
@@ -308,6 +385,7 @@ const styles = StyleSheet.create({
     gap: space.md,
     flexWrap: "wrap",
   },
+  indented: { paddingLeft: space.lg },
   rowLabel: { fontSize: type.body },
   note: { fontSize: type.small },
   input: {

@@ -138,9 +138,12 @@ describe("requestBackup", () => {
 
 const SETTINGS = {
   name: "Mike's iPhone",
+  automatic: true,
   dueAfterHours: 20,
-  trigger: "plugged-in" as const,
+  startWhenPluggedIn: true,
   pluggedInWindowMinutes: 30,
+  startWhenUnlockedAfterHours: 4,
+  startOnChargerAfterHours: 24,
   quietHours: { start: "22:00", end: "07:00" },
   staleAfterHours: 72,
 };
@@ -157,7 +160,7 @@ describe("fetchSettings", () => {
   });
 
   it("refuses settings that are not what the contract promises", async () => {
-    const odd = answering({ ...SETTINGS, trigger: "whenever" });
+    const odd = answering({ ...SETTINGS, automatic: "sometimes" });
     await expect(fetchSettings("mike", "", odd)).rejects.toThrow("The server's answer made no sense.");
   });
 });
