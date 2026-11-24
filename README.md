@@ -34,13 +34,18 @@ open; [DESIGN.md](DESIGN.md) is the brief for the app;
 ## How it fits together
 
 ```
+The app (apps/app)                  one codebase: the web app, and the iPhone app
+     |  JSON API, shapes in packages/api-contract
 TypeScript daemon (apps/server/src)       Python sidecar (apps/server/sidecar)
+  api:       the web app and its API
+  settings:  the phones, their schedules
   discovery: where is the phone?    --->    probe   read-only device status
-  policy:    is a backup due, and
-             was it just plugged in?
+  policy:    is a backup wanted, and
+             is this a good moment?
   runner:    back up, then verify   --->    backup  JSON events as it runs
                                     --->    verify  is this backup complete?
-  state:     SQLite run history
+  state:     SQLite: phones, settings,
+             run history
 ```
 
 The sidecar wraps [pymobiledevice3](https://github.com/doronz88/pymobiledevice3)
