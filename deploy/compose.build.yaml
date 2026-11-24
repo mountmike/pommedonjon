@@ -1,0 +1,8 @@
+# Added to compose.yaml by an environment that builds from source instead of
+# pulling a published image: the test environment. Deploy with `--build`.
+services:
+  pommedonjon:
+    build:
+      context: ..
+      args:
+        POMMEDONJON_BUILD: ${POMMEDONJON_BUILD:-test}

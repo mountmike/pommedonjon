@@ -262,6 +262,35 @@ prompt it. If a server already backs a phone up, leave that phone out of
 `pommedonjon --version` and the first line of the daemon's log say which
 build is running, including the commit.
 
+Both server environments use the same compose file,
+[deploy/compose.yaml](deploy/compose.yaml), as two separate stacks that set
+different variables: which image, and where the config, pair records and
+backups are on the host. [deploy/komodo.example.toml](deploy/komodo.example.toml)
+defines the two stacks for [Komodo](https://komo.do).
+
+**A phone belongs to one environment.** Two daemons watching the same phone
+would each prompt it.
+
+### Deploying to test
+
+The test stack follows a branch called `test` and builds the image on the
+server from whatever commit that branch points at, so no registry or CI run
+is involved:
+
+```bash
+pnpm deploy:test
+```
+
+That pushes your current commit to `test`, asks Komodo to deploy the stack,
+waits for the result and prints the stack's log. To read the log later:
+
+```bash
+pnpm deploy:test logs
+```
+
+It needs Komodo's address and an API key, from the environment or from
+`local/komodo.env`; see [deploy/komodo.env.example](deploy/komodo.env.example).
+
 ### Releasing
 
 Versions are managed with [Changesets](https://github.com/changesets/changesets).

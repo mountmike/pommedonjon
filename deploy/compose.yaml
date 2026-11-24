@@ -1,0 +1,38 @@
+# pommedonjon as a server runs it. One file for every environment: each
+# environment is a separate stack that sets the variables below.
+#
+#   POMMEDONJON_IMAGE         which build to run
+#   POMMEDONJON_CONFIG_DIR    host directory holding pommedonjon.json
+#   POMMEDONJON_SECRETS_DIR   host directory holding the pair records, mode 600
+#   POMMEDONJON_BACKUPS_DIR   host directory where backups live
+#   POMMEDONJON_USER          uid:gid that owns the three directories (1000:1000)
+#   TZ                        where the phones live, e.g. Europe/London
+#
+# A phone must appear in only one environment's config: two daemons watching
+# the same phone would each prompt it.
+services:
+  pommedonjon:
+    image: ${POMMEDONJON_IMAGE:-ghcr.io/mountmike/pommedonjon:latest}
+    restart: unless-stopped
+    user: ${POMMEDONJON_USER:-1000:1000}
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - ${POMMEDONJON_CONFIG_DIR:?set POMMEDONJON_CONFIG_DIR}:/config:ro
+      # A pair record grants full access to a phone. Read-only here, and
+      # readable on the host only by POMMEDONJON_USER.
+      - ${POMMEDONJON_SECRETS_DIR:?set POMMEDONJON_SECRETS_DIR}:/run/secrets:ro
+      # The run history (SQLite). A named volume, so it is on the server's
+      # own disk and each environment has its own.
+      - state:/state
+      - ${POMMEDONJON_BACKUPS_DIR:?set POMMEDONJON_BACKUPS_DIR}:/backups
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  state:
