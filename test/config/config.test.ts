@@ -24,11 +24,11 @@ describe("the example config in the repo", () => {
     const config = await loadConfig(new URL("../../pommedonjon.example.json", import.meta.url).pathname);
     expect(config.devices.map((device) => device.id)).toEqual(["phone-one", "phone-two"]);
     // One phone found by discovery, one pinned; both read their pair record
-    // from where Compose mounts secrets.
+    // from where the Compose file mounts the secrets volume.
     expect(config.devices.map((device) => device.host)).toEqual([undefined, "192.0.2.11"]);
     expect(config.devices.map((device) => device.pairRecordPath)).toEqual([
-      "/run/secrets/phone_one_pair_record",
-      "/run/secrets/phone_two_pair_record",
+      "/run/secrets/phone-one.plist",
+      "/run/secrets/phone-two.plist",
     ]);
     expect(config.devices[0]?.policy).toEqual(DEFAULT_POLICY);
     expect(config.devices[1]?.policy).toMatchObject({

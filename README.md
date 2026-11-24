@@ -84,8 +84,7 @@ starts and warns if anyone else can read it.
 
 ## Configuration
 
-Copy [pommedonjon.example.json](pommedonjon.example.json) to
-`config/pommedonjon.json`. Unknown settings are errors, and every problem in
+Start from [pommedonjon.example.json](pommedonjon.example.json). Unknown settings are errors, and every problem in
 the file is reported at once.
 
 | Setting | Meaning |
@@ -174,17 +173,38 @@ Only publish the port on a network you trust.
 
 ## Running
 
-Start from [compose.example.yaml](compose.example.yaml), which expects:
+Start from [deploy/compose.yaml](deploy/compose.yaml). It runs the published
+image, `ghcr.io/mountmike/pommedonjon`, and needs one thing from you: where
+backups go, as `POMMEDONJON_BACKUPS_DIR`. The config, the pair records and
+the run history live in volumes Docker creates, so there are no folders to
+prepare.
 
-```
-config/pommedonjon.json    settings
-secrets/<name>.plist      one pair record per phone, mode 600
-state/                    created by pommedonjon; a local disk
-```
+Create the volumes without starting anything:
 
 ```bash
-docker compose up -d
+POMMEDONJON_BACKUPS_DIR=/mnt/backups/iphones docker compose -f deploy/compose.yaml up --no-start
 ```
+
+Put your config in:
+
+```bash
+docker run --rm -i -v pommedonjon_config:/c alpine sh -c 'cat > /c/pommedonjon.json' < pommedonjon.json
+```
+
+Put each phone's pair record in, readable only by the user the container
+runs as (1000 unless you set `POMMEDONJON_USER`):
+
+```bash
+docker run --rm -i -v pommedonjon_secrets:/s alpine sh -c 'cat > /s/phone-one.plist && chown 1000:1000 /s/phone-one.plist && chmod 600 /s/phone-one.plist' < secrets/phone-one.plist
+```
+
+Then start it:
+
+```bash
+POMMEDONJON_BACKUPS_DIR=/mnt/backups/iphones docker compose -f deploy/compose.yaml up -d
+```
+
+Copying files in by hand is a stopgap until there is a web UI to do it.
 
 Commands (`docker compose run --rm pommedonjon <command>`, or
 `node dist/cli.js <command>` after `pnpm build`):

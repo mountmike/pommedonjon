@@ -393,30 +393,31 @@ and has not been tried on the real device.
   directory, a state directory, and the pair records.
 - The SQLite state must be on a local disk, not a network share.
 
-Not decided: which registry, and which CPU architectures to publish (only
-arm64 has been built).
-
-**Built** as far as the Compose example, the example config and an image
-that builds locally. Publishing waits on the registry choice and O13.
+**Built.** The image is published to GitHub's registry as
+`ghcr.io/mountmike/pommedonjon`, for amd64 only so far. There is one Compose
+file, `deploy/compose.yaml`: the same one the owner's stacks run is the one
+to copy. An earlier second example, with host folders and file-backed
+Compose secrets, was removed on 2026-11-24 so that there is one way to run
+it, the one that is actually run.
 
 ### D19. Pair records are handled as secrets
 
 *Decided by the owner, 2026-11-24: store them to best practice.* What that
 means here, by judgement:
 
-- Delivered as file-backed Compose secrets, mounted read-only, separate from
-  the config and from the backups directory.
+- Kept in a volume of their own, mounted read-only at `/run/secrets`,
+  separate from the config and from the backups directory. (First built as
+  file-backed Compose secrets; changed to a volume with D20, so nothing has
+  to be laid out on the host.)
 - Never in the image, the config file, environment variables, logs, run
   history, or the build context.
 - Readable only by the user the container runs as; pommedonjon checks the
   file's permissions at start-up and says so if they are loose.
-- The Compose example and README show the layout and the host-side
-  permissions.
+- The README shows how to put one in with the right owner and mode.
 
 Already true: the config references pair records by path, the build context
 excludes them, and the container reads them from a read-only mount.
-**Built.** Compose mounts a file-backed secret exactly as it is on the host,
-so the host file's owner and mode are what protect it; the example says so.
+**Built.** The file's owner and mode inside the volume are what protect it.
 At start-up pommedonjon logs an error for a pair record that is missing or
 unreadable and a warning for one that anyone but its owner can read, and
 carries on, so one phone's mistake does not stop another's backups.

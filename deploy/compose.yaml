@@ -1,5 +1,6 @@
-# pommedonjon as a server runs it. One file for every environment: each
-# environment is a separate stack that sets the variables below.
+# pommedonjon as a server runs it, and the file to copy into a stack of your
+# own. One file for every environment: each environment is a separate stack
+# that sets the variables below.
 #
 #   POMMEDONJON_IMAGE         which build to run
 #   POMMEDONJON_BACKUPS_DIR   host directory where backups live
@@ -19,6 +20,11 @@
 #
 # A phone must appear in only one environment's config: two daemons watching
 # the same phone would each prompt it.
+
+# Names the volumes pommedonjon_config and so on when run with plain
+# `docker compose`. A stack manager that sets its own project name overrides it.
+name: pommedonjon
+
 services:
   pommedonjon:
     image: ${POMMEDONJON_IMAGE:-ghcr.io/mountmike/pommedonjon:latest}
@@ -34,6 +40,10 @@ services:
       # share.
       - state:/state
       - ${POMMEDONJON_BACKUPS_DIR:?set POMMEDONJON_BACKUPS_DIR}:/backups
+    # Only if the config sets api.port, so phones can ask for a backup. It
+    # has no authentication yet: publish it on a network you trust.
+    # ports:
+    #   - "8377:8377"
     read_only: true
     tmpfs:
       - /tmp
