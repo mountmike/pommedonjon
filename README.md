@@ -108,8 +108,15 @@ does not answer it tries the lockdown port on every address in
 the right phone, so a wrong address can never lead to backing up the wrong
 one.
 
-Your firewall has to let the container reach the phones' range on TCP 62078.
-A router's intrusion detection may notice the sweeps.
+Your firewall has to let the container reach the phones on TCP 49152 to
+65535. Port 62078 alone is not enough: it finds the phone and starts the
+conversation, and the backup itself then runs on a port the phone picks
+each time. A router's intrusion detection may notice the sweeps.
+
+If the container is on a different subnet from the phones, the router also
+has to rewrite the source address (source NAT, or masquerade) on that
+traffic, so the phone sees an address on its own network. A phone accepts a
+connection from another subnet and then closes it.
 
 ### When a backup starts
 
