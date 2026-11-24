@@ -1,11 +1,7 @@
-# Phase 0 findings (interim)
+# Findings
 
-Status as of 2026-11-24 00:40, end of day one. **Phase 0 is not finished.** One
-full encrypted backup has completed over USB, and three incrementals have
-completed over WiFi from a Linux container, one of them started with the
-phone locked. Neither has been decrypted or
-restored, and nothing has been tried over the tailnet. Sections marked *not
-tested* are still open; see [What is left](#what-is-left).
+What has been measured against a real phone, and what has only been read.
+[DECISIONS.md](DECISIONS.md) says what was decided because of it.
 
 Evidence is labelled throughout:
 
@@ -18,39 +14,32 @@ are in the git-ignored `local/` folder.
 
 ## Summary
 
-- **A full encrypted backup over USB works on iOS 26.6.1** with
-  pymobiledevice3, driven by this repo's sidecar: 22 GB, 123,290 files, in
-  12 min 58 s.
-- **An incremental backup over WiFi works from an Alpine Linux container**
-  with no USB, no usbmuxd, no root and no host networking, using only a pair
-  record exported from the Mac. Done twice: 5 min 38 s with the phone also on
-  the Mac's USB, and 6 min 17 s with it unplugged from the Mac entirely. This
-  is the path dockyard would use.
-- **The service's own code has backed the phone up.** `pommedonjon backup`,
-  run from the read-only container with the phone on battery, completed an
-  incremental in 4 min 48 s, verified it and recorded it. The daemon loop
-  deciding by itself when to start has still not been run for real.
-- The phone was already paired with the Mac, with backup encryption on and
-  WiFi connections enabled, so no phone settings were changed.
-- Classic lockdown over WiFi (TCP 62078) carries the whole backup protocol on
-  iOS 26.6.1. The RemotePairing tunnel is not needed on the LAN.
-- **Every backup start raises a passcode prompt on the phone, and an
-  unanswered prompt fails the backup after 60 seconds.** A locked phone wakes
-  and shows the prompt on its lock screen, where it can be answered. This is
-  the main constraint on the whole design: backups need the owner for a few
-  seconds at the start, so a 3 a.m. unattended backup will not work, but an
-  evening run that the owner answers from the lock screen will.
-- **The phone stayed reachable all night while charging.** Over 7 h 24 min
-  (83 checks, five minutes apart), a lockdown query from the container to the
-  phone's address succeeded on every one of the 82 checks where the address
-  was known. The Mac's usbmuxd was less dependable: it did not list the
-  phone's network entry for the first two hours. A bare port probe found
-  62078 not accepting on 14 checks, each time followed seconds later by a
-  successful query, so one refused connection means "try again", not "away".
-  The phone was on a charger throughout; a sleeping phone on battery is still
-  untested.
-- Recommended shape: TypeScript daemon and UI, with pymobiledevice3 driven
-  through a small Python sidecar that emits JSON events.
+As of 2026-11-24, on one iPhone running iOS 26.6.1:
+
+- **Backups work over WiFi with no computer in the loop.** Classic lockdown
+  on TCP 62078 carries the whole backup protocol. An unprivileged Linux
+  container with a pair record needs no USB, no usbmuxd and no tunnel.
+- **Every backup start raises a passcode prompt on the phone**, and an
+  unanswered one fails the backup after 60 seconds. A locked phone wakes to
+  show it. This is the main constraint on the design: a backup needs its
+  owner for a few seconds at the start.
+- **The service runs the whole loop by itself.** From a server on another
+  VLAN, writing to a NAS over NFS, the daemon saw the phone go on charge,
+  started a backup, retried after a failure and produced a verified
+  incremental (attempts 15 and 16).
+- **The phone can ask for its own backup.** A Shortcut on the home screen
+  starts one with the prompt 5.4 s after the tap, and a charger automation
+  reports each plug-in without asking (see DECISIONS.md O22).
+- **A server on another subnet needs more than a firewall rule.** The phone
+  drops lockdown sessions from outside its own subnet unless the router
+  rewrites the source address, and a backup uses a second port the phone
+  picks each time.
+- **A cancelled prompt and an unanswered one give the same error.** Only
+  how long the prompt stayed open tells them apart.
+- **A phone on a charger stayed reachable all night**; on battery it is
+  slower to answer and once dropped a session mid-prompt.
+
+Not yet measured is listed [at the end](#not-yet-measured).
 
 ## Test setup
 
@@ -61,10 +50,10 @@ are in the git-ignored `local/` folder.
 | pymobiledevice3 | 11.63.1 (pipx, Python 3.14) |
 | libimobiledevice | 1.4.0 (Homebrew) |
 | Container | `python:3.14-alpine` (Alpine 3.24, arm64) + pymobiledevice3 11.63.1 |
-| Project | Node 24, pnpm 12, TypeScript 7, Vitest 5 |
+| Project | Node 26, pnpm 12, TypeScript 7, Vitest 5 |
+| Server (attempts 15 on) | Alpine Linux VM, amd64, on a different VLAN from the phone; backups on a NAS over NFS 4.2 |
 
-The dockyard VM's CPU architecture is not confirmed; the container was only
-built for arm64 here.
+Attempts 1 to 14 were run from the Mac, natively or in an arm64 container.
 
 ## Hypotheses
 
@@ -79,7 +68,7 @@ built for arm64 here.
 
 ## What was measured
 
-### Backup attempts (encryption on; 1 to 5 over USB, 6 to 16 over WiFi)
+### Backup attempts (encryption on; 1 to 5 over USB, 6 to 18 over WiFi)
 
 | # | Tool | Passcode prompt | Outcome |
 |---|---|---|---|
@@ -185,6 +174,14 @@ What these show:
   4 min 11 s for attempt 14 to a local disk. The two are not the same amount
   of changed data, so this is not a measure of the share.
 
+Attempts 17 and 18, the same evening: backups asked for from the phone, by
+a Shortcut calling the service (DECISIONS.md O22).
+
+| # | What happened | Outcome |
+|---|---|---|
+| 17 | Owner tapped the home-screen button. Prompt 10.6 s after the tap, of which 5 s was the service's own heads-up pause; passcode typed | **Completed** in 4 min 42 s (282 s), verified. Two requests from the charger automation arrived meanwhile and were refused as already running |
+| 18 | The same, after the pause was removed for requested backups. Prompt 5.4 s after the tap. **The owner tapped Cancel**; it closed 1.8 s later | Failed as `passcode-cancelled`, as intended |
+
 What attempts 13 and 14 show:
 
 - **The phone does not distinguish a cancel from a timeout.** Both end in
@@ -260,12 +257,12 @@ which may explain it; the cause was not isolated.
 - **The prompt explains nothing.** On a locked phone the screen simply turned
   on showing the passcode keypad, with no text saying a backup was asking or
   which computer wanted it (owner's observation, attempt 8). To the owner it
-  is an unexplained passcode request. Two consequences: the service must send
-  its own heads-up through another channel just before it starts ("pommedonjon
-  is about to back up your phone, enter your passcode"), and nobody should be
-  taught to type their passcode into unexplained prompts, so a prompt with no
-  matching heads-up should be treated as suspect. Whether the prompt carries
-  text when the phone is already unlocked was not noted.
+  is an unexplained passcode request. Later attempts showed a message with
+  the prompt, on an unlocked phone and once on a locked one (attempt 12);
+  what decides which is not known. The first conclusion drawn from this,
+  that the service must send its own heads-up first, was dropped once
+  backups were tied to the owner plugging in or tapping a button
+  (DECISIONS.md D9).
 - **Starting a backup wakes a locked phone.** The screen lights and shows the
   prompt. So a run scheduled for the middle of the night would light the
   phone for up to a minute and then fail; a run in the evening acts as a
@@ -363,7 +360,7 @@ NFS 4.2:
 
 ### Overnight reachability (night of 2026-11-23)
 
-`scripts/presence-monitor.sh` checked the phone every five minutes from 23:46
+A script, `scripts/presence-monitor.sh` (since removed; it is in the git history), checked the phone every five minutes from 23:46
 to 07:10: 83 checks. The phone was on the Mac's USB the whole time, so it was
 charging (74% at the start, 100% from 01:05). Its owner went to bed at about
 01:05; that the phone then sat locked and untouched is assumed, not observed.
@@ -419,82 +416,7 @@ Consequences for the daemon:
 - This file grants full access to the phone. It needs secret handling, not a
   bind mount from a shared dataset.
 
-## Recommended transport
-
-**pymobiledevice3, over classic lockdown on TCP 62078, driven as a library
-from a small Python sidecar that speaks newline-delimited JSON to the
-TypeScript daemon.**
-
-Why:
-
-- It is the only one of the three implementations with an active maintainer
-  testing on iOS 26.6, and it already has the 26.4 `authTag` matching.
-- It connects straight to the phone by address with a supplied pair record, so
-  the container needs no usbmuxd, no netmuxd, no root and no host networking.
-- A sidecar gives structured events (passcode prompt, progress, device error
-  codes) instead of scraping terminal output, which is what the one reference
-  project using pymobiledevice3 does.
-
-Alternatives considered:
-
-- **libimobiledevice**: no built-in network path on Linux (needs netmuxd), no
-  way to set `EnableWifiConnections`, open iOS 26 backup issues. Keep as a
-  second opinion for debugging.
-- **Rust `idevice` crate**: maintained and a good fit if the sidecar ever needs
-  to be a single static binary. More work now for no gain yet.
-- **RemotePairing tunnel**: not needed on the LAN. It is the candidate for the
-  tailnet path only, where 62078 is reported not to work.
-
-Attempt 6 exercised exactly this path end to end. What it has not shown is a
-full (first) backup over WiFi, behaviour with the phone off USB and on
-battery, or anything across VLANs.
-
-## TypeScript scope
-
-Agreed direction: TypeScript for the daemon, server and UI; other languages
-where they fit better. On that basis a native TypeScript device transport is
-not worth pursuing:
-
-- Lockdown, pair-record TLS and AFC exist in Appium's `appium-ios-remotexpc`,
-  but not as importable library code, and it has no direct-TCP lockdown.
-- No usable TypeScript mobilebackup2/DeviceLink exists. The estimate is
-  2,500 to 4,000 lines to write, tracking Apple's changes alone.
-- The tunnel path is not realistic in Node on Alpine without root.
-
-The `DeviceTransport` interface in `src/transport/` keeps that door open
-without paying for it.
-
-## What exists in the repo
-
-First built the night of 2026-11-23/24, then reworked on 2026-11-24 to the
-design in [DECISIONS.md](DECISIONS.md). 268 unit tests pass under Node 26;
-all use fakes for the phone and the sidecar.
-
-| Part | Where | Tried against the real phone? |
-|---|---|---|
-| Sidecar: `probe`, `backup`, `verify` | `sidecar/pommedonjon_sidecar.py` | Yes, all three |
-| Transport interface and implementation | `src/transport/` | Yes (attempt 9) |
-| Config, as a Zod schema | `src/config/` | n/a; the container loads real configs with it |
-| Discovery: range sweep, locator, address book | `src/discovery/` | Yes: found the phone by sweeping the home /24 from the container, on the second sweep |
-| Schedule and plug-in detection | `src/policy/` | Yes (attempts 15 and 16) |
-| Storage: one backup per phone, verified marker | `src/storage/` | Yes (attempt 14) |
-| Run history in SQLite | `src/state/` | Yes: recorded attempts 9 to 12, then upgraded in place to the current schema |
-| Runner: back up, verify, record | `src/runner/` | Yes (attempts 13 and 14) |
-| Daemon: one cycle per phone, stale alerts | `src/daemon/` | Started and stopped cleanly in the container with a backup not due. A backup it started itself: **no** |
-| Trial record and `report` command | `src/report/`, `src/state/` | The report: yes, on the morning's real history. Power and waiting records: **no**, nothing has been recorded by a running daemon yet |
-| Pair record permission check | `src/credentials/` | Yes: warned on a 644 file mounted as a Compose secret, silent on 600 |
-| CLI: `daemon`, `probe`, `backup`, `status`, `report` | `src/cli.ts` | All but a working `daemon`: yes |
-| Container image and Compose example | `Dockerfile`, `compose.example.yaml` | `probe` through Compose with secrets, read-only and unprivileged: yes |
-
-Not built: notifications (they go to the service log only), mDNS discovery,
-the web UI. Cancel detection was built after attempt 13 and has only been
-run against fakes.
-
-**The next real test owed** is the field trial: the daemon running for a
-week or two and starting backups by its own decision when the phone is
-plugged in. Nothing has yet exercised plug-in detection on a real phone.
-
-Things the build turned up:
+### Things the build turned up
 
 - **The phone's Tailscale address does not work for lockdown.** Port 62078
   accepts a connection on the Tailscale address, then the phone drops the
@@ -543,22 +465,11 @@ Things the build turned up:
    lockdown over WiFi could be withdrawn in a later release.
 4. **Tailnet path is unproven** and may need the RemotePairing tunnel plus
    address relaying.
-5. **Dependency on one maintainer's project** (pymobiledevice3, GPL-3.0). The
-   sidecar boundary limits what its licence touches, but that should be
-   checked before publishing anything.
+5. **Dependency on one maintainer's project** (pymobiledevice3, GPL-3.0).
+   pommedonjon is GPL-3.0 too (DECISIONS.md D22), so the licence is not a
+   constraint; the dependence on its upkeep is.
 6. **Pair record handling.** It is a long-lived, full-access credential that
-   must live on dockyard.
-7. **Different subnets.** The owner's server and phones are on different
-   VLANs. mDNS will not cross them without the router relaying it, and port
-   62078 is reported to refuse connections from outside the phone's subnet.
-   Neither has been tested (DECISIONS.md O5).
-
-## Decisions and design
-
-These were here as "Decisions needed before deploying" and "Proposed Phase 1
-design". Both are superseded by [DECISIONS.md](DECISIONS.md), which was
-revised after the owner's review on 2026-11-24 and is the single place for
-what is decided, what is in scope and what is open.
+   has to live on the server (DECISIONS.md D19).
 
 ## Reference projects
 
@@ -575,31 +486,25 @@ The two WiFi-capable projects disagree: ios-backup's README calls legacy WiFi
 sync dead on current iOS, while AirVault uses it on iOS 26. The measurements
 above side with AirVault, with the locked-phone caveat.
 
-## What is left
+## Not yet measured
 
-Needs the phone and its owner (each backup start needs the passcode):
-
-1. ~~One complete full backup over USB, timed.~~ Done: 12 min 58 s. Still to
-   do on it: confirm it decrypts with the backup password (typed by the
-   owner, never stored).
-2. ~~Backup over WiFi through lockdown from the container.~~ Done for two
-   incrementals, the second with the phone off the Mac's USB. A full backup
-   over WiFi is still to do.
-3. RemotePairing path, then a backup through it. Lower priority now that
-   lockdown works on the LAN; it matters for the tailnet.
-4. Resume after an interrupted run, and an incremental after a normal day's
-   use rather than 13 minutes.
-5. ~~Locked vs unlocked.~~ Done (attempt 8). On battery: one backup done
-   (attempt 9), with the owner at the phone. Still to do: on battery with the screen off for
-   30+ minutes, and whether lock/unlock events are observable over WiFi.
-6. Tailnet: phone off home WiFi, direct by Tailscale address on both paths,
-   then spoof and relay.
-
-Needs no one:
-
-7. ~~Overnight reachability log.~~ Done; see "Overnight reachability". The
-   raw data is `local/logs/presence-overnight.ndjson`.
-8. Confirm a completed backup decrypts and is structurally sound.
+- **That a backup decrypts and restores.** Verification so far is
+  structural. Needs the backup password, typed by the owner (DECISIONS.md
+  O9).
+- **A first, full backup over WiFi.** Every WiFi backup so far has been an
+  incremental onto a copy seeded from USB (O10).
+- **A plug-in request that starts a backup.** The request has only been
+  seen answered "not due".
+- **Reachability overnight from another subnet.** The overnight log was
+  taken from the phone's own network.
+- **A phone on battery with its screen off for 30 minutes or more.**
+- **Resuming after a run is interrupted part-way**, and an incremental
+  after an ordinary day's use.
+- **A prompt cancelled from the lock screen, and a wrong passcode.** Either
+  may look like the cancel that was measured.
+- **Anything over the tailnet beyond the first failure**: the RemotePairing
+  tunnel, or a relay on the home network (O8).
+- **A second phone**, and two backing up at once.
 
 ## Sources
 
