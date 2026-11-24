@@ -16,10 +16,8 @@ Commands:
 How a device is reached (probe, backup):
 
   --host H --pair-record F   Straight to the phone's lockdown port over the
-                             network. No usbmuxd. This is what a container
-                             uses.
-  --connection usb|network   Through the host's usbmuxd (macOS, or Linux with
-                             usbmuxd/netmuxd).
+                             network, authenticated with a pair record. No
+                             usbmuxd, no USB.
 
 Backup events (the "event" field):
   started             connected to the device, backup requested
@@ -155,35 +153,29 @@ def failure_category(error: BaseException) -> str:
 
 
 async def connect(args: argparse.Namespace):
-    from pymobiledevice3.lockdown import create_using_tcp, create_using_usbmux
+    from pymobiledevice3.lockdown import create_using_tcp
 
-    if args.host:
-        pair_record = plistlib.loads(Path(args.pair_record).read_bytes())
-        # A phone on battery can take several seconds to accept a connection
-        # (6.7 s was measured), and pymobiledevice3 gives each dial one
-        # second. So "no answer" only counts after trying for a while.
-        deadline = time.monotonic() + CONNECT_WINDOW_SECONDS
-        while True:
-            try:
-                return await create_using_tcp(
-                    hostname=args.host,
-                    identifier=args.udid,
-                    pair_record=pair_record,
-                    autopair=False,
-                    port=args.port,
-                    keep_alive=True,
-                )
-            except Exception as error:  # noqa: BLE001 - re-raised unless unreachable
-                if failure_category(error) != "unreachable":
-                    raise
-                if time.monotonic() >= deadline:
-                    raise
-                await asyncio.sleep(CONNECT_RETRY_PAUSE_SECONDS)
-    return await create_using_usbmux(
-        serial=args.udid,
-        autopair=False,
-        connection_type="Network" if args.connection == "network" else "USB",
-    )
+    pair_record = plistlib.loads(Path(args.pair_record).read_bytes())
+    # A phone on battery can take several seconds to accept a connection
+    # (6.7 s was measured), and pymobiledevice3 gives each dial one
+    # second. So "no answer" only counts after trying for a while.
+    deadline = time.monotonic() + CONNECT_WINDOW_SECONDS
+    while True:
+        try:
+            return await create_using_tcp(
+                hostname=args.host,
+                identifier=args.udid,
+                pair_record=pair_record,
+                autopair=False,
+                port=args.port,
+                keep_alive=True,
+            )
+        except Exception as error:  # noqa: BLE001 - re-raised unless unreachable
+            if failure_category(error) != "unreachable":
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            await asyncio.sleep(CONNECT_RETRY_PAUSE_SECONDS)
 
 
 # --- probe -----------------------------------------------------------------
@@ -380,12 +372,13 @@ def verify(args: argparse.Namespace) -> int:
 
 def add_device_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--udid", required=True)
-    parser.add_argument("--connection", choices=("usb", "network"), default="usb")
     parser.add_argument(
-        "--host", help="Connect straight to this address instead of through usbmuxd."
+        "--host", required=True, help="The phone's address or resolvable name."
     )
     parser.add_argument("--port", type=int, default=LOCKDOWN_PORT)
-    parser.add_argument("--pair-record", help="Pair record plist to use with --host.")
+    parser.add_argument(
+        "--pair-record", required=True, help="Pair record plist for this phone."
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -411,13 +404,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     verify_parser.add_argument("--backup-dir", required=True, type=Path)
 
     args = parser.parse_args(argv)
-    if args.command in ("probe", "backup"):
-        if args.host is not None and not args.host.strip():
-            # An empty address (a failed name lookup upstream) must not fall
-            # through to the usbmuxd path and report a misleading error.
-            parser.error("--host was given but is empty")
-        if args.host and not args.pair_record:
-            parser.error("--host requires --pair-record")
+    if args.command in ("probe", "backup") and not args.host.strip():
+        # An empty address (a failed name lookup upstream) should say so,
+        # not fail later as an unreachable phone.
+        parser.error("--host was given but is empty")
     return args
 
 

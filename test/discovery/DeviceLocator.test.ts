@@ -33,7 +33,7 @@ function harness(options: {
   const locator = new DeviceLocator({
     transport: {
       probe: (target: DeviceTarget) => {
-        const host = target.endpoint.kind === "tcp" ? target.endpoint.host : "?";
+        const { host } = target.endpoint;
         probed.push(host);
         const answer = options.at?.[host] ?? silent();
         return answer instanceof DeviceError ? Promise.reject(answer) : Promise.resolve(answer);
@@ -128,7 +128,6 @@ describe("DeviceLocator", () => {
       {
         udid: FAKE_UDID,
         endpoint: {
-          kind: "tcp",
           host: "192.168.1.77",
           port: 62079,
           pairRecordPath: "/secrets/mike.plist",

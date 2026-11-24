@@ -38,7 +38,6 @@ export function targetAt(device: DeviceConfig, host: string): DeviceTarget {
   return {
     udid: device.udid,
     endpoint: {
-      kind: "tcp",
       host,
       pairRecordPath: device.pairRecordPath,
       ...(device.port !== undefined && { port: device.port }),

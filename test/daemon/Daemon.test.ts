@@ -172,7 +172,7 @@ describe("Daemon.tick", () => {
     expect(outcomes).toMatchObject([{ deviceId: "mike", action: "backed-up" }]);
     expect(h.transport.probes[0]).toMatchObject({
       udid: FAKE_UDID,
-      endpoint: { kind: "tcp", host: "10.0.0.7" },
+      endpoint: { host: "10.0.0.7" },
     });
   });
 
@@ -495,7 +495,7 @@ describe("Daemon finding a phone", () => {
     h.scanner.candidates = () => Promise.resolve(["10.0.0.31", "10.0.0.57"]);
     h.transport.probe = (target) => {
       h.transport.probes.push(target);
-      const host = target.endpoint.kind === "tcp" ? target.endpoint.host : "";
+      const { host } = target.endpoint;
       // 10.0.0.31 is some other Apple device and refuses this pair record.
       return host === "10.0.0.57"
         ? Promise.resolve(fakeStatus())

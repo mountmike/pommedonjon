@@ -66,14 +66,16 @@ const ProbeReplySchema = z.discriminatedUnion("ok", [
 
 /** The sidecar's arguments for reaching a device. */
 export function endpointArgs(target: DeviceTarget): string[] {
-  const args = ["--udid", target.udid];
   const { endpoint } = target;
-  if (endpoint.kind === "tcp") {
-    args.push("--host", endpoint.host, "--pair-record", endpoint.pairRecordPath);
-    if (endpoint.port !== undefined) args.push("--port", String(endpoint.port));
-  } else {
-    args.push("--connection", endpoint.connection);
-  }
+  const args = [
+    "--udid",
+    target.udid,
+    "--host",
+    endpoint.host,
+    "--pair-record",
+    endpoint.pairRecordPath,
+  ];
+  if (endpoint.port !== undefined) args.push("--port", String(endpoint.port));
   return args;
 }
 

@@ -12,11 +12,7 @@ const UDID = "00008140-000A1B2C3D4E001C";
 
 const overTcp: DeviceTarget = {
   udid: UDID,
-  endpoint: { kind: "tcp", host: "10.0.0.7", pairRecordPath: "/secrets/pair.plist" },
-};
-const overUsb: DeviceTarget = {
-  udid: UDID,
-  endpoint: { kind: "usbmux", connection: "usb" },
+  endpoint: { host: "10.0.0.7", pairRecordPath: "/secrets/pair.plist" },
 };
 
 const probeReply = {
@@ -82,7 +78,6 @@ describe("Pymobiledevice3Transport.startBackup", () => {
       target: {
         udid: UDID,
         endpoint: {
-          kind: "tcp",
           host: "10.0.0.7",
           port: 1234,
           pairRecordPath: "/p.plist",
@@ -93,18 +88,9 @@ describe("Pymobiledevice3Transport.startBackup", () => {
     expect(child.args[child.args.indexOf("--port") + 1]).toBe("1234");
   });
 
-  it("backs up through usbmuxd when asked, without forcing a full backup", () => {
-    const { child } = startFakeBackup({ target: overUsb });
-    expect(child.args).toEqual([
-      "/app/sidecar.py",
-      "backup",
-      "--udid",
-      UDID,
-      "--connection",
-      "usb",
-      "--backup-root",
-      "/data/backups",
-    ]);
+  it("does not force a full backup unless asked", () => {
+    const { child } = startFakeBackup();
+    expect(child.args).not.toContain("--full");
   });
 
   it("forwards events in order and resolves with the sidecar's result", async () => {
@@ -335,15 +321,6 @@ describe("Pymobiledevice3Transport.probe", () => {
     ]);
   });
 
-  it("getBattery returns the battery part of a probe", async () => {
-    const { sidecar } = fakeSidecar((child) => child.respond(probeReply));
-    const transport = new Pymobiledevice3Transport({ sidecar });
-    await expect(transport.getBattery(overTcp)).resolves.toMatchObject({
-      levelPercent: 97,
-      externalPowerConnected: true,
-    });
-  });
-
   it("reports a phone that does not answer as unreachable", async () => {
     const { sidecar } = fakeSidecar((child) =>
       child.respond(
@@ -403,34 +380,5 @@ describe("Pymobiledevice3Transport.probe", () => {
     const { sidecar } = fakeSidecar((child) => child.respond(rest));
     const transport = new Pymobiledevice3Transport({ sidecar });
     await expect(transport.probe(overTcp)).rejects.toThrow(/name/);
-  });
-});
-
-describe("Pymobiledevice3Transport.listDevices", () => {
-  it("lists what usbmuxd can see through the CLI", async () => {
-    const calls: (readonly string[])[] = [];
-    const { sidecar } = fakeSidecar();
-    const transport = new Pymobiledevice3Transport({
-      sidecar,
-      cliPath: "/bin/pmd3",
-      exec: async (file, args) => {
-        calls.push([file, ...args]);
-        return {
-          stdout: JSON.stringify([
-            {
-              BuildVersion: "23G83",
-              ConnectionType: "USB",
-              DeviceName: "Test iPhone",
-              ProductType: "iPhone17,5",
-              ProductVersion: "26.6.1",
-              UniqueDeviceID: UDID,
-            },
-          ]),
-        };
-      },
-    });
-    const devices = await transport.listDevices();
-    expect(calls).toEqual([["/bin/pmd3", "usbmux", "list"]]);
-    expect(devices.map((d) => d.udid)).toEqual([UDID]);
   });
 });

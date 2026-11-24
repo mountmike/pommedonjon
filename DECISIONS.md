@@ -122,8 +122,15 @@ make backing up phones in parallel (D13) a matter of running two processes.
 
 *By judgement.* Everything above it (policy, runner, daemon) is written
 against the interface and tested with a fake. Where a device lives is data
-(`usbmux` or `tcp` endpoint), not a different code path. Failures are typed
-(`device-locked`, `unreachable`, `not-paired`) so policy can react to cause.
+(an address and a pair record), not a different code path. Failures are
+typed (`device-locked`, `unreachable`, `not-paired`) so policy can react to
+cause.
+
+The interface is two calls: ask a phone about itself, and back it up. It
+began with a second way to reach a phone, through a USB daemon on the host,
+used during the first night's experiments on the Mac. Nothing the service
+does went that way, so it was removed on 2026-11-24. Pairing a new phone
+still needs USB once, and uses pymobiledevice3's own command for it (D5).
 
 This is what would let the sidecar be swapped for the Rust crate or a native
 implementation without touching the daemon.

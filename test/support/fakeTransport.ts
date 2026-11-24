@@ -6,7 +6,6 @@ import {
   type BackupResult,
   type BackupRun,
   type BatteryStatus,
-  type DeviceInfo,
   type DeviceStatus,
   type DeviceTarget,
   type DeviceTransport,
@@ -87,19 +86,11 @@ export class FakeTransport implements DeviceTransport {
   readonly backups: FakeBackupRun[] = [];
   onBackup: (run: FakeBackupRun) => void = (run) => run.succeed();
 
-  listDevices(): Promise<DeviceInfo[]> {
-    return Promise.resolve([]);
-  }
-
   probe(target: DeviceTarget): Promise<DeviceStatus> {
     this.probes.push(target);
     return this.probeResult instanceof DeviceError
       ? Promise.reject(this.probeResult)
       : Promise.resolve(this.probeResult);
-  }
-
-  async getBattery(target: DeviceTarget): Promise<BatteryStatus> {
-    return (await this.probe(target)).battery;
   }
 
   startBackup(options: BackupOptions): BackupRun {

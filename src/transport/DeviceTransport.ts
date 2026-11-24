@@ -12,47 +12,23 @@
 
 import { z } from "zod";
 
-/** How a usbmux daemon on the host can reach a device. */
-export type ConnectionType = "usb" | "network";
-
-/** Where and how to reach one device. */
-export type DeviceEndpoint =
-  /**
-   * Through the host's usbmux daemon. Works on a Mac, or on Linux with
-   * usbmuxd (USB) or netmuxd (network). Used for setup and development.
-   */
-  | { readonly kind: "usbmux"; readonly connection: ConnectionType }
-  /**
-   * Straight to the device's lockdown port over the network, authenticated
-   * with a pair record file. Needs no daemon and no root: this is what the
-   * service uses in a container.
-   */
-  | {
-      readonly kind: "tcp";
-      /** IP address or resolvable name. */
-      readonly host: string;
-      /** Defaults to the lockdown port, 62078. */
-      readonly port?: number;
-      /** Pair record plist exported from a host that has paired with the device. */
-      readonly pairRecordPath: string;
-    };
+/**
+ * Where to reach one device: straight at its lockdown port over the network,
+ * authenticated with a pair record file. Needs no daemon and no root.
+ */
+export interface DeviceEndpoint {
+  /** IP address or resolvable name. */
+  readonly host: string;
+  /** Defaults to the lockdown port, 62078. */
+  readonly port?: number;
+  /** Pair record plist exported from a host that has paired with the device. */
+  readonly pairRecordPath: string;
+}
 
 export interface DeviceTarget {
   /** Stable hardware identifier, e.g. "00008140-000A1B2C3D4E001C". */
   readonly udid: string;
   readonly endpoint: DeviceEndpoint;
-}
-
-/** A device a usbmux daemon currently knows about. */
-export interface DeviceInfo {
-  readonly udid: string;
-  readonly name: string;
-  /** Apple's model identifier, e.g. "iPhone17,5". */
-  readonly productType: string;
-  readonly osVersion: string;
-  readonly buildVersion: string;
-  /** Every route the device is reachable over right now. Never empty. */
-  readonly connections: readonly ConnectionType[];
 }
 
 export const BatteryStatusSchema = z.object({
@@ -187,15 +163,7 @@ export interface BackupRun {
 }
 
 export interface DeviceTransport {
-  /**
-   * Devices the host's usbmux daemon knows about, one entry per UDID with its
-   * routes merged. Useful for setup; a container has no usbmux daemon and
-   * finds devices from configuration instead.
-   */
-  listDevices(): Promise<DeviceInfo[]>;
   /** Ask a device about itself. Rejects with {@link DeviceError}. */
   probe(target: DeviceTarget): Promise<DeviceStatus>;
-  /** Rejects with {@link DeviceError}. */
-  getBattery(target: DeviceTarget): Promise<BatteryStatus>;
   startBackup(options: BackupOptions): BackupRun;
 }

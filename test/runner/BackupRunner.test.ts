@@ -96,7 +96,7 @@ describe("BackupRunner", () => {
 
     expect(h.transport.backups[0]?.options).toMatchObject({
       udid: FAKE_UDID,
-      endpoint: { kind: "tcp", host: HOST, pairRecordPath: "/secrets/mike.plist" },
+      endpoint: { host: HOST, pairRecordPath: "/secrets/mike.plist" },
       backupRoot: `${root}/mike`,
     });
     expect(h.transport.backups[0]?.options.full).toBeUndefined();
