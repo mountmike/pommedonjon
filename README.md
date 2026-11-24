@@ -5,12 +5,14 @@ standard Finder/iTunes format, taken over WiFi to your own storage. No iCloud,
 and no Mac or PC in the loop once a phone has been paired.
 
 **Status: early, and in trial on one phone.** A server on another VLAN is
-backing up a real iPhone (iOS 26.6.1) to a NAS by its own decision, and the
-phone can ask for a backup itself. A backup has not yet been proven to
-decrypt and restore, there is no web UI, and the interface for requests
-has no authentication. [FINDINGS.md](FINDINGS.md) is what has been measured;
+backing up a real iPhone (iOS 26.6.1) to a NAS by its own decision. Phones
+are added and managed in a web app the service serves. Not yet there: a
+backup has not been proven to decrypt and restore, the web app has no
+sign-in, the iPhone app has not been built, and backups only happen at
+home. [FINDINGS.md](FINDINGS.md) is what has been measured;
 [DECISIONS.md](DECISIONS.md) is what has been decided and what is still
-open; [DESIGN.md](DESIGN.md) is the brief for the app that comes next.
+open; [DESIGN.md](DESIGN.md) is the brief for the app;
+[REMOTE.md](REMOTE.md) is the research into backing up away from home.
 
 ## What to know first
 

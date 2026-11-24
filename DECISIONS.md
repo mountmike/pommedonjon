@@ -18,6 +18,33 @@ Revised 2026-11-24 after the owner's first review. Entries changed by that
 review say so, and all of them are now built. Each entry ends with a
 **Built** note where how it was built involved further choices.
 
+## For the owner to review
+
+Made on 2026-11-25 while the owner was away, on the owner's instruction to
+carry on and flag what was decided. Each is built and tested, none is
+deployed, and each entry lists the individual calls inside it.
+
+| | What | The call most worth a second look |
+|---|---|---|
+| D26 | What the app changes is kept in the database | It wins over the config file. Since overtaken by D28, which removes the file |
+| D27 | Automatic mode: moments, not a trigger | An unlock is seen at the two-minute poll, not by listening, so a brief unlock is missed |
+| D28 | Phones are added in the app; the config file is gone | **Pairings now live in the state volume, which the service can write.** That reverses part of D19. The web app's port is on by default |
+| D29 | A backup can be stopped from the app | Called "Stop", not "Cancel"; a stop buys the same four-hour pause as Cancel on the phone |
+| D30 | The server works out which phone is asking | By the request's address and the pairing, with no token; opening the app on a phone starts a wanted backup |
+| O8 | Backups away from home | Research only ([REMOTE.md](REMOTE.md)). A one-hour WireGuard test is proposed |
+
+Also decided along the way, without an entry of their own:
+
+- **The iPhone app's bundle id** is `io.github.mountmike.pommedonjon`. It
+  cannot be changed once the app is installed without becoming a different
+  app.
+- **The chosen icon** was redrawn full-bleed for iOS and is now the app's
+  icon, the favicon and the splash screen.
+- **Not done, on purpose:** no iOS simulator or CocoaPods was installed on
+  the owner's Mac to build the iPhone app; nothing was pushed or deployed
+  while the SSH key was locked; Back up now was never pressed for the real
+  phone.
+
 ## Scope
 
 *Decided by the owner, 2026-11-24.*
