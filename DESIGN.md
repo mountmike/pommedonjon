@@ -45,7 +45,7 @@ server already knows.
 | Backed up | "Backed up 2 hours ago" | Safe | Last good backup is recent |
 | Due | "Backup due. Will start when you plug in at home." | Due | Older than the schedule allows; waiting for a good moment |
 | Overdue | "No backup for 4 days" | Overdue | Older than the stale limit (72 hours today) |
-| Backing up | "Enter your passcode on the phone", then "Backing up, 42%", then "Checking" | Busy | A run is in progress |
+| Backing up | "Enter your passcode on the phone", then "Backing up, 42%", then "Checking" | Tint | A run is in progress |
 | Away | "Not at home. Last backed up yesterday." | Neutral | The phone does not answer on the home network. Not a fault |
 | Needs you | "Backup encryption is off on this phone", "This phone needs pairing again" | Overdue | Something only its owner can fix |
 | Never | "Not backed up yet" | Due | Added, no good backup so far |
