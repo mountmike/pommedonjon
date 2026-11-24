@@ -67,6 +67,7 @@ describe("parseConfig", () => {
       automatic: true,
       startWhenPluggedIn: true,
       pluggedInWindowMinutes: 30,
+      startWhenAppOpened: true,
       startWhenUnlockedAfterHours: 4,
       startOnChargerAfterHours: 24,
       maxUnansweredPerDay: 3,

@@ -108,6 +108,7 @@ defaults suit [deploy/compose.yaml](deploy/compose.yaml) as it stands:
 | `POMMEDONJON_PAIRINGS_DIR` | `<state>/pairings` | The pairings, if you want them on a volume of their own. |
 | `POMMEDONJON_BACKUP_ROOT` | `/backups` | Where backups live. One directory per phone underneath. |
 | `POMMEDONJON_PORT` | `8377` | The web app and API. `off` to listen on nothing. |
+| `POMMEDONJON_TRUST_PROXY` | off | `1` behind a reverse proxy, so a caller's address is taken from `X-Forwarded-For`. Only when nothing else can reach the port. |
 
 In the web app:
 
@@ -154,7 +155,7 @@ wanted:
 
 | Once a backup has been wanted for | It starts |
 |---|---|
-| any time at all | in the minutes after the phone is plugged in at home |
+| any time at all | in the minutes after the phone is plugged in at home, or when you open the app on it |
 | 4 hours | also when the phone is found unlocked at home |
 | a day | also any time the phone is on a charger at home |
 
@@ -169,6 +170,7 @@ defaults:
 | `dueAfterHours` | 20 | A backup is wanted once the last good one is this old. |
 | `startWhenPluggedIn` | `true` | Start shortly after the phone goes onto power. |
 | `pluggedInWindowMinutes` | 30 | How long after going onto power that is. |
+| `startWhenAppOpened` | `true` | Start when the app is opened on the phone itself. |
 | `startWhenUnlockedAfterHours` | 4 | Once wanted this long, also start when the phone is unlocked. `null` for never. |
 | `startOnChargerAfterHours` | 24 | Once wanted this long, also start any time it is on power. `null` for never, 0 for from the start. |
 | `window` | `null` | Optional hours to stay inside, e.g. `{"start": "07:00", "end": "22:00"}`. The app calls the hours outside it quiet hours. |
@@ -191,6 +193,10 @@ How the service knows:
 - **Unlocked:** each time it checks on a phone (every two minutes while a
   backup is wanted), the phone says whether it is locked. Being
   unlocked for a few seconds between two checks is missed.
+- **The app was opened on it:** the app says so, and the server works out
+  which phone is asking by connecting back to the address the request came
+  from with each phone's pairing. Only the real phone accepts its own. This
+  works for the web app in Safari on the phone too.
 - **At home:** the phone answers on the network.
 
 A phone that has never been backed up waits for a plug-in, or for someone
@@ -230,6 +236,8 @@ too. **It has no sign-in yet**: anything that can reach the port can use it.
 | `PUT /api/devices/<id>/settings` | Changes it; send all of it. 200 with the settings as saved, 400 `{"error":"invalid-settings","problems":[...]}`. |
 | `POST /api/devices/<id>/backup-now` | Backs the phone up now. 202 `{"status":"started"}`, 404 `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`. |
 | `POST /api/devices/<id>/stop` | Stops the backup of that phone that is running. 202 `{"status":"stopping"}`, 409 `{"error":"not-running"}`. |
+| `GET /api/me` | Which phone the request came from, if it is one of the server's: `{"deviceId": "mike"}` or `null`. |
+| `POST /api/me/opened` | The app was opened. If that was on one of the phones and a backup is wanted, one starts. |
 | `GET /api/server` | Which version is running and where backups go. |
 | `GET /api/settings`, `PUT /api/settings` | The server's own settings: the network range and the poll interval. |
 
@@ -238,6 +246,30 @@ carries one.
 
 "Started" means the server has begun looking for the phone. If it cannot be
 reached, no backup runs, and the phone's state says so.
+
+### The iPhone app
+
+The same app builds for the iPhone, from the same code
+([apps/app](apps/app)). It is not in the App Store and has not been run on
+a phone or a simulator yet: what is there is the code, its configuration
+and its icon.
+
+What differs from the web app:
+
+- **Connect**, shown once, asks for the server's address, because an app
+  is not served by the server the way the web page is.
+- The phone it is running on is marked **This iPhone** and listed first.
+  (The web app does the same when opened on a phone.)
+
+To build it you need Xcode with an iOS simulator installed, and CocoaPods:
+
+```bash
+pnpm --filter @pommedonjon/app ios
+```
+
+The app talks plain HTTP to an address on the local network, which iOS
+allows for local addresses only. Reaching a server from outside the home
+network is a separate question: see [REMOTE.md](REMOTE.md).
 
 ### Backing up on request
 

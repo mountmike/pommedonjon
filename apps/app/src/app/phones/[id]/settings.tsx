@@ -186,6 +186,11 @@ export default function PhoneSettingsScreen() {
                   </Row>
                 )}
                 <Toggle
+                  label="When I open this app on it"
+                  value={settings.startWhenAppOpened}
+                  onChange={(startWhenAppOpened) => change({ startWhenAppOpened })}
+                />
+                <Toggle
                   label="When I unlock it at home"
                   value={settings.startWhenUnlockedAfterHours !== null}
                   onChange={(on) =>

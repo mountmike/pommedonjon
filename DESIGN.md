@@ -126,8 +126,8 @@ On the Schedule screen this is three things to set, not a rule editor: how
 often, quiet hours, and a switch for each kind of moment. "Only when I ask"
 turns the automatic mode off.
 
-**Built 2026-11-25** (DECISIONS.md, D27), except "its owner opens the app",
-which waits for the iPhone app. How it differs from the table above:
+**Built 2026-11-25** (DECISIONS.md, D27 and D30). How it differs from the
+table above:
 
 - An unlock is seen at the service's regular check on the phone, every two
   minutes while a backup is wanted, not by listening for it. A phone
@@ -320,6 +320,12 @@ ways do tie them together without asking anyone:
 
 Proposed: start with the first, and test the second once the app is on a
 phone.
+
+**Built 2026-11-25** (DECISIONS.md, D30), the first way, without the token:
+the server asks afresh, and remembers the answer for an address for five
+minutes. So it works for the web app opened in Safari on the phone as well
+as for the iPhone app, and nothing is stored on the phone. Not yet tried
+against a real phone: it needs deploying first.
 
 ## Not in the first version
 

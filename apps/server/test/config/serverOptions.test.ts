@@ -8,6 +8,7 @@ describe("readServerOptions", () => {
       pairingsDir: "/state/pairings",
       backupRoot: "/backups",
       port: 8377,
+      trustProxy: false,
       sidecar: { pythonPath: undefined, scriptPath: undefined },
       legacyConfigFile: undefined,
     });
@@ -28,6 +29,7 @@ describe("readServerOptions", () => {
       pairingsDir: "/srv/state/pairings",
       backupRoot: "/mnt/backups",
       port: 9000,
+      trustProxy: false,
       sidecar: {
         pythonPath: "/opt/sidecar/bin/python",
         scriptPath: "/app/sidecar/pommedonjon_sidecar.py",
@@ -46,6 +48,12 @@ describe("readServerOptions", () => {
     const options = readServerOptions({ POMMEDONJON_PAIRINGS_DIR: "/run/pairings" });
     expect(options.pairingsDir).toBe("/run/pairings");
     expect(options.stateDir).toBe("/state");
+  });
+
+  it("trusts a proxy's word for the caller's address only when told to", () => {
+    expect(readServerOptions({ POMMEDONJON_TRUST_PROXY: "1" }).trustProxy).toBe(true);
+    expect(readServerOptions({ POMMEDONJON_TRUST_PROXY: "True" }).trustProxy).toBe(true);
+    expect(readServerOptions({ POMMEDONJON_TRUST_PROXY: "0" }).trustProxy).toBe(false);
   });
 
   it("listens on nothing when the port is off", () => {

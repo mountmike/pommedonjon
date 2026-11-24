@@ -79,6 +79,11 @@ const DevicePolicySchema = z.strictObject(
     /** With `startWhenPluggedIn`: how long after going onto power a backup may start. */
     pluggedInWindowMinutes: number({ min: 1 }),
     /**
+     * When its owner opens the app on the phone itself: they are certainly
+     * holding it. Needs the server to know which phone a request came from.
+     */
+    startWhenAppOpened: flag,
+    /**
      * Once a backup has been wanted for this long: also when the phone is
      * found unlocked. Null means never.
      */
@@ -125,6 +130,7 @@ export const DEFAULT_POLICY: DevicePolicy = {
   automatic: true,
   startWhenPluggedIn: true,
   pluggedInWindowMinutes: 30,
+  startWhenAppOpened: true,
   // An unlock interrupts someone about to use the phone, so it is held
   // back until the backup has waited a while.
   startWhenUnlockedAfterHours: 4,

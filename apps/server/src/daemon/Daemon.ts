@@ -70,7 +70,9 @@ type RequestSource =
   /** Someone asked for a backup now. */
   | "request"
   /** The phone said it had just been plugged in, and a backup was due. */
-  | "plug-in";
+  | "plug-in"
+  /** Its owner opened the app on the phone, and a backup was due. */
+  | "app-open";
 
 /** Why no backup is starting, and when that could change if it is knowable. */
 export interface WaitingFor {
@@ -304,6 +306,38 @@ export class Daemon {
     return { outcome: "not-now", reason, ...(until && { until }) };
   }
 
+  /**
+   * The phone's owner has just opened the app on it: back it up if a backup
+   * is wanted and the schedule allows one now.
+   *
+   * Nobody is more certainly at a phone than someone who just opened an app
+   * on it, so this is the best moment there is. Everything else about the
+   * schedule still applies, exactly as for a plug-in that was reported.
+   */
+  reportAppOpen(deviceId: string): PlugInReportResult {
+    const { devices, state, clock } = this.deps;
+    const device = devices.get(deviceId);
+    if (!device) return { outcome: "unknown-device" };
+    if (this.#busy.has(device.id)) return { outcome: "already-running" };
+
+    const now = clock();
+    if (!device.policy.startWhenAppOpened) return { outcome: "not-now", reason: "manual-only" };
+    const plan = schedule({
+      now,
+      policy: device.policy,
+      lastSuccessAt: state.lastSuccessAt(device.id),
+      recentAttempts: state.attemptsSince(device.id, new Date(now.getTime() - HISTORY_MS)),
+    });
+    if (plan.start.allowed) {
+      this.#start(device, "app-open");
+      return { outcome: "started" };
+    }
+    const { reason, until } = plan.start;
+    if (reason === "already-running") return { outcome: "already-running" };
+    // Not logged: the app is opened far more often than a backup is wanted.
+    return { outcome: "not-now", reason, ...(until && { until }) };
+  }
+
   /** Begin a backup outside the polling cycle. The caller has checked `#busy`. */
   #start(device: DeviceConfig, source: RequestSource): void {
     this.#busy.add(device.id);
@@ -345,7 +379,7 @@ export class Daemon {
         await this.#runBackup(
           device,
           host,
-          source === "request" ? "request" : "plugged-in",
+          source === "request" ? "request" : source === "app-open" ? "app-open" : "plugged-in",
           this.#signal,
         );
       } finally {

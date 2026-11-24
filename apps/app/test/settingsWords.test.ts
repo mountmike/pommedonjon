@@ -19,6 +19,7 @@ const SETTINGS: DeviceSettings = {
   dueAfterHours: 20,
   startWhenPluggedIn: true,
   pluggedInWindowMinutes: 30,
+  startWhenAppOpened: true,
   startWhenUnlockedAfterHours: 4,
   startOnChargerAfterHours: 24,
   quietHours: null,
@@ -113,6 +114,7 @@ describe("problemsWith", () => {
     const none = {
       ...SETTINGS,
       startWhenPluggedIn: false,
+      startWhenAppOpened: false,
       startWhenUnlockedAfterHours: null,
       startOnChargerAfterHours: null,
     };
@@ -131,7 +133,7 @@ describe("problemsWith", () => {
 describe("scheduleSummary", () => {
   it("puts the default schedule in a sentence", () => {
     expect(scheduleSummary(SETTINGS)).toBe(
-      "Backs up every day: when you plug in at home, when you unlock it once it has waited 4 hours, or any time it is on a charger once it has waited 1 day. Shown as overdue after 3 days without a backup.",
+      "Backs up every day: when you plug in at home, when you open this app on it, when you unlock it once it has waited 4 hours, or any time it is on a charger once it has waited 1 day. Shown as overdue after 3 days without a backup.",
     );
   });
 
@@ -140,6 +142,7 @@ describe("scheduleSummary", () => {
       ...SETTINGS,
       dueAfterHours: 44,
       startWhenPluggedIn: false,
+      startWhenAppOpened: false,
       startWhenUnlockedAfterHours: null,
       startOnChargerAfterHours: 0,
       quietHours: { start: "22:00", end: "07:00" },

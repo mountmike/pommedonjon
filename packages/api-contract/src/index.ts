@@ -174,6 +174,8 @@ export const DeviceSettingsSchema = z.object({
   startWhenPluggedIn: z.boolean(),
   /** With `startWhenPluggedIn`: how long after going onto a charger. */
   pluggedInWindowMinutes: z.number(),
+  /** When its owner opens the app on the phone itself. */
+  startWhenAppOpened: z.boolean().default(true),
   /**
    * Once a backup has been wanted this long: also when the phone is found
    * unlocked. Null for never.
@@ -235,6 +237,7 @@ export const DeviceSettingsChangeSchema = DeviceSettingsSchema.extend({
     (settings) =>
       !settings.automatic ||
       settings.startWhenPluggedIn ||
+      settings.startWhenAppOpened ||
       settings.startWhenUnlockedAfterHours !== null ||
       settings.startOnChargerAfterHours !== null,
     { path: ["automatic"], error: "needs at least one moment at which a backup may start" },
@@ -330,6 +333,31 @@ export const BackupStartedSchema = z.object({
   status: z.literal("started"),
 });
 export type BackupStarted = z.infer<typeof BackupStartedSchema>;
+
+/**
+ * Which phone the request came from, if it is one of the server's.
+ * `GET /api/me`. The server works it out from the address the request came
+ * from, by connecting back to it with each phone's pairing.
+ */
+export const MeSchema = z.object({
+  /** The phone asking, or null if the request did not come from one. */
+  deviceId: z.string().nullable(),
+});
+export type Me = z.infer<typeof MeSchema>;
+
+/**
+ * `POST /api/me/opened`: the app has just been opened or brought to the
+ * front. If that is on one of the server's phones and a backup is wanted,
+ * one starts: nobody is more certainly holding a phone.
+ */
+export const AppOpenedSchema = MeSchema.extend({
+  /**
+   * What came of it: "started", "not-now", or "already-running". Null when
+   * the request did not come from one of the phones.
+   */
+  backup: z.string().nullable(),
+});
+export type AppOpened = z.infer<typeof AppOpenedSchema>;
 
 /** `POST /api/devices/<id>/stop`, when a running backup was told to stop (202). */
 export const BackupStoppingSchema = z.object({

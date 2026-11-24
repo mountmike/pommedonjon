@@ -728,6 +728,71 @@ describe("Daemon and phones added or removed while it runs", () => {
   });
 });
 
+describe("Daemon.reportAppOpen", () => {
+  const backedUpHoursAgo = (hours: number) => {
+    const finished = new Date(at(19).getTime() - hours * 60 * 60 * 1000);
+    const run = state.startRun("mike", new Date(finished.getTime() - 60_000));
+    state.finishRun(run, finished, { outcome: "succeeded", durationMs: 1 });
+  };
+
+  it("starts a wanted backup when the app is opened on the phone, on battery or not", async () => {
+    const h = harness([deviceConfig({ policy: DEFAULT_POLICY })]);
+    backedUpHoursAgo(21);
+    h.transport.probeResult = fakeStatus({ battery: ON_BATTERY });
+
+    expect(h.daemon.reportAppOpen("mike")).toEqual({ outcome: "started" });
+    await settle();
+    expect(h.ran).toEqual(["mike"]);
+    expect(state.deviceEventsSince("mike", at(0))).toContainEqual({
+      at: at(19),
+      kind: "requested",
+      detail: { source: "app-open" },
+    });
+  });
+
+  it("starts nothing while no backup is wanted, and says until when", () => {
+    const h = harness([deviceConfig({ policy: DEFAULT_POLICY })]);
+    backedUpHoursAgo(1);
+    expect(h.daemon.reportAppOpen("mike")).toMatchObject({
+      outcome: "not-now",
+      reason: "not-due",
+    });
+    expect(h.ran).toEqual([]);
+  });
+
+  it("respects the pause after a Cancel, like every other moment", async () => {
+    const h = harness([deviceConfig({ policy: DEFAULT_POLICY })]);
+    backedUpHoursAgo(30);
+    const run = state.startRun("mike", at(18));
+    state.finishRun(run, at(18, 1), { outcome: "failed", reason: "passcode-cancelled", message: "no" });
+    expect(h.daemon.reportAppOpen("mike")).toMatchObject({ outcome: "not-now", reason: "backing-off" });
+  });
+
+  it("starts nothing when that moment is switched off, or backups are only on request", () => {
+    backedUpHoursAgo(30);
+    const off = harness([deviceConfig({ policy: { ...DEFAULT_POLICY, startWhenAppOpened: false } })]);
+    expect(off.daemon.reportAppOpen("mike")).toMatchObject({ outcome: "not-now" });
+    const manual = harness([deviceConfig({ policy: { ...DEFAULT_POLICY, automatic: false } })]);
+    expect(manual.daemon.reportAppOpen("mike")).toEqual({ outcome: "not-now", reason: "manual-only" });
+  });
+
+  it("says so for a phone that is not here, or is already being backed up", async () => {
+    const h = harness();
+    expect(h.daemon.reportAppOpen("nobody")).toEqual({ outcome: "unknown-device" });
+    const release = gate<void>();
+    h.setRun(async (device) => {
+      const runId = state.startRun(device.id, at(19));
+      await release.closed;
+      state.finishRun(runId, at(19, 6), { outcome: "succeeded", durationMs: 1 });
+      return { runId, outcome: "succeeded", durationMs: 1 };
+    });
+    h.daemon.requestBackup("mike");
+    expect(h.daemon.reportAppOpen("mike")).toEqual({ outcome: "already-running" });
+    release.open();
+    await settle();
+  });
+});
+
 describe("Daemon.stopBackup", () => {
   /** A backup that runs until its signal aborts, as a real one would. */
   function runUntilStopped(h: ReturnType<typeof harness>) {

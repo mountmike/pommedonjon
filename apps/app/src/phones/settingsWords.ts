@@ -128,6 +128,7 @@ export function problemsWith(settings: DeviceSettings): string[] {
   if (
     settings.automatic &&
     !settings.startWhenPluggedIn &&
+    !settings.startWhenAppOpened &&
     settings.startWhenUnlockedAfterHours === null &&
     settings.startOnChargerAfterHours === null
   ) {
@@ -157,6 +158,7 @@ export function scheduleSummary(settings: DeviceSettings): string {
   const waited = (hours: number) => (hours === 0 ? "" : ` once it has waited ${span(hours)}`);
   const moments = [
     ...(settings.startWhenPluggedIn ? ["when you plug in at home"] : []),
+    ...(settings.startWhenAppOpened ? ["when you open this app on it"] : []),
     ...(settings.startWhenUnlockedAfterHours === null
       ? []
       : [`when you unlock it${waited(settings.startWhenUnlockedAfterHours)}`]),

@@ -255,6 +255,8 @@ function startedWords(startedBy: string | null): string | undefined {
       return "after an unlock";
     case "on-charger":
       return "while on a charger";
+    case "app-open":
+      return "on opening the app";
     case "command":
       return "from the command line";
     default:

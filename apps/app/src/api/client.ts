@@ -3,12 +3,14 @@ import {
   BackupStartedSchema,
   BackupStoppingSchema,
   DeviceDetailSchema,
+  AppOpenedSchema,
   DeviceAddedSchema,
   DeviceCheckSchema,
   DeviceListSchema,
   DeviceSettingsSchema,
   ServerInfoSchema,
   ServerSettingsSchema,
+  type AppOpened,
   type DeviceCheck,
   type DeviceDetail,
   type DeviceSettings,
@@ -20,10 +22,20 @@ import {
 
 /**
  * Where the server is. The web app is served by the server itself, so the
- * API is at the same address and this is empty. Set EXPO_PUBLIC_API_URL to
- * point a development build somewhere else.
+ * API is at the same address and this is empty. The iPhone app is told the
+ * address on its Connect screen; see api/server.ts. EXPO_PUBLIC_API_URL
+ * points a development build somewhere else.
  */
-export const API_BASE: string = process.env.EXPO_PUBLIC_API_URL ?? "";
+let currentBase: string = process.env.EXPO_PUBLIC_API_URL ?? "";
+
+export function apiBase(): string {
+  return currentBase;
+}
+
+/** Point the app at a server: "http://192.168.1.10:8377", or "" for this page's own. */
+export function setApiBase(url: string): void {
+  currentBase = url.replace(/\/+$/, "");
+}
 
 export type FetchFn = (
   url: string,
@@ -96,7 +108,7 @@ function errorCode(body: unknown): string | undefined {
  * contract before any of it is shown.
  */
 export async function fetchDevices(
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<DeviceSummary[]> {
   const { ok, status, body } = await ask(fetchFn, `${base}/api/devices`, "GET");
@@ -109,7 +121,7 @@ export async function fetchDevices(
 /** One phone, with its recent backups. */
 export async function fetchDevice(
   deviceId: string,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<DeviceDetail> {
   const { ok, status, body } = await ask(
@@ -131,7 +143,7 @@ export async function fetchDevice(
  */
 export async function requestBackup(
   deviceId: string,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<"started" | "already-running"> {
   const { ok, status, body } = await ask(
@@ -155,7 +167,7 @@ const settingsUrl = (base: string, deviceId: string) =>
 /** What can be changed about one phone. */
 export async function fetchSettings(
   deviceId: string,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<DeviceSettings> {
   const { ok, status, body } = await ask(fetchFn, settingsUrl(base, deviceId), "GET");
@@ -173,7 +185,7 @@ export async function fetchSettings(
 export async function saveSettings(
   deviceId: string,
   settings: DeviceSettings,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<DeviceSettings> {
   const { ok, status, body } = await ask(fetchFn, settingsUrl(base, deviceId), "PUT", settings);
@@ -204,7 +216,7 @@ const deviceUrl = (base: string, deviceId: string) =>
  */
 export async function addPhone(
   phone: NewDevice,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<string> {
   const { ok, status, body } = await ask(fetchFn, `${base}/api/devices`, "POST", phone);
@@ -222,7 +234,7 @@ export async function addPhone(
 /** Remove a phone. Its backups stay on the server; its pairing is destroyed. */
 export async function removePhone(
   deviceId: string,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<void> {
   const { ok, status } = await ask(fetchFn, deviceUrl(base, deviceId), "DELETE");
@@ -236,7 +248,7 @@ export async function removePhone(
 /** Have the server look for a phone now. Nothing appears on the phone. */
 export async function checkPhone(
   deviceId: string,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<DeviceCheck> {
   const { ok, status, body } = await ask(fetchFn, `${deviceUrl(base, deviceId)}/check`, "POST");
@@ -252,7 +264,7 @@ export async function checkPhone(
 
 /** Which build the server is, and where it keeps backups. */
 export async function fetchServerInfo(
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<ServerInfo> {
   const { ok, status, body } = await ask(fetchFn, `${base}/api/server`, "GET");
@@ -263,7 +275,7 @@ export async function fetchServerInfo(
 }
 
 export async function fetchServerSettings(
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<ServerSettings> {
   const { ok, status, body } = await ask(fetchFn, `${base}/api/settings`, "GET");
@@ -276,7 +288,7 @@ export async function fetchServerSettings(
 /** Change some of the server's settings. Answers with all of them as saved. */
 export async function saveServerSettings(
   settings: Partial<ServerSettings>,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<ServerSettings> {
   const { ok, status, body } = await ask(fetchFn, `${base}/api/settings`, "PUT", settings);
@@ -295,7 +307,7 @@ export async function saveServerSettings(
  */
 export async function stopBackup(
   deviceId: string,
-  base: string = API_BASE,
+  base: string = apiBase(),
   fetchFn: FetchFn = fetch,
 ): Promise<"stopping" | "not-running"> {
   const { ok, status, body } = await ask(fetchFn, `${deviceUrl(base, deviceId)}/stop`, "POST");
@@ -306,4 +318,20 @@ export async function stopBackup(
   if (status === 409 && errorCode(body) === "not-running") return "not-running";
   if (status === 404) throw new ApiError("There is no such phone on the server.", status);
   throw new ApiError(`The server answered ${status}.`, status);
+}
+
+/**
+ * Tell the server the app has just been opened or brought to the front. It
+ * answers with which phone this is, if it is one of its own, and starts a
+ * backup of it if one is wanted.
+ */
+export async function reportAppOpened(
+  base: string = apiBase(),
+  fetchFn: FetchFn = fetch,
+): Promise<AppOpened> {
+  const { ok, status, body } = await ask(fetchFn, `${base}/api/me/opened`, "POST");
+  if (!ok) throw new ApiError(`The server answered ${status}.`, status);
+  const parsed = AppOpenedSchema.safeParse(body);
+  if (!parsed.success) throw new ApiError(NONSENSE, status);
+  return parsed.data;
 }

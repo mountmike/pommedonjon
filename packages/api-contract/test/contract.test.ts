@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  AppOpenedSchema,
   BackupStartedSchema,
   DeviceDetailSchema,
   DeviceSettingsChangeSchema,
   DeviceSettingsSchema,
   DeviceListSchema,
   DeviceSummarySchema,
+  MeSchema,
   type DeviceSummary,
 } from "../src/index.js";
 
@@ -127,6 +129,19 @@ describe("the replies", () => {
   });
 });
 
+describe("knowing which phone is asking", () => {
+  it("names the phone, or nobody", () => {
+    expect(MeSchema.parse({ deviceId: "mike" })).toEqual({ deviceId: "mike" });
+    expect(MeSchema.parse({ deviceId: null })).toEqual({ deviceId: null });
+  });
+
+  it("says what came of the app being opened", () => {
+    const opened = { deviceId: "mike", backup: "started" };
+    expect(AppOpenedSchema.parse(opened)).toEqual(opened);
+    expect(AppOpenedSchema.parse({ deviceId: null, backup: null }).backup).toBeNull();
+  });
+});
+
 describe("a phone's settings", () => {
   const settings = {
     name: "Mike's iPhone",
@@ -134,6 +149,7 @@ describe("a phone's settings", () => {
     dueAfterHours: 20,
     startWhenPluggedIn: true,
     pluggedInWindowMinutes: 30,
+    startWhenAppOpened: true,
     startWhenUnlockedAfterHours: 4,
     startOnChargerAfterHours: 24,
     quietHours: { start: "22:00", end: "07:00" },
@@ -157,10 +173,16 @@ describe("a phone's settings", () => {
       ...settings,
       automatic: false,
       startWhenPluggedIn: false,
+      startWhenAppOpened: false,
       startWhenUnlockedAfterHours: null,
       startOnChargerAfterHours: null,
     };
     expect(DeviceSettingsChangeSchema.safeParse(manual).success).toBe(true);
+  });
+
+  it("take the app-opened moment as on when an older server does not say", () => {
+    const { startWhenAppOpened: _unsaid, ...older } = settings;
+    expect(DeviceSettingsSchema.parse(older).startWhenAppOpened).toBe(true);
   });
 
   it("are accepted as a change, with the name tidied", () => {
@@ -178,7 +200,12 @@ describe("a phone's settings", () => {
     ["a negative wait", { startWhenUnlockedAfterHours: -1 }],
     [
       "automatic backups with no moment to start at",
-      { startWhenPluggedIn: false, startWhenUnlockedAfterHours: null, startOnChargerAfterHours: null },
+      {
+        startWhenPluggedIn: false,
+        startWhenAppOpened: false,
+        startWhenUnlockedAfterHours: null,
+        startOnChargerAfterHours: null,
+      },
     ],
   ])("refuses a change with %s", (_what, change) => {
     expect(DeviceSettingsChangeSchema.safeParse({ ...settings, ...change }).success).toBe(false);

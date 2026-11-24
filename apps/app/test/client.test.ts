@@ -4,6 +4,7 @@ import {
   fetchDevice,
   fetchDevices,
   fetchSettings,
+  reportAppOpened,
   requestBackup,
   saveSettings,
   stopBackup,
@@ -143,6 +144,7 @@ const SETTINGS = {
   dueAfterHours: 20,
   startWhenPluggedIn: true,
   pluggedInWindowMinutes: 30,
+  startWhenAppOpened: true,
   startWhenUnlockedAfterHours: 4,
   startOnChargerAfterHours: 24,
   quietHours: { start: "22:00", end: "07:00" },
@@ -224,5 +226,22 @@ describe("stopBackup", () => {
     await expect(stopBackup("nobody", "", answering({ error: "unknown-device" }, 404))).rejects.toThrow(
       "There is no such phone on the server.",
     );
+  });
+});
+
+describe("reportAppOpened", () => {
+  it("tells the server, and learns which phone this is and what came of it", async () => {
+    const asked: unknown[] = [];
+    const answer = await reportAppOpened("", (url, init) => {
+      asked.push({ url, method: init?.method });
+      return answering({ deviceId: "mike", backup: "started" })(url);
+    });
+    expect(asked).toEqual([{ url: "/api/me/opened", method: "POST" }]);
+    expect(answer).toEqual({ deviceId: "mike", backup: "started" });
+  });
+
+  it("learns that this is none of the server's phones", async () => {
+    const nobody = answering({ deviceId: null, backup: null });
+    expect((await reportAppOpened("", nobody)).deviceId).toBeNull();
   });
 });

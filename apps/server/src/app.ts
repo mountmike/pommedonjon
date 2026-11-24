@@ -6,6 +6,7 @@ import { PairRecordStore } from "./credentials/PairRecordStore.js";
 import { Daemon } from "./daemon/Daemon.js";
 import { DeviceLocator } from "./discovery/DeviceLocator.js";
 import { createPhoneFinder, type PhoneFinder } from "./discovery/PhoneFinder.js";
+import { PhoneIdentifier } from "./discovery/PhoneIdentifier.js";
 import { PortScanner } from "./discovery/PortScanner.js";
 import type { Logger } from "./log.js";
 import { BackupRunner } from "./runner/BackupRunner.js";
@@ -51,6 +52,8 @@ export interface App {
   readonly locator: DeviceLocator;
   /** Finds a phone from its pair record alone. */
   readonly finder: PhoneFinder;
+  /** Works out which phone a request came from. */
+  readonly identifier: PhoneIdentifier;
   readonly state: StateStore;
   readonly runner: BackupRunner;
   readonly daemon: Daemon;
@@ -124,6 +127,7 @@ export function createApp(
     transport,
     locator,
     finder: createPhoneFinder({ transport, scanner }),
+    identifier: new PhoneIdentifier({ devices, transport, clock, port: LOCKDOWN_PORT }),
     state,
     runner,
     daemon,

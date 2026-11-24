@@ -66,6 +66,7 @@ function describe(device: DeviceConfig): DeviceSettings {
     dueAfterHours: policy.dueAfterHours,
     startWhenPluggedIn: policy.startWhenPluggedIn,
     pluggedInWindowMinutes: policy.pluggedInWindowMinutes,
+    startWhenAppOpened: policy.startWhenAppOpened,
     startWhenUnlockedAfterHours: policy.startWhenUnlockedAfterHours,
     startOnChargerAfterHours: policy.startOnChargerAfterHours,
     quietHours: quietHours(policy.window),

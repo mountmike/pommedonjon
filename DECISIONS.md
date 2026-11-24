@@ -85,7 +85,8 @@ time comes; it is not part of the design or the build plan.
    7. Adding and removing a phone from the app (O25); the config file goes
       (O24). *Done (D28),* except pairing a phone from the browser, which
       needs the owner and a cable.
-   8. The same app on the iPhone.
+   8. The same app on the iPhone. *Prepared (D30): the code and
+      configuration are there; it has not been built or run.*
    9. Sign-in (O27).
 4. **Later:** push or email notifications (O1); O8 to O15.
 
@@ -751,6 +752,44 @@ made on a computer with three commands (README, "Setting up a phone").
   a charger), a request, or the command line. The history shows it. Runs
   from before this have none. This closes point 8 of D27.
 
+### D30. The server works out which phone is asking, and opening the app is a moment
+
+*Built 2026-11-25 while the owner was away, to the owner's direction that
+this be worked out by the software and not by a fixed address (DESIGN.md,
+"Which phone is the app running on?"). **For review.***
+
+- **How.** When the app says it has been opened, the server takes the
+  address the request came from, checks that something is listening on the
+  lockdown port there, and tries each phone's pairing against it. The phone
+  that accepts its own pairing is the phone asking. The address is only
+  where to knock; the pairing is the proof, so one phone cannot pass for
+  another.
+- **No token.** The brief proposed giving the app a token after the first
+  proof. Left out: the proof is cheap, an answer is kept for five minutes
+  per address (one minute for "nobody"), and with no token there is nothing
+  to store on the phone, so the web app in Safari is recognised too.
+- **Opening the app starts a wanted backup.** This is the "its owner opens
+  the app" moment of the agreed rules. Everything else about the schedule
+  still applies: quiet hours, the pause after a Cancel, the daily limit on
+  unanswered prompts. It has its own switch per phone, on by default.
+- **Behind a reverse proxy the address is the proxy's,** so recognition
+  fails unless `POMMEDONJON_TRUST_PROXY` is set, which takes the address
+  from `X-Forwarded-For`. That header is the caller's say-so, so it is off
+  by default and only safe when the proxy is the only way in.
+- **Not yet tried on a real phone.** The pieces are: a probe with no UDID
+  (measured, D28), and the phone reaching the server with its own address
+  as the source. Whether the owner's network keeps the phone's address on
+  that path (it rewrites addresses the other way, O5) is unknown until it
+  is deployed.
+
+**The iPhone app** is the same code with three additions: a Connect screen
+for the server's address, kept on the phone; the bundle id
+`io.github.mountmike.pommedonjon`; and permission to talk plain HTTP to
+local addresses. It has not been built: this Mac has Xcode but no iOS
+simulator and no CocoaPods, and I did not install several gigabytes of
+simulator unasked. The native project generates cleanly from the
+configuration.
+
 ## Open
 
 Still needing a decision or a test. Items settled since the first review are
@@ -772,7 +811,7 @@ messages cite them.
 | O23 | The design brief: theme, component kit, screens | agreed; nothing waiting |
 | O24 | Settings without a config file | built (D28); for review |
 | O25 | Adding a phone from the app | built for a phone paired before (D28); pairing from the browser still needs its test |
-| O26 | What starts a backup: a button or a schedule | built (D27), bar "the app is open" |
+| O26 | What starts a backup: a button or a schedule | built (D27, D30); for review |
 | O27 | Sign-in | later; direction proposed |
 
 ### O8. Remote backups over the tailnet

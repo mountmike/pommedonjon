@@ -7,6 +7,7 @@ import type { BackupRequestResult, PlugInReportResult } from "../daemon/Daemon.j
 import type { DeviceSettings } from "@pommedonjon/api-contract";
 import type { Logger } from "../log.js";
 import type { ChangeResult } from "../settings/DeviceDirectory.js";
+import { plainAddress } from "../discovery/PhoneIdentifier.js";
 import type { DeviceReader } from "./DeviceReader.js";
 import type { PhoneManager } from "./PhoneManager.js";
 
@@ -24,6 +25,18 @@ export interface ApiDeps {
   readonly phones: PhoneManager;
   /** Ask for a phone to be backed up now. */
   readonly requestBackup: (deviceId: string) => BackupRequestResult;
+  /**
+   * Which phone a request came from, by its address. Undefined when it is
+   * none of them. Left out, nobody is ever recognised.
+   */
+  readonly whoIsAt?: (address: string) => Promise<string | undefined>;
+  /** The app was opened on this phone: back it up if one is wanted now. */
+  readonly reportAppOpen?: (deviceId: string) => PlugInReportResult;
+  /**
+   * Take the caller's address from X-Forwarded-For, for a server behind a
+   * reverse proxy. Only safe when nothing else can reach the port.
+   */
+  readonly trustForwardedFor?: boolean;
   /** Stop the backup of a phone that is running. */
   readonly stopBackup: (deviceId: string) => "stopping" | "unknown-device" | "not-running";
   /** Tell the daemon a phone has just been plugged in. */
@@ -198,6 +211,9 @@ async function serveWeb(
  *   Its backups stay. 200 `{"status":"removed"}`, 404, 409 mid-backup.
  * - `POST /api/devices/<id>/check`: look for the phone now and say what it
  *   reports. Nothing appears on the phone. 409 mid-backup.
+ * - `GET /api/me`: which phone the request came from, if one of them.
+ * - `POST /api/me/opened`: the app was opened; if that was on one of the
+ *   phones and a backup is wanted, one starts.
  * - `GET /api/server`: which build this is and where backups are kept.
  * - `GET /api/settings`, `PUT /api/settings`: the server's own settings.
  * - `POST /api/devices/<id>/backup-now`: back the phone up now, whatever
@@ -243,6 +259,22 @@ export function createApiHandler(deps: ApiDeps) {
     // Nothing else reads the body; let it drain so the socket can be reused.
     req.resume();
 
+    if (pathname === "/api/me" || pathname === "/api/me/opened") {
+      const opened = pathname === "/api/me/opened";
+      if (opened ? method !== "POST" : !reading) {
+        reply(res, 405, { error: "method-not-allowed" }, { allow: opened ? "POST" : "GET" });
+        return;
+      }
+      const deviceId = (await whoAsks(req)) ?? null;
+      if (!opened) {
+        reply(res, 200, { deviceId });
+        return;
+      }
+      const backup =
+        deviceId === null || !deps.reportAppOpen ? null : deps.reportAppOpen(deviceId).outcome;
+      reply(res, 200, { deviceId, backup });
+      return;
+    }
     if (pathname === "/api/settings") {
       if (reading) reply(res, 200, deps.phones.settings());
       else reply(res, 405, { error: "method-not-allowed" }, { allow: "GET, PUT" });
@@ -360,6 +392,18 @@ export function createApiHandler(deps: ApiDeps) {
       deps.log("info", "settings changed", { device: deviceId, settings: result.settings });
       reply(res, 200, result.settings);
     }
+  }
+
+  /** Which of the phones this request came from, if any. */
+  async function whoAsks(req: IncomingMessage): Promise<string | undefined> {
+    if (!deps.whoIsAt) return undefined;
+    const forwarded = req.headers["x-forwarded-for"];
+    const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
+    const address =
+      deps.trustForwardedFor && first !== undefined && first !== ""
+        ? first
+        : plainAddress(req.socket.remoteAddress);
+    return address === undefined ? undefined : deps.whoIsAt(address);
   }
 
   async function addPhone(req: IncomingMessage, res: ServerResponse): Promise<void> {

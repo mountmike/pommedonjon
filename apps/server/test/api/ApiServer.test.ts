@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  AppOpenedSchema,
   BackupStartedSchema,
   BackupStoppingSchema,
   DeviceDetailSchema,
@@ -9,6 +10,7 @@ import {
   DeviceAddedSchema,
   DeviceCheckSchema,
   DeviceSettingsSchema,
+  MeSchema,
   ServerInfoSchema,
   ServerSettingsSchema,
   type DeviceCheck,
@@ -20,9 +22,14 @@ import { startApiServer, type ApiServer } from "../../src/api/ApiServer.js";
 import type { BackupRequestResult, PlugInReportResult } from "../../src/daemon/Daemon.js";
 import type { LogLevel } from "../../src/log.js";
 
+/** Which address the fake recogniser takes for Mike's phone, per test. */
+const recognised: { address: string; trustProxy: boolean } = { address: "", trustProxy: false };
+
 let server: ApiServer | undefined;
 let webDir: string | undefined;
 afterEach(async () => {
+  recognised.address = "";
+  recognised.trustProxy = false;
   await server?.close();
   server = undefined;
   if (webDir) await rm(webDir, { recursive: true, force: true });
@@ -48,6 +55,7 @@ const SETTINGS: DeviceSettings = {
   dueAfterHours: 20,
   startWhenPluggedIn: true,
   pluggedInWindowMinutes: 30,
+  startWhenAppOpened: true,
   startWhenUnlockedAfterHours: 4,
   startOnChargerAfterHours: 24,
   quietHours: { start: "22:00", end: "07:00" },
@@ -86,6 +94,8 @@ async function harness(
   const added: unknown[] = [];
   const removed: string[] = [];
   const stopped: string[] = [];
+  const opened: string[] = [];
+  const addresses: string[] = [];
   const pluggedIn: string[] = [];
   const logs: { level: LogLevel; message: string; fields: unknown }[] = [];
   server = await startApiServer({
@@ -139,6 +149,16 @@ async function harness(
       },
     },
     ...(web !== undefined && { webDir: web }),
+    // The test's own requests come from this machine.
+    whoIsAt: (address) => {
+      addresses.push(address);
+      return Promise.resolve(address === recognised.address ? "mike" : undefined);
+    },
+    reportAppOpen: (deviceId) => {
+      opened.push(deviceId);
+      return { outcome: "started" };
+    },
+    trustForwardedFor: recognised.trustProxy,
     stopBackup: (deviceId) => {
       if (deviceId !== "mike") return deviceId === "idle" ? "not-running" : "unknown-device";
       stopped.push(deviceId);
@@ -156,10 +176,11 @@ async function harness(
     log: (level, message, fields) => logs.push({ level, message, fields }),
   });
   const base = `http://127.0.0.1:${server.port}`;
-  const send = async (method: string, path: string, body?: string) => {
+  const send = async (method: string, path: string, body?: string, forwardedFor?: string) => {
     const response = await fetch(`${base}${path}`, {
       method,
       ...(body !== undefined && { body }),
+      ...(forwardedFor !== undefined && { headers: { "x-forwarded-for": forwardedFor } }),
     });
     return {
       status: response.status,
@@ -178,7 +199,19 @@ async function harness(
       text: await response.text(),
     };
   };
-  return { asked, changed, added, removed, stopped, pluggedIn, logs, send, fetchRaw };
+  return {
+    asked,
+    changed,
+    added,
+    removed,
+    stopped,
+    opened,
+    addresses,
+    pluggedIn,
+    logs,
+    send,
+    fetchRaw,
+  };
 }
 
 describe("the API", () => {
@@ -559,6 +592,58 @@ describe("the API for adding and removing phones", () => {
     for (const path of ["/api/devices", "/api/devices/mike", "/api/devices/mike/settings"]) {
       expect(JSON.stringify((await h.send("GET", path)).body)).not.toMatch(/pair/i);
     }
+  });
+});
+
+describe("the API for knowing which phone is asking", () => {
+  it("says which phone a request came from, going by its address", async () => {
+    recognised.address = "127.0.0.1";
+    const h = await harness();
+    const answer = await h.send("GET", "/api/me");
+    expect(MeSchema.parse(answer.body)).toEqual({ deviceId: "mike" });
+    expect(h.addresses).toEqual(["127.0.0.1"]);
+  });
+
+  it("says nobody when the request did not come from one of the phones", async () => {
+    const h = await harness();
+    expect(await h.send("GET", "/api/me")).toMatchObject({ status: 200, body: { deviceId: null } });
+  });
+
+  it("does not take a caller's word for its address", async () => {
+    recognised.address = "192.168.1.50";
+    const h = await harness();
+    const answer = await h.send("GET", "/api/me", undefined, "192.168.1.50");
+    expect(answer.body).toEqual({ deviceId: null });
+    expect(h.addresses).toEqual(["127.0.0.1"]);
+  });
+
+  it("takes a proxy's word for it only when told the proxy is the only way in", async () => {
+    recognised.address = "192.168.1.50";
+    recognised.trustProxy = true;
+    const h = await harness();
+    const answer = await h.send("GET", "/api/me", undefined, "192.168.1.50, 10.0.0.1");
+    expect(answer.body).toEqual({ deviceId: "mike" });
+  });
+
+  it("starts a backup, if one is wanted, when the app is opened on a phone", async () => {
+    recognised.address = "127.0.0.1";
+    const h = await harness();
+    const answer = await h.send("POST", "/api/me/opened");
+    expect(AppOpenedSchema.parse(answer.body)).toEqual({ deviceId: "mike", backup: "started" });
+    expect(h.opened).toEqual(["mike"]);
+  });
+
+  it("starts nothing when the app is opened anywhere else", async () => {
+    const h = await harness();
+    expect((await h.send("POST", "/api/me/opened")).body).toEqual({ deviceId: null, backup: null });
+    expect(h.opened).toEqual([]);
+  });
+
+  it("starts nothing for a GET of the opened address", async () => {
+    recognised.address = "127.0.0.1";
+    const h = await harness();
+    expect(await h.send("GET", "/api/me/opened")).toMatchObject({ status: 405, allow: "POST" });
+    expect(h.opened).toEqual([]);
   });
 });
 

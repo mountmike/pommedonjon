@@ -19,6 +19,7 @@ const WANTED: DeviceSettings = {
   dueAfterHours: 44,
   startWhenPluggedIn: false,
   pluggedInWindowMinutes: 15,
+  startWhenAppOpened: false,
   startWhenUnlockedAfterHours: null,
   startOnChargerAfterHours: 0,
   quietHours: { start: "22:00", end: "07:00" },
@@ -192,6 +193,7 @@ describe("DeviceDirectory", () => {
       dueAfterHours: 20,
       startWhenPluggedIn: true,
       pluggedInWindowMinutes: 30,
+      startWhenAppOpened: true,
       startWhenUnlockedAfterHours: 4,
       startOnChargerAfterHours: 24,
       quietHours: null,
@@ -215,6 +217,7 @@ describe("DeviceDirectory", () => {
         dueAfterHours: 44,
         startWhenPluggedIn: false,
         pluggedInWindowMinutes: 15,
+        startWhenAppOpened: false,
         startWhenUnlockedAfterHours: null,
         startOnChargerAfterHours: 0,
         // Quiet from 22:00 to 07:00: backups allowed from 07:00 to 22:00.

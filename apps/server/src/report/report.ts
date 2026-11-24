@@ -312,7 +312,9 @@ export function formatReport(report: DeviceReport): string {
             : entry.type === "requested"
               ? entry.source === "plug-in"
                 ? "phone said it was plugged in: backup due"
-                : "backup requested"
+                : entry.source === "app-open"
+                  ? "app opened on the phone: backup due"
+                  : "backup requested"
               : entry.type === "plug-in-reported"
                 ? `phone said it was plugged in: no backup (${entry.reason})`
                 : `waiting: ${entry.reason}`;

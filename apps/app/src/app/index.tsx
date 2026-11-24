@@ -1,8 +1,11 @@
 import { Button, Host } from "@expo/ui";
-import { Link } from "expo-router";
+import { Link, Redirect } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { apiBase } from "../api/client";
+import { NEEDS_SERVER_ADDRESS } from "../api/server";
+import { thisPhoneFirst, useThisPhone } from "../phones/me";
 import { PhoneCard } from "../phones/PhoneCard";
 import { useDevices } from "../phones/useDevices";
 import { space, type, useTheme } from "../theme/tokens";
@@ -12,6 +15,9 @@ export default function PhonesScreen() {
   const theme = useTheme();
   // Remounting the list is the simplest honest "try again": it starts over.
   const [attempt, setAttempt] = useState(0);
+
+  // The iPhone app has to be told where the server is before anything else.
+  if (NEEDS_SERVER_ADDRESS && apiBase() === "") return <Redirect href="/connect" />;
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -40,6 +46,7 @@ export default function PhonesScreen() {
 function Phones({ onRetry }: { onRetry: () => void }) {
   const theme = useTheme();
   const { state, now, refresh } = useDevices();
+  const thisPhone = useThisPhone();
 
   if (state.status === "loading") {
     return <ActivityIndicator style={styles.centre} color={theme.muted} />;
@@ -68,8 +75,14 @@ function Phones({ onRetry }: { onRetry: () => void }) {
           Can't reach the server. Showing what was last known.
         </Text>
       )}
-      {state.data.map((device) => (
-        <PhoneCard key={device.id} device={device} now={now} onChanged={refresh} />
+      {thisPhoneFirst(state.data, thisPhone).map((device) => (
+        <PhoneCard
+          key={device.id}
+          device={device}
+          now={now}
+          isThisPhone={device.id === thisPhone}
+          onChanged={refresh}
+        />
       ))}
     </View>
   );

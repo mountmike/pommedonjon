@@ -52,6 +52,8 @@ directory. Where things are comes from the environment:
   POMMEDONJON_PAIRINGS_DIR the pair records, if elsewhere  (default <state>/pairings)
   POMMEDONJON_BACKUP_ROOT  where backups are kept          (default /backups)
   POMMEDONJON_PORT         the web app and API, or "off"   (default 8377)
+  POMMEDONJON_TRUST_PROXY  "1" behind a reverse proxy, to take a caller's
+                           address from X-Forwarded-For    (default off)
 `;
 
 class UsageError extends Error {}
@@ -270,6 +272,9 @@ async function main(argv: readonly string[]): Promise<number> {
                 ...(webDir !== undefined && { webDir }),
                 requestBackup: (deviceId) => app.daemon.requestBackup(deviceId),
                 stopBackup: (deviceId) => app.daemon.stopBackup(deviceId),
+                whoIsAt: (address) => app.identifier.whoIsAt(address),
+                reportAppOpen: (deviceId) => app.daemon.reportAppOpen(deviceId),
+                trustForwardedFor: options.trustProxy,
                 reportPlugIn: (deviceId) => app.daemon.reportPlugIn(deviceId),
                 log: jsonLogger,
               });

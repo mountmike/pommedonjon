@@ -21,6 +21,12 @@ export interface ServerOptions {
    * manage the phones: publish it only on a network you trust.
    */
   readonly port: number | undefined;
+  /**
+   * Whether the caller's address is taken from X-Forwarded-For. For a
+   * server behind a reverse proxy, and only when nothing else can reach
+   * the port: the header is whatever the caller says it is.
+   */
+  readonly trustProxy: boolean;
   readonly sidecar: {
     readonly pythonPath: string | undefined;
     readonly scriptPath: string | undefined;
@@ -61,6 +67,9 @@ export function readServerOptions(env: NodeJS.ProcessEnv): ServerOptions {
     ),
     backupRoot: path.resolve(stated(env["POMMEDONJON_BACKUP_ROOT"]) ?? "/backups"),
     port: port(env["POMMEDONJON_PORT"]),
+    trustProxy: ["1", "true", "yes"].includes(
+      (env["POMMEDONJON_TRUST_PROXY"] ?? "").trim().toLowerCase(),
+    ),
     sidecar: {
       pythonPath: stated(env["POMMEDONJON_PYTHON"]),
       scriptPath: stated(env["POMMEDONJON_SIDECAR"]),
