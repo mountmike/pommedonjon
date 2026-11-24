@@ -782,8 +782,7 @@ no longer has to infer a plug-in from polling.
   temporary measure; authentication arrives with the service interface.
 - A native iOS app is wanted, later, once enough has been proven.
 
-*Proposed for the proof of concept; nothing is built until the owner
-approves:*
+*Approved by the owner and built, 2026-11-24.* As proposed:
 
 - The daemon listens for HTTP on a port named in the config. With no port
   configured it does not listen at all, so the published image behaves as
@@ -793,7 +792,13 @@ approves:*
   failure. It is refused if that phone is already being backed up.
 - On the phone, a Shortcut that sends that request, as a home-screen
   button and as an automation when the charger is connected.
-- The test stack publishes the port on the server.
+- The test stack publishes the port on the server (8377).
+
+How it turned out in the code: the config setting is `api.port`; the
+request is `POST /devices/<id>/backup-now`, answered with 202, 404 or 409
+as soon as the daemon has decided. A GET starts nothing, so a browser or a
+link preview cannot set off a prompt. An unencrypted backup is still never
+taken, asked for or not.
 
 What the proof of concept has to find out:
 

@@ -93,6 +93,7 @@ the file is reported at once.
 | `stateDir` | Where the run history (SQLite) lives. Must be a local disk. |
 | `discovery.ranges` | The network ranges the phones are on, e.g. `["192.168.1.0/24"]`. At most /22 each. |
 | `discovery.scanIntervalSeconds` | A range is not swept more often than this. Default 300. |
+| `api.port` | Optional. Listen on this port for "back up now" requests; see below. Left out, nothing listens. |
 | `devices[].id` | Short name used in paths, logs and commands. |
 | `devices[].udid` | The phone's UDID. |
 | `devices[].pairRecordPath` | Where its pair record is mounted. |
@@ -138,6 +139,32 @@ backup falls due at 3 a.m.; it is backed up at the next plug-in. With
 
 pommedonjon has to see the phone go onto power to call it a plug-in. A phone
 already charging when the service starts waits for its next plug-in.
+
+### Backing up on request
+
+Set `api.port` and the service also takes requests to back a phone up
+straight away:
+
+```
+POST http://<server>:<port>/devices/<id>/backup-now
+```
+
+| Answer | Meaning |
+|---|---|
+| 202 `{"status":"started"}` | A backup is starting; the passcode prompt follows within seconds. |
+| 404 `{"error":"unknown-device"}` | No phone with that id is configured. |
+| 409 `{"error":"already-running"}` | That phone is already being backed up. |
+
+A request ignores the schedule: it does not matter whether a backup is due,
+whether the phone is on a charger, or whether an earlier prompt was
+dismissed. It is meant to be sent from the phone itself, by its owner, for
+instance from an Apple Shortcut on the home screen or one that runs when
+the charger is connected. The container's port has to be published, and
+the phone has to be able to reach it.
+
+**There is no authentication yet.** Anything that can reach the port can
+make a phone show its passcode prompt. It cannot read or change a backup.
+Only publish the port on a network you trust.
 
 ## Running
 

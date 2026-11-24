@@ -10,3 +10,7 @@ services:
       context: ..
       args:
         POMMEDONJON_BUILD: ${POMMEDONJON_BUILD:-test}
+    # The "back up now" request, for the proof of concept (it has no
+    # authentication yet). Only answers if the config sets api.port to 8377.
+    ports:
+      - "${POMMEDONJON_API_PORT:-8377}:8377"
