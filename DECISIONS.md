@@ -697,19 +697,21 @@ two server environments, the options:
 
 *Closed by the owner, 2026-11-24.* See D21.
 
-### O20. Run the owner's test stack unprivileged
+### O20. Who owns the backups on the NAS
 
-*Flagged by the owner as a follow-up, 2026-11-24, for after the proof of
-concept works.*
+*Closed by the owner, 2026-11-24.* For a moment the plan was to run the test
+stack as root, because the new NAS dataset was owned by root. The owner
+chose instead to create a dedicated `pommedonjon` account on the NAS.
 
-The new `backups/iphones` dataset on the NAS is owned by root, so the user
-the image normally runs as (1000) cannot write to it. To get a first
-deployment going, the test stack runs as root: `POMMEDONJON_USER = 0:0`.
-Every capability is still dropped and the filesystem is still read-only,
-but it is not the unprivileged container of D15.
+How it fits together, with no user IDs needing to match:
 
-To undo it: make the dataset's owner the NAS account with ID 1000 (`media`
-on the owner's NAS, the same account that owns `downloads`), hand the
-stack's config and pair-record folders to that ID, and remove
-`POMMEDONJON_USER` from the stack so it falls back to 1000:1000.
+- the dataset belongs to the NAS's `pommedonjon` account;
+- the NFS share maps every write to that account (Mapall);
+- the container keeps running as its normal unprivileged user, 1000.
 
+Checked from the server: a container running as 1000 can create and delete
+files on the mounted share. The unprivileged container of D15 stands.
+
+Worth carrying into the README when storage gets its own section: a share
+that maps all writes to one account is the simplest way to give the
+container somewhere to write on a NAS.
