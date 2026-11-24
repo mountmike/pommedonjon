@@ -287,6 +287,40 @@ which may explain it; the cause was not isolated.
   and the container. Ping and Bonjour also still worked. One port probe in
   that period found 62078 closed; the next, 50 seconds later, found it open.
 
+### From another subnet (2026-11-24)
+
+The test server is on a different VLAN (`192.168.40.0/24`) from the phone
+(`192.168.1.0/24`), behind a UniFi gateway.
+
+| Path from the server to the phone | TCP 62078 | Lockdown session |
+|---|---|---|
+| Firewall allow rule only | opens | dropped by the phone, every attempt |
+| Allow rule and masquerade onto the phone's network | opens | works; probe answered in 2 s |
+| Tailscale, from the Mac | opens | dropped by the phone |
+
+- The phone accepts the TCP connection in all three cases. What it refuses
+  is the lockdown session, when the source address is not on its own subnet.
+- With the masquerade policy the phone sees the gateway's address on its
+  own network. Nothing else was changed between the failing and the working
+  probe.
+- Tested with the phone awake and on battery. Not yet tested overnight or
+  for a whole backup.
+
+### Writing a backup to an NFS share (2026-11-24)
+
+Copying the 22 GB backup (123,287 files) from the server to the NAS over
+NFS 4.2:
+
+- New files were created at about 16 a second, whether one stream was
+  writing or eight. One large file went at about 200 MB/s. So the limit is
+  the rate of creating files, not bandwidth.
+- The remaining 97,000 files took 1 h 42 min.
+- The dataset's sync setting was Standard, which makes the NAS commit each
+  new file to disk before answering. Whether Disabled changes the rate has
+  not been measured.
+- An incremental backup writes far fewer files, so this mostly matters for
+  a first full backup.
+
 ### Overnight reachability (night of 2026-11-23)
 
 `scripts/presence-monitor.sh` checked the phone every five minutes from 23:46
