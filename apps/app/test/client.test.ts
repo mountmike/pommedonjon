@@ -3,7 +3,9 @@ import {
   ApiError,
   fetchDevice,
   fetchDevices,
+  fetchSettings,
   requestBackup,
+  saveSettings,
   type FetchFn,
 } from "../src/api/client";
 
@@ -131,5 +133,69 @@ describe("requestBackup", () => {
   it("says so when the server cannot be reached", async () => {
     const down: FetchFn = () => Promise.reject(new TypeError("Failed to fetch"));
     await expect(requestBackup("mike", "", down)).rejects.toThrow("Can't reach the server.");
+  });
+});
+
+const SETTINGS = {
+  name: "Mike's iPhone",
+  dueAfterHours: 20,
+  trigger: "plugged-in" as const,
+  pluggedInWindowMinutes: 30,
+  quietHours: { start: "22:00", end: "07:00" },
+  staleAfterHours: 72,
+};
+
+describe("fetchSettings", () => {
+  it("asks for one phone's settings", async () => {
+    const asked: string[] = [];
+    const settings = await fetchSettings("mike", "http://server:8377", (url) => {
+      asked.push(url);
+      return answering(SETTINGS)(url);
+    });
+    expect(asked).toEqual(["http://server:8377/api/devices/mike/settings"]);
+    expect(settings).toEqual(SETTINGS);
+  });
+
+  it("refuses settings that are not what the contract promises", async () => {
+    const odd = answering({ ...SETTINGS, trigger: "whenever" });
+    await expect(fetchSettings("mike", "", odd)).rejects.toThrow("The server's answer made no sense.");
+  });
+});
+
+describe("saveSettings", () => {
+  it("sends all of them as JSON, and gives back what the server saved", async () => {
+    const sent: unknown[] = [];
+    const saved = await saveSettings("mike", SETTINGS, "", (url, init) => {
+      sent.push({ url, ...init });
+      return answering({ ...SETTINGS, name: "Mike's phone" })(url);
+    });
+    expect(sent).toEqual([
+      {
+        url: "/api/devices/mike/settings",
+        method: "PUT",
+        body: JSON.stringify(SETTINGS),
+        headers: { "content-type": "application/json" },
+      },
+    ]);
+    expect(saved.name).toBe("Mike's phone");
+  });
+
+  it("carries what the server found wrong with them", async () => {
+    const refused = answering(
+      { error: "invalid-settings", problems: ["name must not be empty"] },
+      400,
+    );
+    await expect(saveSettings("mike", SETTINGS, "", refused)).rejects.toMatchObject({
+      message: "The server would not take those settings.",
+      status: 400,
+      problems: ["name must not be empty"],
+    });
+  });
+
+  it("says so for a phone the server does not have", async () => {
+    const missing = answering({ error: "unknown-device" }, 404);
+    await expect(saveSettings("nobody", SETTINGS, "", missing)).rejects.toThrow(
+      "There is no such phone on the server.",
+    );
   });
 });

@@ -3,11 +3,12 @@ import { Link, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BackupNowButton } from "../../phones/BackupNowButton";
-import { History } from "../../phones/History";
-import { StateDisplay } from "../../phones/StateDisplay";
-import { useDevice } from "../../phones/useDevices";
-import { radius, space, type, useTheme } from "../../theme/tokens";
+import { BackupNowButton } from "../../../phones/BackupNowButton";
+import { History } from "../../../phones/History";
+import { StateDisplay } from "../../../phones/StateDisplay";
+import { scheduleSummary } from "../../../phones/settingsWords";
+import { useDevice, useSettings } from "../../../phones/useDevices";
+import { radius, space, type, useTheme } from "../../../theme/tokens";
 
 /** One phone: its state, "Back up now", and its history day by day. */
 export default function PhoneScreen() {
@@ -33,6 +34,7 @@ export default function PhoneScreen() {
 function Phone({ id, onRetry }: { id: string; onRetry: () => void }) {
   const theme = useTheme();
   const { state, now, refresh } = useDevice(id);
+  const settings = useSettings(id).state;
 
   if (state.status === "loading") {
     return <ActivityIndicator style={styles.centre} color={theme.muted} />;
@@ -66,6 +68,23 @@ function Phone({ id, onRetry }: { id: string; onRetry: () => void }) {
         <BackupNowButton device={device} onStarted={refresh} />
       </View>
       <Text style={[styles.section, { color: theme.ink }]} accessibilityRole="header">
+        Schedule
+      </Text>
+      <View style={[styles.card, { backgroundColor: theme.surface }]}>
+        {settings.status === "ready" && (
+          <Text style={[styles.summary, { color: theme.ink }]}>
+            {scheduleSummary(settings.data)}
+          </Text>
+        )}
+        <Link href={{ pathname: "/phones/[id]/settings", params: { id } }} asChild>
+          <Pressable accessibilityRole="link" style={styles.change}>
+            <Text style={[styles.changeText, { color: theme.tint }]}>
+              Change name and schedule ›
+            </Text>
+          </Pressable>
+        </Link>
+      </View>
+      <Text style={[styles.section, { color: theme.ink }]} accessibilityRole="header">
         History
       </Text>
       <History runs={device.recentRuns} now={now} />
@@ -89,6 +108,9 @@ const styles = StyleSheet.create({
   heading: { fontSize: type.state, fontWeight: "700" },
   card: { borderRadius: radius.card, padding: space.lg, gap: space.lg },
   section: { fontSize: type.heading, fontWeight: "700", marginTop: space.sm },
+  summary: { fontSize: type.body },
+  change: { alignSelf: "flex-start" },
+  changeText: { fontSize: type.body },
   centre: { alignItems: "center", gap: space.md, paddingVertical: space.xxl },
   message: { fontSize: type.body, textAlign: "center" },
   stale: { fontSize: type.secondary },

@@ -3,7 +3,9 @@ import {
   BackupStartedSchema,
   DeviceDetailSchema,
   DeviceListSchema,
+  DeviceSettingsSchema,
   type DeviceDetail,
+  type DeviceSettings,
   type DeviceSummary,
 } from "@pommedonjon/api-contract";
 
@@ -16,7 +18,11 @@ export const API_BASE: string = process.env.EXPO_PUBLIC_API_URL ?? "";
 
 export type FetchFn = (
   url: string,
-  init?: { readonly method: string },
+  init?: {
+    readonly method: string;
+    readonly body?: string;
+    readonly headers?: Readonly<Record<string, string>>;
+  },
 ) => Promise<{
   ok: boolean;
   status: number;
@@ -30,6 +36,8 @@ export class ApiError extends Error {
     message: string,
     /** The HTTP status, when the server answered at all. */
     readonly status?: number,
+    /** What the server found wrong with what was sent, one sentence each. */
+    readonly problems: readonly string[] = [],
   ) {
     super(message);
   }
@@ -41,11 +49,20 @@ const NONSENSE = "The server's answer made no sense.";
 async function ask(
   fetchFn: FetchFn,
   url: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
+  send?: unknown,
 ): Promise<{ status: number; ok: boolean; body: unknown }> {
   let response;
   try {
-    response = await (method === "GET" ? fetchFn(url) : fetchFn(url, { method }));
+    if (method === "GET") response = await fetchFn(url);
+    else if (send === undefined) response = await fetchFn(url, { method });
+    else {
+      response = await fetchFn(url, {
+        method,
+        body: JSON.stringify(send),
+        headers: { "content-type": "application/json" },
+      });
+    }
   } catch {
     throw new ApiError("Can't reach the server.");
   }
@@ -121,4 +138,44 @@ export async function requestBackup(
   if (status === 409 && code === "already-running") return "already-running";
   if (status === 404) throw new ApiError("There is no such phone on the server.", status);
   throw new ApiError(`The server answered ${status}.`, status);
+}
+
+const settingsUrl = (base: string, deviceId: string) =>
+  `${base}/api/devices/${encodeURIComponent(deviceId)}/settings`;
+
+/** What can be changed about one phone. */
+export async function fetchSettings(
+  deviceId: string,
+  base: string = API_BASE,
+  fetchFn: FetchFn = fetch,
+): Promise<DeviceSettings> {
+  const { ok, status, body } = await ask(fetchFn, settingsUrl(base, deviceId), "GET");
+  if (status === 404) throw new ApiError("There is no such phone on the server.", status);
+  if (!ok) throw new ApiError(`The server answered ${status}.`, status);
+  const parsed = DeviceSettingsSchema.safeParse(body);
+  if (!parsed.success) throw new ApiError(NONSENSE, status);
+  return parsed.data;
+}
+
+/**
+ * Change a phone's settings to these. Answers with them as the server
+ * saved them. If the server will not take them, the error carries why.
+ */
+export async function saveSettings(
+  deviceId: string,
+  settings: DeviceSettings,
+  base: string = API_BASE,
+  fetchFn: FetchFn = fetch,
+): Promise<DeviceSettings> {
+  const { ok, status, body } = await ask(fetchFn, settingsUrl(base, deviceId), "PUT", settings);
+  if (status === 404) throw new ApiError("There is no such phone on the server.", status);
+  if (status === 400) {
+    const refused = ApiErrorSchema.safeParse(body);
+    const problems = refused.success ? (refused.data.problems ?? []) : [];
+    throw new ApiError("The server would not take those settings.", status, problems);
+  }
+  if (!ok) throw new ApiError(`The server answered ${status}.`, status);
+  const parsed = DeviceSettingsSchema.safeParse(body);
+  if (!parsed.success) throw new ApiError(NONSENSE, status);
+  return parsed.data;
 }

@@ -1,5 +1,5 @@
-import type { DeviceDetail, DeviceSummary } from "@pommedonjon/api-contract";
-import { fetchDevice, fetchDevices } from "../api/client";
+import type { DeviceDetail, DeviceSettings, DeviceSummary } from "@pommedonjon/api-contract";
+import { fetchDevice, fetchDevices, fetchSettings } from "../api/client";
 import { useLive } from "./useLive";
 
 const anyBackingUp = (devices: readonly DeviceSummary[]) =>
@@ -16,5 +16,14 @@ export function useDevice(deviceId: string) {
     `device:${deviceId}`,
     () => fetchDevice(deviceId),
     (device) => device.state === "backing-up",
+  );
+}
+
+/** What can be changed about one phone, kept fresh. */
+export function useSettings(deviceId: string) {
+  return useLive<DeviceSettings>(
+    `settings:${deviceId}`,
+    () => fetchSettings(deviceId),
+    () => false,
   );
 }
