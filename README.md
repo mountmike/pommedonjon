@@ -17,10 +17,13 @@ open; [DESIGN.md](DESIGN.md) is the brief for the app that comes next.
 - **Every backup needs the phone's passcode typed on the phone**, within 60
   seconds of the backup starting. iOS has required this since 16.1 and there
   is no bypass. A locked phone wakes to ask.
-- So pommedonjon starts a backup when you are likely to be there: when the
-  phone goes onto a charger at home and its last good backup is more than 20
-  hours old. If the prompt goes unanswered it asks again a few minutes later;
-  if you tap Cancel it leaves you alone for four hours.
+- So pommedonjon starts a backup when you are likely to be there: just after
+  the phone goes onto a charger at home, and, once a backup has been wanted
+  for a while, when you unlock it at home. If the prompt goes unanswered it
+  waits for the next such moment; if you tap Cancel it leaves you alone for
+  four hours. See [When a backup starts](#when-a-backup-starts).
+- Phones are added and managed in a web app the service serves. It has **no
+  sign-in yet**, so it belongs on a network you trust.
 - It only backs up a phone that has backup encryption turned on.
 - It keeps **one** verified backup per phone and no history. Keeping earlier
   versions is for you to arrange on the backups directory, for example with
@@ -48,7 +51,9 @@ time.
 
 ## Setting up a phone
 
-Pairing needs a USB cable and a computer once. On a Mac with pymobiledevice3
+A phone has to trust a computer once, over a USB cable. That makes a
+*pairing*: a small file the service then uses to talk to the phone over
+WiFi. On a Mac with [pymobiledevice3](https://github.com/doronz88/pymobiledevice3)
 installed and the phone plugged in and unlocked:
 
 ```bash
@@ -60,11 +65,7 @@ pymobiledevice3 lockdown wifi-connections on
 ```
 
 ```bash
-pymobiledevice3 lockdown save-pair-record secrets/phone-one.plist
-```
-
-```bash
-chmod 600 secrets/phone-one.plist
+pymobiledevice3 lockdown save-pair-record phone.plist
 ```
 
 Backup encryption must also be on. Turn it on in Finder's page for the phone
@@ -76,38 +77,63 @@ password as an argument. Check the current state with:
 pymobiledevice3 backup2 encryption
 ```
 
-**The pair record grants full access to the phone**, with no passcode, for as
-long as the pairing lasts. Treat it like a private key: never commit it, keep
-it readable only by the user the container runs as, and hand it to the
-container as a secret. pommedonjon checks the file's permissions when it
-starts and warns if anyone else can read it.
+Then, in the web app:
 
-## Configuration
+1. Under **Server**, set the network range your phones are on, for example
+   `192.168.1.0/24`.
+2. **Add a phone**, and choose the pairing file. With the phone at home and
+   awake that is all: the server finds the phone that accepts the pairing
+   and asks its name and identifier. To add a phone that is not at home,
+   give its name and identifier (UDID) yourself.
+3. The phone's page opens and the server checks it: at home, pairing
+   accepted, backup encryption on.
 
-Start from [pommedonjon.example.json](apps/server/pommedonjon.example.json). Unknown settings are errors, and every problem in
-the file is reported at once.
+Then delete `phone.plist` from the computer.
 
-| Setting | Meaning |
+**The pairing grants full access to the phone**, with no passcode, for as
+long as it lasts. The service keeps it in its state volume, readable by the
+service alone; it never shows it, sends it or logs it, and removing the
+phone in the web app destroys it. Treat the state volume, and any backup of
+it, as a secret.
+
+## Settings
+
+Everything is set in the web app and kept in the state volume. There is no
+config file. Where things are comes from the environment, and the image's
+defaults suit [deploy/compose.yaml](deploy/compose.yaml) as it stands:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `POMMEDONJON_STATE_DIR` | `/state` | The database and the pairings. Must be a local disk. |
+| `POMMEDONJON_PAIRINGS_DIR` | `<state>/pairings` | The pairings, if you want them on a volume of their own. |
+| `POMMEDONJON_BACKUP_ROOT` | `/backups` | Where backups live. One directory per phone underneath. |
+| `POMMEDONJON_PORT` | `8377` | The web app and API. `off` to listen on nothing. |
+
+In the web app:
+
+| Where | What |
 |---|---|
-| `backupRoot` | Where backups live. One directory per phone underneath. |
-| `stateDir` | Where the run history (SQLite) lives. Must be a local disk. |
-| `discovery.ranges` | The network ranges the phones are on, e.g. `["192.168.1.0/24"]`. At most /22 each. |
-| `discovery.scanIntervalSeconds` | A range is not swept more often than this. Default 300. |
-| `api.port` | Optional. Listen on this port for "back up now" requests; see below. Left out, nothing listens. |
-| `devices[].id` | Short name used in paths, logs and commands. |
-| `devices[].udid` | The phone's UDID. |
-| `devices[].pairRecordPath` | Where its pair record is mounted. |
-| `devices[].host` | Optional. Pins the phone to one address or name; nothing else is tried. |
-| `defaultPolicy`, `devices[].policy` | When to back up; see below. A phone's own policy overrides the default, and what is changed in the web app overrides both. |
+| **Server** | The network range the phones are on; which version is running and where backups go. |
+| **Add a phone** | A phone's pairing, and optionally its name, identifier and a fixed address. |
+| A phone's page | Its state, **Back up now**, a check of its connection, its history. |
+| A phone's settings | Its name and schedule ([below](#when-a-backup-starts)); removing it. |
+
+**Coming from a config file.** A version before this one read a
+`pommedonjon.json` and pair records mounted beside it. Leave both mounted
+for one start: the phones, their pairings and the settings are brought into
+the state volume, and the log says so. After that neither is read, and the
+two mounts can go. `pommedonjon import --config FILE` does the same by hand.
+[pommedonjon.example.json](apps/server/pommedonjon.example.json) shows the
+old format.
 
 ### Finding the phone
 
-A phone's address can change, so it does not need one in the config.
+A phone's address can change, so it does not need a fixed one.
 pommedonjon tries the address where it last reached the phone, and if that
-does not answer it tries the lockdown port on every address in
-`discovery.ranges`. Whatever answers, the pair record decides whether it is
-the right phone, so a wrong address can never lead to backing up the wrong
-one.
+does not answer it tries the lockdown port on every address in the network
+range set under **Server** (at most a /22 each). Whatever answers, the
+pairing decides whether it is the right phone, so a wrong address can never
+lead to backing up the wrong one.
 
 Your firewall has to let the container reach the phones on TCP 49152 to
 65535. Port 62078 alone is not enough: it finds the phone and starts the
@@ -132,8 +158,10 @@ wanted:
 | 4 hours | also when the phone is found unlocked at home |
 | a day | also any time the phone is on a charger at home |
 
-A backup is *wanted* once the last good one is older than `dueAfterHours`.
-All of this can be set for each phone in the web app, or here:
+A backup is *wanted* once the last good one is older than "how often".
+Each phone's schedule is set on its settings page in the web app. These are
+the settings behind it; the last four are not in the app yet and keep their
+defaults:
 
 | Policy setting | Default | Meaning |
 |---|---|---|
@@ -160,8 +188,8 @@ How the service knows:
 
 - **Plugged in:** it has to see the phone go onto power. A phone already
   charging when the service starts waits for its next plug-in.
-- **Unlocked:** each time it checks on a phone (every `pollIntervalSeconds`
-  while a backup is wanted), the phone says whether it is locked. Being
+- **Unlocked:** each time it checks on a phone (every two minutes while a
+  backup is wanted), the phone says whether it is locked. Being
   unlocked for a few seconds between two checks is missed.
 - **At home:** the phone answers on the network.
 
@@ -170,42 +198,51 @@ to press Back up now.
 
 ### The web app
 
-With `api.port` set, the server also serves a web app at that address, for
-example `http://<server>:8377`. It shows:
+The service serves a web app on its port, for example
+`http://<server>:8377`. It shows:
 
 - every phone and its state, and what each is waiting for;
 - a **Back up now** button for each phone;
 - a running backup step by step, from "connecting" through the passcode
   prompt to "checking";
 - how the last try went if it did not work, and why;
-- on each phone's own page, its past backups day by day;
+- on each phone's own page, a check of its connection and its past backups
+  day by day;
 - a phone's name and schedule, to change: automatic or only on request,
   how often, which moments may start a backup, quiet hours, and when it
-  counts as overdue.
+  counts as overdue;
+- adding and removing phones, and the server's network range.
 
-What is changed in the app is kept in the state database and wins over the
-config file from then on. It takes effect within one poll, with no restart.
-Adding phones from the app is still to come; [DESIGN.md](DESIGN.md)
-describes where it is going.
+Changes take effect within one poll, with no restart.
+[DESIGN.md](DESIGN.md) describes where the app is going.
 
 The app talks to the server through a JSON API, which anything else may use
-too:
+too. **It has no sign-in yet**: anything that can reach the port can use it.
 
 | Request | Answer |
 |---|---|
 | `GET /api/devices` | Every phone and its state. |
+| `POST /api/devices` | Adds a phone: `{"pairRecord": "<base64>", "name"?, "udid"?, "host"?}`. 201 `{"id":...}`, 400 `{"error":"invalid-phone","problems":[...]}`, 409 `{"error":"already-added"}`. |
 | `GET /api/devices/<id>` | One phone, with its last 50 backups. |
+| `DELETE /api/devices/<id>` | Removes a phone and destroys its pairing. Its backups stay. |
+| `POST /api/devices/<id>/check` | Looks for the phone now and says what it reports. Nothing appears on the phone. |
 | `GET /api/devices/<id>/settings` | What can be changed about a phone. |
 | `PUT /api/devices/<id>/settings` | Changes it; send all of it. 200 with the settings as saved, 400 `{"error":"invalid-settings","problems":[...]}`. |
 | `POST /api/devices/<id>/backup-now` | Backs the phone up now. 202 `{"status":"started"}`, 404 `{"error":"unknown-device"}`, 409 `{"error":"already-running"}`. |
+| `GET /api/server` | Which version is running and where backups go. |
+| `GET /api/settings`, `PUT /api/settings` | The server's own settings: the network range and the poll interval. |
+
+A pairing goes in through `POST /api/devices` and never comes out: no reply
+carries one.
 
 "Started" means the server has begun looking for the phone. If it cannot be
 reached, no backup runs, and the phone's state says so.
 
 ### Backing up on request
 
-Set `api.port` and the service also takes two requests, meant to be sent
-from the phone itself, for instance by Apple Shortcuts:
+The service also takes two requests meant to be sent from the phone
+itself, for instance by Apple Shortcuts. They are from the proof of concept
+and predate the app:
 
 ```
 POST http://<server>:<port>/devices/<id>/backup-now
@@ -237,36 +274,19 @@ Only publish the port on a network you trust.
 
 Start from [deploy/compose.yaml](deploy/compose.yaml). It runs the published
 image, `ghcr.io/mountmike/pommedonjon`, and needs one thing from you: where
-backups go, as `POMMEDONJON_BACKUPS_DIR`. The config, the pair records and
-the run history live in volumes Docker creates, so there are no folders to
-prepare.
-
-Create the volumes without starting anything:
-
-```bash
-POMMEDONJON_BACKUPS_DIR=/mnt/backups/iphones docker compose -f deploy/compose.yaml up --no-start
-```
-
-Put your config in:
-
-```bash
-docker run --rm -i -v pommedonjon_config:/c alpine sh -c 'cat > /c/pommedonjon.json' < pommedonjon.json
-```
-
-Put each phone's pair record in, readable only by the user the container
-runs as (1000 unless you set `POMMEDONJON_USER`):
-
-```bash
-docker run --rm -i -v pommedonjon_secrets:/s alpine sh -c 'cat > /s/phone-one.plist && chown 1000:1000 /s/phone-one.plist && chmod 600 /s/phone-one.plist' < secrets/phone-one.plist
-```
-
-Then start it:
+backups go, as `POMMEDONJON_BACKUPS_DIR`.
 
 ```bash
 POMMEDONJON_BACKUPS_DIR=/mnt/backups/iphones docker compose -f deploy/compose.yaml up -d
 ```
 
-Copying files in by hand is a stopgap until there is a web UI to do it.
+Then open `http://<server>:8377` and [set up a phone](#setting-up-a-phone).
+
+Everything the service keeps is in one volume Docker creates, `state`: the
+phones, their pairings, the settings and the history. It must be on the
+server's own disk, and it holds secrets. The compose file also names two
+volumes, `config` and `secrets`, which only matter to a stack set up before
+phones were managed in the web app; a new one can delete those lines.
 
 Commands (`docker compose run --rm pommedonjon <command>`, or
 `node apps/server/dist/cli.js <command>` after `pnpm build`):
@@ -364,10 +384,8 @@ them touch a real device.
 keeps everything under `local/dev/`, which git ignores:
 
 ```
-local/dev/config/pommedonjon.json   settings
-local/dev/secrets/                 pair records, mode 600
-local/dev/state/                   run history
-local/dev/backups/                 backups
+local/dev/state/      the phones, their pairings, settings, history
+local/dev/backups/    backups
 ```
 
 `pnpm dev` runs any command in that container, rebuilding first if the
@@ -381,9 +399,9 @@ pnpm dev probe
 pnpm dev backup --device phone-one
 ```
 
-**One daemon per phone.** Two daemons watching the same phone would each
-prompt it. If a server already backs a phone up, leave that phone out of
-`local/dev`'s config or stick to one-off commands.
+**One service per phone.** Two services watching the same phone would each
+prompt it. If a server already backs a phone up, do not add that phone here
+as well, or stick to one-off commands.
 
 ### Looking at the app without a phone
 
@@ -414,9 +432,9 @@ Both server environments use the same compose file,
 [deploy/compose.yaml](deploy/compose.yaml), as two separate stacks that set
 different variables: which image to run and where backups go. Test adds
 [deploy/compose.build.yaml](deploy/compose.build.yaml), which builds the
-image instead of pulling it. Only the test stack exists so far. The config,
-pair records and run history live in volumes Docker creates on the first
-deploy, so nothing is prepared on the server beforehand. [deploy/komodo.example.toml](deploy/komodo.example.toml)
+image instead of pulling it. Only the test stack exists so far. Everything
+the service keeps lives in a volume Docker creates on the first deploy, so
+nothing is prepared on the server beforehand. [deploy/komodo.example.toml](deploy/komodo.example.toml)
 defines the two stacks for [Komodo](https://komo.do).
 
 **A phone belongs to one environment.** Two daemons watching the same phone

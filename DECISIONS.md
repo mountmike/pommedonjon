@@ -83,7 +83,8 @@ time comes; it is not part of the design or the build plan.
    6. A schedule for each phone, set in the app (O26, D27). *Done,* except
       "the owner opens the app" as a moment, which needs the iPhone app.
    7. Adding and removing a phone from the app (O25); the config file goes
-      (O24).
+      (O24). *Done (D28),* except pairing a phone from the browser, which
+      needs the owner and a cable.
    8. The same app on the iPhone.
    9. Sign-in (O27).
 4. **Later:** push or email notifications (O1); O8 to O15.
@@ -428,7 +429,9 @@ it, the one that is actually run.
 *Decided by the owner, 2026-11-24: store them to best practice.* What that
 means here, by judgement:
 
-- Kept in a volume of their own, mounted read-only at `/run/secrets`,
+- *Changed by D28, 2026-11-25: they now live in the state volume, which
+  the service can write, because the app takes them in.* Originally:
+  kept in a volume of their own, mounted read-only at `/run/secrets`,
   separate from the config and from the backups directory. (First built as
   file-backed Compose secrets; changed to a volume with D20, so nothing has
   to be laid out on the host.)
@@ -678,6 +681,61 @@ off altogether.
 Not built: "the owner opens the app" as a moment, which needs the app to
 know which phone it is on.
 
+### D28. Phones are added in the app; the config file is gone
+
+*Built 2026-11-25 while the owner was away, to the direction already agreed
+(O24: no config file; O25: add a phone that was paired before). The points
+below were my calls. **For review.***
+
+A phone is added in the web app by uploading its pairing. Phones, their
+pairings and the server's few settings live in the state volume; where
+things are comes from environment variables with defaults.
+
+1. **Pairings now live in the state volume, writable by the service.**
+   This changes D19, which kept them in a volume of their own, mounted
+   read-only. The app has to be able to take one in, so read-only could not
+   stay. What is kept of D19: a directory only the service can enter
+   (0700), a file per phone (0600), never in the database, the logs, the
+   image or an API reply, checked at start-up. `POMMEDONJON_PAIRINGS_DIR`
+   puts them on a volume of their own for anyone who wants that back. Not
+   encrypted at rest: the key would have to sit beside them.
+2. **A pairing goes in and never comes out.** No reply carries one, and a
+   test holds that. Removing a phone destroys its pairing.
+3. **A pairing is checked before it is kept,** by the sidecar, which says
+   only whether it is one. A file that is not is deleted at once.
+4. **The pairing alone is enough when the phone is at home.** The server
+   looks through the network range for the device that accepts it and asks
+   that device its name and UDID. Measured on the owner's phone,
+   2026-11-25: a probe given no UDID reported the right one. Away from
+   home, the name and UDID have to be typed.
+5. **A phone's short id comes from its name** ("Mike's iPhone" is
+   `mikes-iphone`), and a phone added back under the same name gets the
+   same id, so its backups carry on in the same directory.
+6. **Removing a phone keeps its backups and its history.** Only the pairing
+   and the settings go. Refused while that phone is being backed up.
+7. **A phone needs a way to be found before it can be added:** a fixed
+   address, or a network range set under Server.
+8. **The web app's port is on by default now** (8377), where it was off
+   unless configured. There is nothing else to manage the service with.
+   It still has no sign-in (D25), which matters more than it did: the API
+   now takes pairings in and removes phones. Sign-in (O27) is the next
+   thing this needs before it leaves a trusted network.
+9. **An earlier config file is imported once, then ignored.** D26 rejected
+   exactly this, because a file that is read once looks live and is not.
+   It is acceptable here because it is the way off the file, the log says
+   so in as many words, and the only deployment is the test stack. The
+   compose file keeps the two old mounts for that one start.
+10. **The file's settings the app does not show are kept per phone** (the
+    pauses after a failed try): the import saves each phone's whole policy.
+    There is no longer a default policy to edit; the built-in one applies.
+11. **The check on a phone's page is a read-only probe.** It is refused
+    during a backup, when a second connection is one more thing to go
+    wrong.
+
+Not built: pairing a phone that has never been paired, from the browser
+(O25). It needs a cable, the phone and its owner. Until then the pairing is
+made on a computer with three commands (README, "Setting up a phone").
+
 ## Open
 
 Still needing a decision or a test. Items settled since the first review are
@@ -697,8 +755,8 @@ messages cite them.
 | O18 | Which phone goes to which environment | needs the owner |
 | O21 | Getting the config and pair records in without copying files | now O24 and O25 |
 | O23 | The design brief: theme, component kit, screens | agreed; nothing waiting |
-| O24 | Settings without a config file | partly built (D26); the rest with adding a phone |
-| O25 | Adding a phone from the app | a test of pairing from the browser |
+| O24 | Settings without a config file | built (D28); for review |
+| O25 | Adding a phone from the app | built for a phone paired before (D28); pairing from the browser still needs its test |
 | O26 | What starts a backup: a button or a schedule | built (D27), bar "the app is open" |
 | O27 | Sign-in | later; direction proposed |
 

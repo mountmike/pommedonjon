@@ -1,10 +1,8 @@
 # Development on your own machine: builds the image from this checkout and
 # keeps everything it reads and writes under local/, which git ignores.
 #
-#   local/dev/config/pommedonjon.json   settings
-#   local/dev/secrets/                 pair records, mode 600
-#   local/dev/state/                   run history
-#   local/dev/backups/                 backups
+#   local/dev/state/      the phones, their pair records, settings, history
+#   local/dev/backups/    backups
 #
 # Use it through pnpm, which rebuilds the image when the source has changed:
 #
@@ -14,8 +12,8 @@
 #   pnpm dev daemon
 #
 # A phone should only ever be watched by one running daemon. If a server is
-# already backing a phone up, leave that phone out of local/dev's config, or
-# stick to one-off commands here.
+# already backing a phone up, do not add that phone here, or stick to
+# one-off commands.
 # Named here so it does not depend on what the checkout's folder is called.
 name: pommedonjon-dev
 
@@ -30,12 +28,16 @@ services:
       # So `report` shows days and hours as you see them on the wall.
       TZ: ${TZ:-Etc/UTC}
     volumes:
-      - ./local/dev/config:/config:ro
-      # A whole directory, where a deployment would use one secret per phone:
-      # simpler on a development machine, and still read-only.
-      - ./local/dev/secrets:/run/secrets:ro
       - ./local/dev/state:/state
       - ./local/dev/backups:/backups
+      # A config file and pair records from before phones were managed in
+      # the web app. Brought into the state folder once, if they are there.
+      - ./local/dev/config:/config:ro
+      - ./local/dev/secrets:/run/secrets:ro
+    # The web app, on this machine only. `docker compose run` publishes it
+    # only when given --service-ports; `up` always does.
+    ports:
+      - "127.0.0.1:${POMMEDONJON_PORT:-8377}:8377"
     read_only: true
     tmpfs:
       - /tmp
