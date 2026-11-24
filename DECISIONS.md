@@ -62,7 +62,9 @@ time comes; it is not part of the design or the build plan.
    were mostly for, with a status screen that shows when a phone has gone
    too long without a good backup, and it replaces both the config file
    (O24) and the Shortcuts of the proof of concept (O22). Planned as steps,
-   each usable by itself; none is started:
+   each usable by itself. Steps 1 to 3 are done; step 3 has run on the test
+   stack since 2026-11-25, where a deploy now takes about 100 seconds with
+   the web app's build in it, up from about 75:
 
    1. Restructure the repository into workspaces, with no change in
       behaviour.
