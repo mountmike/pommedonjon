@@ -62,8 +62,16 @@ async function main(): Promise<number> {
   process.stdout.write(`${describeUpdate(update)}\n`);
   if (!update.success) return 1;
 
-  const log = await komodo.stackLog(STACK, 20);
-  process.stdout.write(`\n--- ${STACK} log\n${log.stdout}${log.stderr}`);
+  // The deploy has succeeded by now. Not being allowed to read the log is
+  // worth saying, but it must not turn a good deploy into a failed command.
+  try {
+    const log = await komodo.stackLog(STACK, 20);
+    process.stdout.write(`\n--- ${STACK} log\n${log.stdout}${log.stderr}`);
+  } catch (error) {
+    process.stderr.write(
+      `note: could not read the log: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
   return 0;
 }
 
