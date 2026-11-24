@@ -4,12 +4,13 @@ Self-hosted iPhone backups: full, encrypted, restorable backups in the
 standard Finder/iTunes format, taken over WiFi to your own storage. No iCloud,
 and no Mac or PC in the loop once a phone has been paired.
 
-**Status: early.** The backup path is proven on iOS 26.6.1 and pommedonjon's
-own code has backed a real phone up from the container (see
-[FINDINGS.md](FINDINGS.md)). The daemon deciding by itself when to start has
-only been tested with fakes; a field trial on a real phone is the next phase.
-There are no notifications yet. [DECISIONS.md](DECISIONS.md) records what has
-been decided and what is still open.
+**Status: early, and in trial on one phone.** A server on another VLAN is
+backing up a real iPhone (iOS 26.6.1) to a NAS by its own decision, and the
+phone can ask for a backup itself. A backup has not yet been proven to
+decrypt and restore, there is no web UI, and the interface for requests
+has no authentication. [FINDINGS.md](FINDINGS.md) is what has been measured;
+[DECISIONS.md](DECISIONS.md) is what has been decided and what is still
+open.
 
 ## What to know first
 
@@ -295,7 +296,7 @@ prompt it. If a server already backs a phone up, leave that phone out of
 | Environment | Runs | Follows |
 |---|---|---|
 | Development | Your machine, built from the checkout | Whatever is on disk |
-| Test | A server, from the published image | `edge`: every commit on `main` |
+| Test | A server, built there from the `test` branch | Whatever `pnpm deploy:test` last sent |
 | Production | A server, from the published image | A released version |
 
 `pommedonjon --version` and the first line of the daemon's log say which
@@ -303,7 +304,9 @@ build is running, including the commit.
 
 Both server environments use the same compose file,
 [deploy/compose.yaml](deploy/compose.yaml), as two separate stacks that set
-different variables: which image to run and where backups go. The config,
+different variables: which image to run and where backups go. Test adds
+[deploy/compose.build.yaml](deploy/compose.build.yaml), which builds the
+image instead of pulling it. Only the test stack exists so far. The config,
 pair records and run history live in volumes Docker creates on the first
 deploy, so nothing is prepared on the server beforehand. [deploy/komodo.example.toml](deploy/komodo.example.toml)
 defines the two stacks for [Komodo](https://komo.do).
