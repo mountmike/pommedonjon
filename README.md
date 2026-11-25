@@ -1,3 +1,5 @@
+<img src="design/icon-direction.svg" alt="pommedonjon's icon: a phone-shaped castle keep with a leaf" width="96" align="right">
+
 # pommedonjon
 
 Self-hosted iPhone backups: full, encrypted, restorable backups in the
