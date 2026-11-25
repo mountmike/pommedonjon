@@ -1,6 +1,6 @@
 {
   "name": "@pommedonjon/app",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "private": true,
   "description": "The pommedonjon app: one codebase for the web and the iPhone.",
   "license": "GPL-3.0-only",
