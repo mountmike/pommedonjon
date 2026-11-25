@@ -1,4 +1,4 @@
-import { Button, Host } from "@expo/ui";
+import { Button } from "@expo/ui";
 import * as DocumentPicker from "expo-document-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
@@ -11,6 +11,8 @@ import {
   type PhoneForm,
 } from "../phones/addPhone";
 import { space, type, useTheme } from "../theme/tokens";
+import { quietButton } from "../ui/buttonLook";
+import { Native } from "../ui/Native";
 import { Field, Note, Problems, Screen, Section } from "../ui/Screen";
 
 type Adding =
@@ -87,13 +89,13 @@ export default function AddPhoneScreen() {
           has trusted it.
         </Text>
         <View style={styles.choose}>
-          <Host matchContents>
+          <Native>
             <Button
               label={form.pairing ? "Choose another file" : "Choose the pairing file"}
               variant="outlined"
               onPress={() => void choose()}
             />
-          </Host>
+          </Native>
           {form.pairing && (
             <Text style={[styles.file, { color: theme.muted }]} numberOfLines={1}>
               {form.pairing.fileName}
@@ -141,16 +143,21 @@ export default function AddPhoneScreen() {
       {adding.status === "failed" && <Problems problems={adding.problems} />}
 
       <View style={styles.actions}>
-        <Host matchContents>
+        <Native>
           <Button
             label={adding.status === "adding" ? "Looking for the phone…" : "Add phone"}
             disabled={adding.status === "adding"}
             onPress={() => void add()}
           />
-        </Host>
-        <Host matchContents>
-          <Button label="Cancel" variant="text" onPress={() => router.dismissTo("/")} />
-        </Host>
+        </Native>
+        <Native>
+          <Button
+            label="Cancel"
+            variant="text"
+            modifiers={quietButton}
+            onPress={() => router.dismissTo("/")}
+          />
+        </Native>
       </View>
     </Screen>
   );

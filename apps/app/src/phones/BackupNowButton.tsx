@@ -1,9 +1,10 @@
-import { Button, Host } from "@expo/ui";
+import { Button } from "@expo/ui";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { DeviceSummary } from "@pommedonjon/api-contract";
 import { ApiError, requestBackup, stopBackup } from "../api/client";
 import { space, type, useTheme } from "../theme/tokens";
+import { Native } from "../ui/Native";
 
 type Asking =
   | { readonly status: "idle" }
@@ -50,13 +51,13 @@ export function BackupNowButton({
 
   return (
     <View style={styles.all}>
-      <Host matchContents style={styles.button}>
+      <Native style={styles.button}>
         <Button
           label={asking.status === "asking" ? "Starting…" : "Back up now"}
           disabled={asking.status === "asking"}
           onPress={() => void start()}
         />
-      </Host>
+      </Native>
       {asking.status === "failed" ? (
         <Text style={[styles.note, { color: theme.tone.overdue }]}>{asking.message}</Text>
       ) : (
@@ -87,14 +88,14 @@ function StopButton({ device, onStopped }: { device: DeviceSummary; onStopped: (
 
   return (
     <View style={styles.all}>
-      <Host matchContents style={styles.button}>
+      <Native style={styles.button}>
         <Button
           label={asking.status === "asking" ? "Stopping…" : "Stop"}
           variant="outlined"
           disabled={asking.status === "asking"}
           onPress={() => void stop()}
         />
-      </Host>
+      </Native>
       {asking.status === "failed" ? (
         <Text style={[styles.note, { color: theme.tone.overdue }]}>{asking.message}</Text>
       ) : (
