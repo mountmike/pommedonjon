@@ -1,16 +1,7 @@
-import { Button, Host, Picker } from "@expo/ui";
-import { Link, useLocalSearchParams, useRouter } from "expo-router";
+import { Button, Picker } from "@expo/ui";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from "react-native";
 import type { DeviceSettings } from "@pommedonjon/api-contract";
 import { ApiError, fetchSettings, removePhone, saveSettings } from "../../../api/client";
 import {
@@ -28,7 +19,9 @@ import {
   type Choice,
 } from "../../../phones/settingsWords";
 import { radius, space, type, useTheme } from "../../../theme/tokens";
-import { Note, Problems, Row, Section, Toggle } from "../../../ui/Screen";
+import { destructiveButton, quietButton } from "../../../ui/buttonLook";
+import { Native } from "../../../ui/Native";
+import { Note, Problems, Row, Screen, Section, Toggle } from "../../../ui/Screen";
 
 type Loaded =
   | { readonly status: "loading" }
@@ -115,231 +108,229 @@ export default function PhoneSettingsScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Link href={back} dismissTo asChild>
-          <Pressable accessibilityRole="link" style={styles.back}>
-            <Text style={[styles.backText, { color: theme.tint }]}>‹ Back</Text>
-          </Pressable>
-        </Link>
-        <Text style={[styles.heading, { color: theme.ink }]} accessibilityRole="header">
-          Settings
-        </Text>
+    <Screen title="Settings" back={back}>
 
-        {loaded.status === "loading" && (
-          <ActivityIndicator style={styles.centre} color={theme.muted} />
-        )}
-        {loaded.status === "failed" && (
-          <Text style={[styles.message, { color: theme.ink }]}>{loaded.message}</Text>
-        )}
-        {loaded.status === "ready" && settings && (
-          <>
-            <Section title="Name">
-              <TextInput
-                value={settings.name}
-                onChangeText={(name) => change({ name })}
-                accessibilityLabel="Name"
-                maxLength={60}
-                autoCorrect={false}
-                style={[
-                  styles.input,
-                  { color: theme.ink, borderColor: theme.separator, backgroundColor: theme.background },
-                ]}
-              />
-            </Section>
+      {loaded.status === "loading" && (
+        <ActivityIndicator style={styles.centre} color={theme.muted} />
+      )}
+      {loaded.status === "failed" && (
+        <Text style={[styles.message, { color: theme.ink }]}>{loaded.message}</Text>
+      )}
+      {loaded.status === "ready" && settings && (
+        <>
+          <Section title="Name">
+            <TextInput
+              value={settings.name}
+              onChangeText={(name) => change({ name })}
+              accessibilityLabel="Name"
+              maxLength={60}
+              autoCorrect={false}
+              style={[
+                styles.input,
+                { color: theme.ink, borderColor: theme.separator, backgroundColor: theme.background },
+              ]}
+            />
+          </Section>
 
-            <Section title="Schedule">
+          <Section title="Schedule">
+            <Toggle
+              label="Back up automatically"
+              value={settings.automatic}
+              onChange={(automatic) => change({ automatic })}
+            />
+            {settings.automatic ? (
+              <Row label="Back up">
+                <Choose
+                  label="How often to back up"
+                  choices={howOftenChoices(settings.dueAfterHours)}
+                  value={settings.dueAfterHours}
+                  onChange={(dueAfterHours) => change({ dueAfterHours })}
+                />
+              </Row>
+            ) : (
+              <Note>Backups only happen when you press Back up now.</Note>
+            )}
+          </Section>
+
+          {settings.automatic && (
+            <Section title="When a backup may start">
               <Toggle
-                label="Back up automatically"
-                value={settings.automatic}
-                onChange={(automatic) => change({ automatic })}
+                label="When I plug it in at home"
+                value={settings.startWhenPluggedIn}
+                onChange={(startWhenPluggedIn) => change({ startWhenPluggedIn })}
               />
-              {settings.automatic ? (
-                <Row label="Back up">
+              {settings.startWhenPluggedIn && (
+                <Row label="Within" indented>
                   <Choose
-                    label="How often to back up"
-                    choices={howOftenChoices(settings.dueAfterHours)}
-                    value={settings.dueAfterHours}
-                    onChange={(dueAfterHours) => change({ dueAfterHours })}
+                    label="How long after plugging in"
+                    choices={plugInChoices(settings.pluggedInWindowMinutes)}
+                    value={settings.pluggedInWindowMinutes}
+                    onChange={(pluggedInWindowMinutes) => change({ pluggedInWindowMinutes })}
                   />
                 </Row>
-              ) : (
-                <Note>Backups only happen when you press Back up now.</Note>
               )}
+              <Toggle
+                label="When I open this app on it"
+                value={settings.startWhenAppOpened}
+                onChange={(startWhenAppOpened) => change({ startWhenAppOpened })}
+              />
+              <Toggle
+                label="When I unlock it at home"
+                value={settings.startWhenUnlockedAfterHours !== null}
+                onChange={(on) =>
+                  change({ startWhenUnlockedAfterHours: on ? DEFAULT_UNLOCK_WAIT_HOURS : null })
+                }
+              />
+              {settings.startWhenUnlockedAfterHours !== null && (
+                <Row label="Once a backup has waited" indented>
+                  <Choose
+                    label="How long a backup waits before an unlock starts it"
+                    choices={unlockWaitChoices(settings.startWhenUnlockedAfterHours)}
+                    value={settings.startWhenUnlockedAfterHours}
+                    onChange={(startWhenUnlockedAfterHours) =>
+                      change({ startWhenUnlockedAfterHours })
+                    }
+                  />
+                </Row>
+              )}
+              <Toggle
+                label="Any time it's on a charger at home"
+                value={settings.startOnChargerAfterHours !== null}
+                onChange={(on) =>
+                  change({ startOnChargerAfterHours: on ? DEFAULT_CHARGER_WAIT_HOURS : null })
+                }
+              />
+              {settings.startOnChargerAfterHours !== null && (
+                <Row label="Once a backup has waited" indented>
+                  <Choose
+                    label="How long a backup waits before any time on a charger starts it"
+                    choices={chargerWaitChoices(settings.startOnChargerAfterHours)}
+                    value={settings.startOnChargerAfterHours}
+                    onChange={(startOnChargerAfterHours) => change({ startOnChargerAfterHours })}
+                  />
+                </Row>
+              )}
+              <Note>
+                Every backup needs your passcode on the phone, so it starts at moments when
+                you're likely to be holding it. If nobody answers, it waits for the next
+                moment, and stops asking for the day after three.
+              </Note>
             </Section>
+          )}
 
-            {settings.automatic && (
-              <Section title="When a backup may start">
-                <Toggle
-                  label="When I plug it in at home"
-                  value={settings.startWhenPluggedIn}
-                  onChange={(startWhenPluggedIn) => change({ startWhenPluggedIn })}
-                />
-                {settings.startWhenPluggedIn && (
-                  <Row label="Within" indented>
+          {settings.automatic && (
+            <Section title="Quiet hours">
+              <Toggle
+                label="No backups during quiet hours"
+                value={settings.quietHours !== null}
+                onChange={(on) => change({ quietHours: on ? { ...DEFAULT_QUIET_HOURS } : null })}
+              />
+              {settings.quietHours !== null && (
+                <>
+                  <Row label="From" indented>
                     <Choose
-                      label="How long after plugging in"
-                      choices={plugInChoices(settings.pluggedInWindowMinutes)}
-                      value={settings.pluggedInWindowMinutes}
-                      onChange={(pluggedInWindowMinutes) => change({ pluggedInWindowMinutes })}
-                    />
-                  </Row>
-                )}
-                <Toggle
-                  label="When I open this app on it"
-                  value={settings.startWhenAppOpened}
-                  onChange={(startWhenAppOpened) => change({ startWhenAppOpened })}
-                />
-                <Toggle
-                  label="When I unlock it at home"
-                  value={settings.startWhenUnlockedAfterHours !== null}
-                  onChange={(on) =>
-                    change({ startWhenUnlockedAfterHours: on ? DEFAULT_UNLOCK_WAIT_HOURS : null })
-                  }
-                />
-                {settings.startWhenUnlockedAfterHours !== null && (
-                  <Row label="Once a backup has waited" indented>
-                    <Choose
-                      label="How long a backup waits before an unlock starts it"
-                      choices={unlockWaitChoices(settings.startWhenUnlockedAfterHours)}
-                      value={settings.startWhenUnlockedAfterHours}
-                      onChange={(startWhenUnlockedAfterHours) =>
-                        change({ startWhenUnlockedAfterHours })
+                      label="Quiet hours start"
+                      choices={timeChoices(settings.quietHours.start)}
+                      value={settings.quietHours.start}
+                      onChange={(start) =>
+                        change({ quietHours: { start, end: settings.quietHours?.end ?? start } })
                       }
                     />
                   </Row>
-                )}
-                <Toggle
-                  label="Any time it's on a charger at home"
-                  value={settings.startOnChargerAfterHours !== null}
-                  onChange={(on) =>
-                    change({ startOnChargerAfterHours: on ? DEFAULT_CHARGER_WAIT_HOURS : null })
-                  }
-                />
-                {settings.startOnChargerAfterHours !== null && (
-                  <Row label="Once a backup has waited" indented>
+                  <Row label="Until" indented>
                     <Choose
-                      label="How long a backup waits before any time on a charger starts it"
-                      choices={chargerWaitChoices(settings.startOnChargerAfterHours)}
-                      value={settings.startOnChargerAfterHours}
-                      onChange={(startOnChargerAfterHours) => change({ startOnChargerAfterHours })}
+                      label="Quiet hours end"
+                      choices={timeChoices(settings.quietHours.end)}
+                      value={settings.quietHours.end}
+                      onChange={(end) =>
+                        change({ quietHours: { start: settings.quietHours?.start ?? end, end } })
+                      }
                     />
                   </Row>
-                )}
-                <Note>
-                  Every backup needs your passcode on the phone, so it starts at moments when
-                  you're likely to be holding it. If nobody answers, it waits for the next
-                  moment, and stops asking for the day after three.
-                </Note>
-              </Section>
-            )}
-
-            {settings.automatic && (
-              <Section title="Quiet hours">
-                <Toggle
-                  label="No backups during quiet hours"
-                  value={settings.quietHours !== null}
-                  onChange={(on) => change({ quietHours: on ? { ...DEFAULT_QUIET_HOURS } : null })}
-                />
-                {settings.quietHours !== null && (
-                  <>
-                    <Row label="From" indented>
-                      <Choose
-                        label="Quiet hours start"
-                        choices={timeChoices(settings.quietHours.start)}
-                        value={settings.quietHours.start}
-                        onChange={(start) =>
-                          change({ quietHours: { start, end: settings.quietHours?.end ?? start } })
-                        }
-                      />
-                    </Row>
-                    <Row label="Until" indented>
-                      <Choose
-                        label="Quiet hours end"
-                        choices={timeChoices(settings.quietHours.end)}
-                        value={settings.quietHours.end}
-                        onChange={(end) =>
-                          change({ quietHours: { start: settings.quietHours?.start ?? end, end } })
-                        }
-                      />
-                    </Row>
-                    <Note>By the server's clock. "Back up now" still works in quiet hours.</Note>
-                  </>
-                )}
-              </Section>
-            )}
-
-            <Section title="Warning">
-              <Row label="Show as overdue after">
-                <Choose
-                  label="How long without a backup before it is overdue"
-                  choices={overdueChoices(settings.staleAfterHours, settings.dueAfterHours)}
-                  value={settings.staleAfterHours}
-                  onChange={(staleAfterHours) => change({ staleAfterHours })}
-                />
-              </Row>
-            </Section>
-
-            {saving.status === "failed" && <Problems problems={saving.problems} />}
-
-            <View style={styles.actions}>
-              <Host matchContents>
-                <Button
-                  label={saving.status === "saving" ? "Saving…" : "Save"}
-                  disabled={saving.status === "saving"}
-                  onPress={() => void save(settings)}
-                />
-              </Host>
-              <Host matchContents>
-                <Button label="Cancel" variant="text" onPress={() => router.dismissTo(back)} />
-              </Host>
-            </View>
-
-            <Section title="Remove">
-              {removing.status === "confirming" || removing.status === "removing" ? (
-                <>
-                  <Text style={[styles.confirm, { color: theme.ink }]}>
-                    Remove {settings.name}? It will no longer be backed up, and its pairing on the
-                    server is destroyed. The backups already made stay on the server.
-                  </Text>
-                  <View style={styles.actions}>
-                    <Host matchContents>
-                      <Button
-                        label={removing.status === "removing" ? "Removing…" : "Yes, remove it"}
-                        disabled={removing.status === "removing"}
-                        onPress={() => void remove()}
-                      />
-                    </Host>
-                    <Host matchContents>
-                      <Button
-                        label="Keep it"
-                        variant="text"
-                        onPress={() => setRemoving({ status: "idle" })}
-                      />
-                    </Host>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Host matchContents>
-                    <Button
-                      label="Remove this phone"
-                      variant="outlined"
-                      onPress={() => setRemoving({ status: "confirming" })}
-                    />
-                  </Host>
-                  {removing.status === "failed" && (
-                    <Text style={[styles.problem, { color: theme.tone.overdue }]}>
-                      {removing.message}
-                    </Text>
-                  )}
+                  <Note>By the server's clock. "Back up now" still works in quiet hours.</Note>
                 </>
               )}
             </Section>
-          </>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+          )}
+
+          <Section title="Warning">
+            <Row label="Show as overdue after">
+              <Choose
+                label="How long without a backup before it is overdue"
+                choices={overdueChoices(settings.staleAfterHours, settings.dueAfterHours)}
+                value={settings.staleAfterHours}
+                onChange={(staleAfterHours) => change({ staleAfterHours })}
+              />
+            </Row>
+          </Section>
+
+          {saving.status === "failed" && <Problems problems={saving.problems} />}
+
+          <View style={styles.actions}>
+            <Native>
+              <Button
+                label={saving.status === "saving" ? "Saving…" : "Save"}
+                disabled={saving.status === "saving"}
+                onPress={() => void save(settings)}
+              />
+            </Native>
+            <Native>
+              <Button
+                label="Cancel"
+                variant="text"
+                modifiers={quietButton}
+                onPress={() => router.dismissTo(back)}
+              />
+            </Native>
+          </View>
+
+          <Section title="Remove">
+            {removing.status === "confirming" || removing.status === "removing" ? (
+              <>
+                <Text style={[styles.confirm, { color: theme.ink }]}>
+                  Remove {settings.name}? It will no longer be backed up, and its pairing on the
+                  server is destroyed. The backups already made stay on the server.
+                </Text>
+                <View style={styles.actions}>
+                  <Native>
+                    <Button
+                      label={removing.status === "removing" ? "Removing…" : "Yes, remove it"}
+                      disabled={removing.status === "removing"}
+                      modifiers={destructiveButton}
+                      onPress={() => void remove()}
+                    />
+                  </Native>
+                  <Native>
+                    <Button
+                      label="Keep it"
+                      variant="text"
+                      modifiers={quietButton}
+                      onPress={() => setRemoving({ status: "idle" })}
+                    />
+                  </Native>
+                </View>
+              </>
+            ) : (
+              <>
+                <Native>
+                  <Button
+                    label="Remove this phone"
+                    variant="outlined"
+                    modifiers={destructiveButton}
+                    onPress={() => setRemoving({ status: "confirming" })}
+                  />
+                </Native>
+                {removing.status === "failed" && (
+                  <Text style={[styles.problem, { color: theme.tone.overdue }]}>
+                    {removing.message}
+                  </Text>
+                )}
+              </>
+            )}
+          </Section>
+        </>
+      )}
+    </Screen>
   );
 }
 
@@ -356,29 +347,17 @@ function Choose<T extends string | number>({
   onChange: (value: T) => void;
 }) {
   return (
-    <Host matchContents>
+    <Native>
       <Picker<T> selectedValue={value} onValueChange={onChange} accessibilityLabel={label}>
         {choices.map((choice) => (
           <Picker.Item key={String(choice.value)} label={choice.label} value={choice.value} />
         ))}
       </Picker>
-    </Host>
+    </Native>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  // One centred column, however wide the window (DESIGN.md, "iPhone and web").
-  content: {
-    width: "100%",
-    maxWidth: 560,
-    alignSelf: "center",
-    padding: space.lg,
-    gap: space.lg,
-  },
-  back: { alignSelf: "flex-start", paddingVertical: space.xs },
-  backText: { fontSize: type.body },
-  heading: { fontSize: type.state, fontWeight: "700" },
   section: { gap: space.sm },
   sectionTitle: {
     fontSize: type.small,

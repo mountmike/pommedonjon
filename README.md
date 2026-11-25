@@ -1,3 +1,5 @@
+<img src="design/icon-direction.svg" alt="pommedonjon's icon: a phone-shaped castle keep with a leaf" width="96" align="right">
+
 # pommedonjon
 
 Self-hosted iPhone backups: full, encrypted, restorable backups in the
@@ -8,7 +10,7 @@ and no Mac or PC in the loop once a phone has been paired.
 backing up a real iPhone (iOS 26.6.1) to a NAS by its own decision. Phones
 are added and managed in a web app the service serves. Not yet there: a
 backup has not been proven to decrypt and restore, the web app has no
-sign-in, the iPhone app has not been built, and backups only happen at
+sign-in, the iPhone app has only been run in the simulator, and backups only happen at
 home. [FINDINGS.md](FINDINGS.md) is what has been measured;
 [DECISIONS.md](DECISIONS.md) is what has been decided and what is still
 open; [DESIGN.md](DESIGN.md) is the brief for the app;
@@ -257,22 +259,33 @@ reached, no backup runs, and the phone's state says so.
 ### The iPhone app
 
 The same app builds for the iPhone, from the same code
-([apps/app](apps/app)). It is not in the App Store and has not been run on
-a phone or a simulator yet: what is there is the code, its configuration
-and its icon.
+([apps/app](apps/app)). It is not in the App Store. It has been run in the
+iOS Simulator against the local preview, every screen in light and dark,
+but not yet on a real phone (D30).
 
 What differs from the web app:
 
 - **Connect**, shown once, asks for the server's address, because an app
-  is not served by the server the way the web page is.
+  is not served by the server the way the web page is. **Server** shows the
+  address and can connect to another one, if the server moves.
 - The phone it is running on is marked **This iPhone** and listed first.
   (The web app does the same when opened on a phone.)
+- **Navigation is the iPhone's own:** a large title that shrinks as you
+  scroll, the system's back button and the swipe back. The web draws its
+  own title and "‹ Back" link instead.
+- Switches, pickers and buttons are real SwiftUI controls (Expo UI); the
+  web gets plain equivalents of the same components.
 
 To build it you need Xcode with an iOS simulator installed, and CocoaPods:
 
 ```bash
 pnpm --filter @pommedonjon/app ios
 ```
+
+To try it without a real server, start the preview (`pnpm preview`) and
+enter `http://localhost:8399` on Connect: the simulator shares the Mac's
+network, and the preview's three made-up phones are safe to press "Back
+up now" on.
 
 The app talks plain HTTP to an address on the local network, which iOS
 allows for local addresses only. Reaching a server from outside the home

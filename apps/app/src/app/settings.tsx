@@ -1,16 +1,20 @@
-import { Button, Host } from "@expo/ui";
+import { Button } from "@expo/ui";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import type { ServerInfo } from "@pommedonjon/api-contract";
 import {
   ApiError,
+  apiBase,
   fetchServerInfo,
   fetchServerSettings,
   saveServerSettings,
 } from "../api/client";
+import { forgetServer, NEEDS_SERVER_ADDRESS } from "../api/server";
 import { parseRanges } from "../phones/addPhone";
 import { space, type, useTheme } from "../theme/tokens";
+import { quietButton } from "../ui/buttonLook";
+import { Native } from "../ui/Native";
 import { Field, Note, Problems, Screen, Section } from "../ui/Screen";
 
 type Loaded =
@@ -72,7 +76,11 @@ export default function ServerSettingsScreen() {
     <Screen title="Server" back="/" backLabel="Phones">
       {loaded.status === "loading" && <ActivityIndicator color={theme.muted} />}
       {loaded.status === "failed" && (
-        <Text style={[styles.body, { color: theme.ink }]}>{loaded.message}</Text>
+        <>
+          <Text style={[styles.body, { color: theme.ink }]}>{loaded.message}</Text>
+          {/* Most needed when the server is not where the app last found it. */}
+          {NEEDS_SERVER_ADDRESS && <ThisApp />}
+        </>
       )}
       {loaded.status === "ready" && (
         <>
@@ -93,13 +101,13 @@ export default function ServerSettingsScreen() {
             </Note>
             {saving.status === "failed" && <Problems problems={saving.problems} />}
             <View style={styles.actions}>
-              <Host matchContents>
+              <Native>
                 <Button
                   label={saving.status === "saving" ? "Saving…" : "Save"}
                   disabled={saving.status === "saving"}
                   onPress={() => void save()}
                 />
-              </Host>
+              </Native>
               {saving.status === "saved" && (
                 <Text style={[styles.saved, { color: theme.tone.safe }]}>Saved.</Text>
               )}
@@ -116,12 +124,49 @@ export default function ServerSettingsScreen() {
             </Note>
           </Section>
 
-          <Host matchContents>
-            <Button label="Done" variant="text" onPress={() => router.dismissTo("/")} />
-          </Host>
+          {NEEDS_SERVER_ADDRESS && <ThisApp />}
+
+          <Native>
+            <Button
+              label="Done"
+              variant="text"
+              modifiers={quietButton}
+              onPress={() => router.dismissTo("/")}
+            />
+          </Native>
         </>
       )}
     </Screen>
+  );
+}
+
+/**
+ * The iPhone app keeps the server's address; this is the way to point it
+ * somewhere else, for instance when the server has moved. The web app has
+ * no such thing: the server it came from is the server.
+ */
+function ThisApp() {
+  const router = useRouter();
+
+  async function change() {
+    await forgetServer();
+    // Connect replaces everything: there is nothing to go back to.
+    router.dismissAll();
+    router.replace("/connect");
+  }
+
+  return (
+    <Section title="This app">
+      <Detail label="Connected to" value={apiBase()} />
+      <Native>
+        <Button
+          label="Connect to another server"
+          variant="text"
+          modifiers={quietButton}
+          onPress={() => void change()}
+        />
+      </Native>
+    </Section>
   );
 }
 

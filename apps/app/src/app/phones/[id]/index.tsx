@@ -1,8 +1,7 @@
-import { Button, Host } from "@expo/ui";
+import { Button } from "@expo/ui";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { DeviceCheck } from "@pommedonjon/api-contract";
 import { ApiError, checkPhone } from "../../../api/client";
 import { describeCheck } from "../../../phones/addPhone";
@@ -12,31 +11,25 @@ import { StateDisplay } from "../../../phones/StateDisplay";
 import { scheduleSummary } from "../../../phones/settingsWords";
 import { useDevice, useSettings } from "../../../phones/useDevices";
 import { radius, space, type, useTheme } from "../../../theme/tokens";
+import { Native } from "../../../ui/Native";
+import { Screen, Title } from "../../../ui/Screen";
 
 /** One phone: its state, "Back up now", and its history day by day. */
 export default function PhoneScreen() {
-  const theme = useTheme();
   const { id, check } = useLocalSearchParams<{ id: string; check?: string }>();
   // Remounting is the simplest honest "try again": it starts over.
   const [attempt, setAttempt] = useState(0);
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Back to the screen that is already there, not a new copy on top. */}
-        <Link href="/" dismissTo asChild>
-          <Pressable accessibilityRole="link" style={styles.back}>
-            <Text style={[styles.backText, { color: theme.tint }]}>‹ Phones</Text>
-          </Pressable>
-        </Link>
-        <Phone
-          key={attempt}
-          id={id}
-          checkAtOnce={check === "1"}
-          onRetry={() => setAttempt((count) => count + 1)}
-        />
-      </ScrollView>
-    </SafeAreaView>
+    // The phone's name is its title, once it has loaded.
+    <Screen back="/" backLabel="Phones">
+      <Phone
+        key={attempt}
+        id={id}
+        checkAtOnce={check === "1"}
+        onRetry={() => setAttempt((count) => count + 1)}
+      />
+    </Screen>
   );
 }
 
@@ -89,7 +82,7 @@ function Connection({ id, atOnce }: { id: string; atOnce: boolean }) {
       {checking.status === "failed" && (
         <Text style={[styles.checkDetail, { color: theme.tone.due }]}>{checking.message}</Text>
       )}
-      <Host matchContents style={styles.change}>
+      <Native style={styles.change}>
         <Button
           label={
             checking.status === "checking"
@@ -102,7 +95,7 @@ function Connection({ id, atOnce }: { id: string; atOnce: boolean }) {
           disabled={checking.status === "checking"}
           onPress={() => void look()}
         />
-      </Host>
+      </Native>
       <Text style={[styles.checkDetail, { color: theme.muted }]}>
         The server looks for the phone on your network. Nothing appears on the phone.
       </Text>
@@ -131,9 +124,9 @@ function Phone({
       <View style={styles.centre}>
         <Text style={[styles.message, { color: theme.ink }]}>{state.message}</Text>
         {!state.missing && (
-          <Host matchContents>
+          <Native>
             <Button label="Try again" onPress={onRetry} />
-          </Host>
+          </Native>
         )}
       </View>
     );
@@ -142,9 +135,7 @@ function Phone({
   const device = state.data;
   return (
     <View style={styles.all}>
-      <Text style={[styles.heading, { color: theme.ink }]} accessibilityRole="header">
-        {device.name}
-      </Text>
+      <Title>{device.name}</Title>
       {state.stale && (
         <Text style={[styles.stale, { color: theme.tone.due }]}>
           Can't reach the server. Showing what was last known.
@@ -184,19 +175,7 @@ function Phone({
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  // One centred column, however wide the window (DESIGN.md, "iPhone and web").
-  content: {
-    width: "100%",
-    maxWidth: 560,
-    alignSelf: "center",
-    padding: space.lg,
-    gap: space.md,
-  },
-  back: { alignSelf: "flex-start", paddingVertical: space.xs },
-  backText: { fontSize: type.body },
   all: { gap: space.lg },
-  heading: { fontSize: type.state, fontWeight: "700" },
   card: { borderRadius: radius.card, padding: space.lg, gap: space.lg },
   section: { fontSize: type.heading, fontWeight: "700", marginTop: space.sm },
   summary: { fontSize: type.body, flex: 1 },

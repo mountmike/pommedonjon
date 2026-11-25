@@ -1,13 +1,31 @@
-import { Host, Switch } from "@expo/ui";
-import { Link, type Href } from "expo-router";
+import { Switch } from "@expo/ui";
+import { Link, Stack, type Href } from "expo-router";
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type TextInputProps,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { radius, space, type, useTheme } from "../theme/tokens";
+import { Native } from "./Native";
 
 /**
- * The frame every screen but the first shares: one centred column, a way
- * back, and a title (DESIGN.md, "iPhone and web").
+ * The iPhone has the system's own navigation bar: the title, large until
+ * the screen scrolls, and the system's back button with its swipe
+ * (DESIGN.md, "iPhone and web"). The web draws its own title and back link.
+ */
+export const NATIVE_HEADER = Platform.OS === "ios";
+
+/**
+ * The frame every screen shares: one centred column, a way back, and a
+ * title (DESIGN.md, "iPhone and web"). A screen whose title is not known
+ * until it has loaded leaves `title` out and shows a `Title` itself.
  */
 export function Screen({
   title,
@@ -15,27 +33,49 @@ export function Screen({
   backLabel = "Back",
   children,
 }: {
-  title: string;
-  back: Href;
+  title?: string;
+  /** Where the web's back link goes; the first screens have none. */
+  back?: Href;
   backLabel?: string;
   children: ReactNode;
 }) {
   const theme = useTheme();
-  return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Back to the screen that is already there, not a new copy on top. */}
+  const page = (
+    <ScrollView
+      style={{ backgroundColor: theme.background }}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      // iPhone: content scrolls under the navigation bar and the home
+      // indicator, and the keyboard pushes a field up instead of covering it.
+      contentInsetAdjustmentBehavior="automatic"
+      automaticallyAdjustKeyboardInsets>
+      {!NATIVE_HEADER && back !== undefined && (
+        // Back to the screen that is already there, not a new copy on top.
         <Link href={back} dismissTo asChild>
           <Pressable accessibilityRole="link" style={styles.back}>
             <Text style={[styles.backText, { color: theme.tint }]}>‹ {backLabel}</Text>
           </Pressable>
         </Link>
-        <Text style={[styles.heading, { color: theme.ink }]} accessibilityRole="header">
-          {title}
-        </Text>
-        {children}
-      </ScrollView>
-    </SafeAreaView>
+      )}
+      {title !== undefined && <Title>{title}</Title>}
+      {children}
+    </ScrollView>
+  );
+  // The navigation bar already keeps the iPhone's content clear of the edges.
+  if (NATIVE_HEADER) return page;
+  return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]}>{page}</SafeAreaView>
+  );
+}
+
+/** A screen's title: in the navigation bar on the iPhone, at the top of the page on the web. */
+export function Title({ children }: { children: string }) {
+  const theme = useTheme();
+  if (NATIVE_HEADER) return <Stack.Screen options={{ title: children }} />;
+  return (
+    <Text style={[styles.heading, { color: theme.ink }]} accessibilityRole="header">
+      {children}
+    </Text>
   );
 }
 
@@ -89,9 +129,11 @@ export function Toggle({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <Host matchContents>
+    // The whole row's width, so the switch sits at its end as in the
+    // iPhone's own Settings.
+    <Native fill>
       <Switch label={label} value={value} onValueChange={onChange} />
-    </Host>
+    </Native>
   );
 }
 
@@ -102,12 +144,22 @@ export function Field({
   onChange,
   placeholder,
   maxLength,
+  keyboardType,
+  onSubmit,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   maxLength?: number;
+  /** The on-screen keyboard to offer, such as "url" for an address. */
+  keyboardType?: TextInputProps["keyboardType"];
+  /**
+   * What the keyboard's return key does, if more than closing it. It is
+   * given the field's text as the field has it: the last keystrokes may not
+   * have reached `value` yet.
+   */
+  onSubmit?: (text: string) => void;
 }) {
   const theme = useTheme();
   return (
@@ -122,6 +174,11 @@ export function Field({
         maxLength={maxLength}
         autoCorrect={false}
         autoCapitalize="none"
+        keyboardType={keyboardType}
+        returnKeyType={onSubmit ? "go" : "done"}
+        onSubmitEditing={
+          onSubmit && ((event) => onSubmit(event.nativeEvent.text ?? value))
+        }
         style={[
           styles.input,
           { color: theme.ink, borderColor: theme.separator, backgroundColor: theme.background },
