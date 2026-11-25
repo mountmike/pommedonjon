@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Used by the server and by the app, so nothing here may assume Node.
+    "types": []
+  },
+  "include": ["src", "test"]
+}

@@ -1,0 +1,687 @@
+import type { DeviceConfig, PommedonjonConfig } from "../config/config.js";
+import type { DeviceSource } from "../settings/DeviceDirectory.js";
+import type { Logger } from "../log.js";
+import { INITIAL_LOCK_STATE, observeLock, type LockState } from "../policy/lock.js";
+import {
+  isStale,
+  lastUnansweredAt,
+  momentsInPlay,
+  readyToStart,
+  schedule,
+  wantedForMs,
+  type Moment,
+  type WaitReason,
+} from "../policy/policy.js";
+import {
+  INITIAL_POWER_STATE,
+  observe,
+  type PowerReading,
+  type PowerState,
+} from "../policy/power.js";
+import type { DeviceLocator } from "../discovery/DeviceLocator.js";
+import { STOPPED_BY_OWNER, type BackupRunner, type RunReport } from "../runner/BackupRunner.js";
+import type { StateStore } from "../state/StateStore.js";
+import { DeviceError } from "../transport/DeviceTransport.js";
+
+/** What the daemon did about one device on one pass. */
+export type DeviceOutcome =
+  | {
+      readonly deviceId: string;
+      readonly action: "waited";
+      /**
+       * A schedule reason ("not-due", "backing-off", ...), a readiness
+       * reason ("on-battery", "waiting-for-plug-in", "plug-in-window-passed",
+       * "encryption-off"), or a probe result ("unreachable", "not-paired",
+       * "probe-failed").
+       */
+      readonly reason: string;
+      readonly until?: Date;
+      /** The moments that would start a backup, where it is waiting for one. */
+      readonly moments?: readonly Moment[];
+    }
+  | {
+      readonly deviceId: string;
+      readonly action: "backed-up";
+      readonly report: RunReport;
+    };
+
+/** What became of a request to back a phone up now. */
+export type BackupRequestResult =
+  /** A backup is being started; how it ends is in the log and the history. */
+  | "started"
+  /** No configured device has that id. */
+  | "unknown-device"
+  /** That phone is already being backed up. */
+  | "already-running";
+
+/** What became of a phone saying it has just been plugged in. */
+export type PlugInReportResult =
+  | { readonly outcome: "started" | "unknown-device" | "already-running" }
+  | {
+      /** The schedule says no: nothing is due, or the phone is being left alone. */
+      readonly outcome: "not-now";
+      readonly reason: Exclude<WaitReason, "already-running">;
+      /** When the answer could change, where that is knowable. */
+      readonly until?: Date;
+    };
+
+/** Why a backup was started outside the daemon's own polling. */
+type RequestSource =
+  /** Someone asked for a backup now. */
+  | "request"
+  /** The phone said it had just been plugged in, and a backup was due. */
+  | "plug-in"
+  /** Its owner opened the app on the phone, and a backup was due. */
+  | "app-open";
+
+/** Why no backup is starting, and when that could change if it is knowable. */
+export interface WaitingFor {
+  readonly reason: string;
+  readonly until?: Date;
+  /** The moments that would start a backup, where it is waiting for one. */
+  readonly moments?: readonly Moment[];
+}
+
+/**
+ * A backup that was asked for and is not, or not yet, a run: the daemon
+ * looks for the phone first, and a run only begins once it has answered.
+ */
+export interface RequestState {
+  /** When it was asked for. */
+  readonly at: Date;
+  /**
+   * "connecting": the phone is being looked for. "not-started": it was not
+   * found, or was not fit to back up, so there was no run.
+   */
+  readonly status: "connecting" | "not-started";
+  /** Why not, for "not-started": "unreachable", "encryption-off" and so on. */
+  readonly reason?: string;
+}
+
+export interface DaemonDeps {
+  readonly config: Pick<PommedonjonConfig, "pollIntervalSeconds">;
+  /**
+   * The phones, looked at afresh on every pass, so a setting changed from
+   * the app takes effect without a restart.
+   */
+  readonly devices: DeviceSource;
+  readonly locator: Pick<DeviceLocator, "locate">;
+  readonly runner: Pick<BackupRunner, "run">;
+  readonly state: StateStore;
+  readonly log: Logger;
+  readonly clock: () => Date;
+  /** Which build this is, for the start-up log line. */
+  readonly version?: string;
+  /** Resolves after the delay, or early if the signal aborts. */
+  readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far back the schedule looks for an earlier failure to pace itself by. */
+const HISTORY_MS = DAY_MS;
+
+/**
+ * Decides, for each device, whether now is the moment to back up, and runs
+ * the backup when it is. Every device has its own independent cycle: two
+ * phones can back up at the same time, and one that is slow, faulty or
+ * waiting on its owner never delays another.
+ */
+export class Daemon {
+  /** The last thing logged per device, so the log shows changes, not polls. */
+  readonly #lastLogged = new Map<string, string>();
+  /** What recent probes say about each phone's power, to spot a plug-in. */
+  readonly #power = new Map<string, PowerState>();
+  /** What recent probes say about each phone being unlocked. */
+  readonly #lock = new Map<string, LockState>();
+  /** Devices with a backup in hand, whichever way it was started. */
+  readonly #busy = new Set<string>();
+  /** Backups started on request that have not finished yet. */
+  readonly #requested = new Set<Promise<void>>();
+  /** Why each phone was not backed up on its last pass, for anyone asking. */
+  readonly #waiting = new Map<string, WaitingFor>();
+  /** The last backup asked for per phone, until a run takes its place. */
+  readonly #requests = new Map<string, RequestState>();
+  /** When each phone's overdue backup was last warned about: daily, not every poll. */
+  readonly #staleWarnedAt = new Map<string, Date>();
+  /** The signal `run` was given, so requested backups stop with the daemon. */
+  #signal: AbortSignal | undefined;
+  /** How to stop each backup in hand, for its owner asking it to. */
+  readonly #stoppers = new Map<string, AbortController>();
+  /** Each phone's cycle, while it runs. A phone added later gets one then. */
+  readonly #cycles = new Map<string, Promise<void>>();
+
+  constructor(private readonly deps: DaemonDeps) {}
+
+  /** Run until the signal aborts. */
+  async run(signal: AbortSignal): Promise<void> {
+    const { config, devices, state, log, clock } = this.deps;
+    this.#signal = signal;
+    const interrupted = state.failInterruptedRuns(clock());
+    if (interrupted > 0) {
+      log("warning", "closed off runs left unfinished by a previous stop", {
+        count: interrupted,
+      });
+    }
+    log("info", "pommedonjon started", {
+      ...(this.deps.version !== undefined && { version: this.deps.version }),
+      devices: devices.all().map((device) => device.id),
+      pollIntervalSeconds: config.pollIntervalSeconds,
+    });
+
+    this.#startCycles();
+    await new Promise<void>((resolve) => {
+      if (signal.aborted) resolve();
+      else signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    // A phone added while the others were stopping would start a cycle now.
+    while (this.#cycles.size > 0) await Promise.all(this.#cycles.values());
+    await Promise.all(this.#requested);
+    log("info", "pommedonjon stopped");
+  }
+
+  /** Give every phone that has no cycle one, if the daemon is running. */
+  #startCycles(): void {
+    const signal = this.#signal;
+    if (!signal || signal.aborted) return;
+    for (const device of this.deps.devices.all()) {
+      if (this.#cycles.has(device.id)) continue;
+      const cycle = this.#cycle(device.id, signal).finally(() => {
+        this.#cycles.delete(device.id);
+      });
+      this.#cycles.set(device.id, cycle);
+    }
+  }
+
+  /**
+   * The phones have changed: one was added or removed. A new phone starts
+   * being considered at once; a removed one's cycle ends at its next pass,
+   * and what was remembered about it is dropped.
+   */
+  devicesChanged(): void {
+    const here = new Set(this.deps.devices.all().map((device) => device.id));
+    for (const known of [this.#power, this.#lock, this.#waiting, this.#requests, this.#lastLogged]) {
+      for (const deviceId of known.keys()) {
+        if (!here.has(deviceId)) known.delete(deviceId);
+      }
+    }
+    for (const deviceId of this.#staleWarnedAt.keys()) {
+      if (!here.has(deviceId)) this.#staleWarnedAt.delete(deviceId);
+    }
+    this.#startCycles();
+  }
+
+  /**
+   * Stop the backup of this phone that is in hand, because its owner asked.
+   * It ends as a failed run with the reason "stopped", and the phone is then
+   * left alone for as long as after a Cancel on the phone itself.
+   */
+  stopBackup(deviceId: string): "stopping" | "unknown-device" | "not-running" {
+    if (!this.deps.devices.get(deviceId)) return "unknown-device";
+    const stopper = this.#stoppers.get(deviceId);
+    if (!stopper) return "not-running";
+    this.deps.log("info", "backup stop requested", { device: deviceId });
+    stopper.abort(STOPPED_BY_OWNER);
+    return "stopping";
+  }
+
+  /**
+   * Run a backup so that it stops with the daemon and can be stopped by
+   * its owner.
+   */
+  async #runBackup(
+    device: DeviceConfig,
+    host: string,
+    startedBy: string,
+    signal: AbortSignal | undefined,
+    /** The stopper already in place for a backup that was asked for. */
+    existing?: AbortController,
+  ): Promise<RunReport> {
+    const stopper = existing ?? new AbortController();
+    this.#stoppers.set(device.id, stopper);
+    try {
+      const either = signal ? AbortSignal.any([signal, stopper.signal]) : stopper.signal;
+      return await this.deps.runner.run(device, host, either, startedBy);
+    } finally {
+      // One that was handed in is its owner's to clear.
+      if (!existing) this.#stoppers.delete(device.id);
+    }
+  }
+
+  /** Whether a backup of this phone is in hand right now. */
+  isBusy(deviceId: string): boolean {
+    return this.#busy.has(deviceId);
+  }
+
+  /**
+   * Back a phone up now, because someone asked: its owner, holding it.
+   *
+   * Nothing about the schedule is consulted: not whether a backup is due,
+   * not whether the phone was just plugged in or is on a charger at all, not
+   * a pause after an earlier failure. The one thing that still holds is that
+   * a phone is never backed up twice at once.
+   *
+   * Returns as soon as that is decided. The backup carries on in the
+   * background and reports through the log and the history like any other.
+   */
+  requestBackup(deviceId: string): BackupRequestResult {
+    const device = this.deps.devices.get(deviceId);
+    if (!device) return "unknown-device";
+    if (this.#busy.has(device.id)) return "already-running";
+
+    this.#start(device, "request");
+    return "started";
+  }
+
+  /**
+   * The phone says it has just been plugged in: back it up if the schedule
+   * allows one now.
+   *
+   * This is the daemon's usual trigger with the guesswork taken out. Polling
+   * has to infer a plug-in from two readings minutes apart; here the phone
+   * says so itself, the moment it happens. Everything else about the
+   * schedule still applies: nothing starts unless a backup is due, inside
+   * the allowed hours, and not during the pause after a failed attempt or a
+   * dismissed prompt.
+   */
+  reportPlugIn(deviceId: string): PlugInReportResult {
+    const { devices, state, log, clock } = this.deps;
+    const device = devices.get(deviceId);
+    if (!device) return { outcome: "unknown-device" };
+    if (this.#busy.has(device.id)) return { outcome: "already-running" };
+
+    const now = clock();
+    // Its owner has switched this moment off: a report of it starts nothing.
+    if (!device.policy.startWhenPluggedIn) return { outcome: "not-now", reason: "manual-only" };
+    const plan = schedule({
+      now,
+      policy: device.policy,
+      lastSuccessAt: state.lastSuccessAt(device.id),
+      recentAttempts: state.attemptsSince(device.id, new Date(now.getTime() - HISTORY_MS)),
+    });
+    if (plan.start.allowed) {
+      this.#start(device, "plug-in");
+      return { outcome: "started" };
+    }
+    const { reason, until } = plan.start;
+    if (reason === "already-running") return { outcome: "already-running" };
+
+    const detail = { reason, ...(until && { until: until.toISOString() }) };
+    log("info", "plug-in reported, no backup started", { device: device.id, ...detail });
+    state.recordDeviceEvent(device.id, now, "plug-in-reported", detail);
+    return { outcome: "not-now", reason, ...(until && { until }) };
+  }
+
+  /**
+   * The phone's owner has just opened the app on it: back it up if a backup
+   * is wanted and the schedule allows one now.
+   *
+   * Nobody is more certainly at a phone than someone who just opened an app
+   * on it, so this is the best moment there is. Everything else about the
+   * schedule still applies, exactly as for a plug-in that was reported.
+   */
+  reportAppOpen(deviceId: string): PlugInReportResult {
+    const { devices, state, clock } = this.deps;
+    const device = devices.get(deviceId);
+    if (!device) return { outcome: "unknown-device" };
+    if (this.#busy.has(device.id)) return { outcome: "already-running" };
+
+    const now = clock();
+    if (!device.policy.startWhenAppOpened) return { outcome: "not-now", reason: "manual-only" };
+    const plan = schedule({
+      now,
+      policy: device.policy,
+      lastSuccessAt: state.lastSuccessAt(device.id),
+      recentAttempts: state.attemptsSince(device.id, new Date(now.getTime() - HISTORY_MS)),
+    });
+    if (plan.start.allowed) {
+      this.#start(device, "app-open");
+      return { outcome: "started" };
+    }
+    const { reason, until } = plan.start;
+    if (reason === "already-running") return { outcome: "already-running" };
+    // Not logged: the app is opened far more often than a backup is wanted.
+    return { outcome: "not-now", reason, ...(until && { until }) };
+  }
+
+  /** Begin a backup outside the polling cycle. The caller has checked `#busy`. */
+  #start(device: DeviceConfig, source: RequestSource): void {
+    this.#busy.add(device.id);
+    // From this moment the phone is shown as backing up, with Stop beside
+    // it, so from this moment Stop has to work: before the phone has even
+    // been found, not only once the run has begun.
+    const stopper = new AbortController();
+    this.#stoppers.set(device.id, stopper);
+    const work = this.#backUpOnRequest(device, source, stopper).finally(() => {
+      this.#stoppers.delete(device.id);
+      this.#busy.delete(device.id);
+      this.#requested.delete(work);
+    });
+    this.#requested.add(work);
+  }
+
+  /** The work behind `requestBackup` and `reportPlugIn`. Never rejects. */
+  async #backUpOnRequest(
+    device: DeviceConfig,
+    source: RequestSource,
+    stopper: AbortController,
+  ): Promise<void> {
+    const { locator, runner, state, log, clock } = this.deps;
+    const now = clock();
+    log("info", "backup requested", { device: device.id, source });
+    state.recordDeviceEvent(device.id, now, "requested", { source });
+    // Until a run exists there is nothing in the history to show for the
+    // request, so what became of it is kept here for anyone asking.
+    this.#requests.set(device.id, { at: now, status: "connecting" });
+    const notStarted = (reason: string): void => {
+      log("warning", "requested backup not started", { device: device.id, reason });
+      this.#requests.set(device.id, { at: now, status: "not-started", reason });
+    };
+    let reached = false;
+    try {
+      const { status, host } = await locator.locate(device);
+      this.#observe(
+        device,
+        status.battery.externalPowerConnected ? "on-power" : "on-battery",
+        now,
+      );
+      if (!status.backupEncryptionEnabled) {
+        // The same rule as for a scheduled backup: never an unencrypted one.
+        notStarted("encryption-off");
+        return;
+      }
+      if (stopper.signal.aborted) {
+        // Stopped while the phone was still being looked for: nothing has
+        // been asked of the phone, and nothing will be.
+        notStarted("stopped");
+        return;
+      }
+      reached = true;
+      try {
+        await this.#runBackup(
+          device,
+          host,
+          source === "request" ? "request" : source === "app-open" ? "app-open" : "plugged-in",
+          this.#signal,
+          stopper,
+        );
+      } finally {
+        // The run is in the history now, and speaks for itself.
+        this.#requests.delete(device.id);
+      }
+      // The next scheduled pass should say afresh why it is waiting.
+      this.#lastLogged.delete(device.id);
+    } catch (error) {
+      if (error instanceof DeviceError) {
+        notStarted(
+          stopper.signal.aborted
+            ? "stopped"
+            : error.reason === "failed"
+              ? "probe-failed"
+              : error.reason,
+        );
+        return;
+      }
+      log("error", "unexpected error in a requested backup", {
+        device: device.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (!reached) this.#requests.set(device.id, { at: now, status: "not-started", reason: "error" });
+    }
+  }
+
+  /** One device's cycle: consider it, pause, repeat, until told to stop. */
+  async #cycle(deviceId: string, signal: AbortSignal): Promise<void> {
+    const { config, devices, sleep } = this.deps;
+    while (!signal.aborted) {
+      // Looked up each time: its settings may have been changed since.
+      const device = devices.get(deviceId);
+      if (!device) return;
+      await this.#pass(device, signal);
+      await sleep(config.pollIntervalSeconds * 1000, signal);
+    }
+  }
+
+  /** Consider every configured device once, all at the same time. */
+  tick(signal?: AbortSignal): Promise<DeviceOutcome[]> {
+    return Promise.all(this.deps.devices.all().map((device) => this.#pass(device, signal)));
+  }
+
+  /** Consider one device once. Never rejects. */
+  async #pass(device: DeviceConfig, signal?: AbortSignal): Promise<DeviceOutcome> {
+    let outcome: DeviceOutcome;
+    try {
+      outcome = await this.#consider(device, signal);
+    } catch (error) {
+      // One device's fault must not stop it, or the others, being considered.
+      const message = error instanceof Error ? error.message : String(error);
+      this.deps.log("error", "unexpected error considering a device", {
+        device: device.id,
+        error: message,
+      });
+      outcome = { deviceId: device.id, action: "waited", reason: "error" };
+    }
+    if (outcome.action === "waited") {
+      this.#waiting.set(device.id, {
+        reason: outcome.reason,
+        ...(outcome.until && { until: outcome.until }),
+        ...(outcome.moments && { moments: outcome.moments }),
+      });
+    } else {
+      this.#waiting.delete(device.id);
+    }
+    this.#logChange(outcome);
+    return outcome;
+  }
+
+  /**
+   * Why a phone is not being backed up right now, as found on its last
+   * pass. Undefined before its first pass, and just after a backup. This is
+   * what is known, not a fresh look: a phone is only asked about itself
+   * when a backup is nearly due.
+   */
+  waitingFor(deviceId: string): WaitingFor | undefined {
+    return this.#waiting.get(deviceId);
+  }
+
+  /**
+   * A phone's settings have been changed. What was last worked out about
+   * why it is waiting came from the old ones, so it is forgotten until the
+   * next pass works it out again.
+   */
+  settingsChanged(deviceId: string): void {
+    this.#waiting.delete(deviceId);
+    this.#lastLogged.delete(deviceId);
+  }
+
+  /**
+   * What became of the last backup asked for, while no run speaks for it:
+   * still looking for the phone, or not started and why. Undefined once a
+   * run has taken its place, and when nothing has been asked for.
+   */
+  requestFor(deviceId: string): RequestState | undefined {
+    return this.#requests.get(deviceId);
+  }
+
+  async #consider(device: DeviceConfig, signal?: AbortSignal): Promise<DeviceOutcome> {
+    const { locator, runner, state, clock } = this.deps;
+    const now = clock();
+    const lastSuccessAt = state.lastSuccessAt(device.id);
+
+    this.#warnIfStale(device, lastSuccessAt, now);
+
+    // A backup started on request is in hand: leave the phone to it.
+    if (this.#busy.has(device.id)) {
+      return { deviceId: device.id, action: "waited", reason: "already-running" };
+    }
+
+    const recentAttempts = state.attemptsSince(device.id, new Date(now.getTime() - HISTORY_MS));
+    const plan = schedule({ now, policy: device.policy, lastSuccessAt, recentAttempts });
+    const wantedMs = wantedForMs(device.policy, lastSuccessAt, now);
+    const blocked = (): DeviceOutcome | undefined =>
+      plan.start.allowed
+        ? undefined
+        : {
+            deviceId: device.id,
+            action: "waited",
+            reason: plan.start.reason,
+            ...(plan.start.until && { until: plan.start.until }),
+          };
+    if (!plan.observe) {
+      // Nobody is watching the phone now, so what was last seen of it goes
+      // out of date: forget it. Otherwise a phone last seen on battery
+      // yesterday, and on a charger since this morning, would look "just
+      // plugged in" the moment watching resumed, with nobody near it.
+      this.#power.delete(device.id);
+      this.#lock.delete(device.id);
+      return blocked() ?? { deviceId: device.id, action: "waited", reason: "not-due" };
+    }
+
+    // A phone that is away from home is the normal case, not a failure: it
+    // is not recorded as an attempt and does not trigger a back-off.
+    let located;
+    try {
+      located = await locator.locate(device);
+    } catch (error) {
+      if (!(error instanceof DeviceError)) throw error;
+      this.#observe(device, "unreachable", now);
+      this.#observeLock(device, undefined, now);
+      return {
+        deviceId: device.id,
+        action: "waited",
+        reason: error.reason === "failed" ? "probe-failed" : error.reason,
+        // What it will be waiting for once the phone is back.
+        moments: momentsInPlay(device.policy, wantedMs),
+      };
+    }
+    const { status, host } = located;
+    const power = this.#observe(
+      device,
+      status.battery.externalPowerConnected ? "on-power" : "on-battery",
+      now,
+    );
+    const lock = this.#observeLock(device, status.locked, now);
+
+    const waiting = blocked();
+    if (waiting) return waiting;
+
+    if (!status.backupEncryptionEnabled) {
+      // Never take an unencrypted backup just because encryption got turned
+      // off on the phone. Turning it back on is the owner's decision.
+      return { deviceId: device.id, action: "waited", reason: "encryption-off" };
+    }
+    const readiness = readyToStart({
+      policy: device.policy,
+      power,
+      lock,
+      wantedMs,
+      lastUnansweredAt: lastUnansweredAt(recentAttempts),
+      now,
+    });
+    if (!readiness.ready) {
+      return {
+        deviceId: device.id,
+        action: "waited",
+        reason: readiness.reason,
+        moments: readiness.moments,
+      };
+    }
+
+    // A request may have arrived while this pass was finding the phone.
+    if (this.#busy.has(device.id)) {
+      return { deviceId: device.id, action: "waited", reason: "already-running" };
+    }
+    // Or the phone may have been removed.
+    if (!this.deps.devices.get(device.id)) {
+      return { deviceId: device.id, action: "waited", reason: "removed" };
+    }
+    this.#busy.add(device.id);
+    this.deps.log("info", "a good moment for a backup", {
+      device: device.id,
+      moment: readiness.moment,
+    });
+    try {
+      const report = await this.#runBackup(device, host, readiness.moment, signal);
+      return { deviceId: device.id, action: "backed-up", report };
+    } finally {
+      this.#busy.delete(device.id);
+    }
+  }
+
+  /** Fold a probe result into what is known, logging when the picture changes. */
+  #observe(device: DeviceConfig, reading: PowerReading, at: Date): PowerState {
+    const before = this.#power.get(device.id) ?? INITIAL_POWER_STATE;
+    const after = observe(before, reading, at);
+    this.#power.set(device.id, after);
+    if (after.kind !== before.kind) {
+      const change = {
+        from: before.kind,
+        to: after.kind,
+        ...(after.kind === "on-power" && { sawPlugIn: after.pluggedIn }),
+      };
+      this.deps.log("info", "phone power state changed", { device: device.id, ...change });
+      this.deps.state.recordDeviceEvent(device.id, at, "power", change);
+    }
+    return after;
+  }
+
+  /**
+   * Fold what a probe said about the lock into what is known. `locked` is
+   * undefined when the phone did not answer, and null or undefined when it
+   * did not say.
+   */
+  #observeLock(device: DeviceConfig, locked: boolean | null | undefined, at: Date): LockState {
+    const before = this.#lock.get(device.id) ?? INITIAL_LOCK_STATE;
+    const after = observeLock(
+      before,
+      locked === true ? "locked" : locked === false ? "unlocked" : "unknown",
+      at,
+    );
+    this.#lock.set(device.id, after);
+    if (after.kind !== before.kind) {
+      this.deps.log("info", "phone lock state changed", {
+        device: device.id,
+        from: before.kind,
+        to: after.kind,
+      });
+    }
+    return after;
+  }
+
+  /**
+   * Say so, once a day, while a phone has gone too long without a good
+   * backup. A backup service usually fails by stopping quietly, and until
+   * there is a status page the log is where that has to show.
+   */
+  #warnIfStale(device: DeviceConfig, lastSuccessAt: Date | undefined, now: Date): void {
+    if (!lastSuccessAt || !isStale(device.policy, lastSuccessAt, now)) {
+      this.#staleWarnedAt.delete(device.id);
+      return;
+    }
+    const warnedAt = this.#staleWarnedAt.get(device.id);
+    if (warnedAt && now.getTime() - warnedAt.getTime() < DAY_MS) return;
+    this.#staleWarnedAt.set(device.id, now);
+    this.deps.log("warning", "no good backup for too long", {
+      device: device.id,
+      lastSuccessAt: lastSuccessAt.toISOString(),
+      staleAfterHours: device.policy.staleAfterHours,
+    });
+  }
+
+  #logChange(outcome: DeviceOutcome): void {
+    // Backups are logged by the runner; here only a change of waiting reason.
+    if (outcome.action !== "waited") {
+      this.#lastLogged.delete(outcome.deviceId);
+      return;
+    }
+    if (this.#lastLogged.get(outcome.deviceId) === outcome.reason) return;
+    this.#lastLogged.set(outcome.deviceId, outcome.reason);
+    const detail = {
+      reason: outcome.reason,
+      ...(outcome.until && { until: outcome.until.toISOString() }),
+    };
+    this.deps.log("info", "waiting", { device: outcome.deviceId, ...detail });
+    // Kept as well as logged: "why did no backup start?" is the question a
+    // trial of the schedule most often has to answer.
+    this.deps.state.recordDeviceEvent(outcome.deviceId, this.deps.clock(), "waiting", detail);
+  }
+}

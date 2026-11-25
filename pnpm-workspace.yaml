@@ -1,0 +1,7 @@
+# apps      things that run: the server, and later the app
+# packages  code shared between them
+# tools     what is only used to work on the repository
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "tools/*"

@@ -18,6 +18,56 @@ Revised 2026-11-24 after the owner's first review. Entries changed by that
 review say so, and all of them are now built. Each entry ends with a
 **Built** note where how it was built involved further choices.
 
+## For the owner to review
+
+Made on 2026-11-25 while the owner was away, on the owner's instruction to
+carry on and flag what was decided. Each is built and tested, none is
+deployed, and each entry lists the individual calls inside it.
+
+| | What | The call most worth a second look |
+|---|---|---|
+| D26 | What the app changes is kept in the database | It wins over the config file. Since overtaken by D28, which removes the file |
+| D27 | Automatic mode: moments, not a trigger | An unlock is seen at the two-minute poll, not by listening, so a brief unlock is missed |
+| D28 | Phones are added in the app; the config file is gone | **Pairings now live in the state volume, which the service can write.** That reverses part of D19. The web app's port is on by default |
+| D29 | A backup can be stopped from the app | Called "Stop", not "Cancel"; a stop buys the same four-hour pause as Cancel on the phone |
+| D30 | The server works out which phone is asking | By the request's address and the pairing, with no token; opening the app on a phone starts a wanted backup |
+| O8 | Backups away from home | Research only ([REMOTE.md](REMOTE.md)). A one-hour WireGuard test is proposed |
+
+**Reviewed before you saw it.** The day's changes were read through for
+bugs by a second pass with no stake in them, and what it found is fixed,
+each with a test that reproduces it:
+
+| Found | Fixed by |
+|---|---|
+| Stop did nothing while a requested backup was still looking for the phone, and the prompt then appeared | Stop works from the moment of asking; a backup stopped that early never reaches the phone |
+| A phone that went on a charger while nobody was watching looked "just plugged in" when watching resumed | What was last seen of a phone is forgotten once it is no longer being watched |
+| One missed probe made the same sitting count as a second unlock, so it could prompt twice | A gap of under 15 minutes continues the same stretch, as it already did for power |
+| The four hours after a Cancel were cut short by any later failure | Every recent failure sets its own pause; the one that ends last holds |
+| The proof of concept's "plugged in" request ignored the plug-in switch | It now respects it |
+| A phone removed in the app came back at the next restart while the old config was still mounted | The import is noted as done, and is done once |
+| Retrying "Add a phone" reused a network sweep up to five minutes old | Adding a phone sweeps afresh; so does anything after the range is changed |
+| A typed identifier was never checked against the phone, and case mattered | Checked when the phone is found; kept the way the phone writes it; compared without regard to case |
+| An old config file that still said `trigger` stopped the service | It is read and translated; and no unreadable old file can stop the service starting |
+| A replacement phone with the same name inherited the old one's history and backups | An id belongs to one handset for good; only the same handset gets it back |
+| Screens piled up behind Back, each still asking the server every few seconds | Back returns to the screen that is there; a hidden screen stops asking |
+| Recognising a phone: one short knock; it probed a phone mid-backup; behind a proxy it took the caller's word | A longer knock; a phone being backed up is left alone; only the proxy's own entry is used |
+
+Left as it is, knowingly: recognising a phone presents each phone's pairing
+identifiers (not its keys) to whatever answers on the lockdown port at the
+caller's address. On a home network that is another Apple device at most.
+
+Also decided along the way, without an entry of their own:
+
+- **The iPhone app's bundle id** is `io.github.mountmike.pommedonjon`. It
+  cannot be changed once the app is installed without becoming a different
+  app.
+- **The chosen icon** was redrawn full-bleed for iOS and is now the app's
+  icon, the favicon and the splash screen.
+- **Not done, on purpose:** no iOS simulator or CocoaPods was installed on
+  the owner's Mac to build the iPhone app; nothing was pushed or deployed
+  while the SSH key was locked; Back up now was never pressed for the real
+  phone.
+
 ## Scope
 
 *Decided by the owner, 2026-11-24.*
@@ -56,14 +106,39 @@ time comes; it is not part of the design or the build plan.
    how the schedule and the process behave in ordinary use. Added by the
    owner, 2026-11-24. Started that evening on the test stack, with the first
    backup the daemon began by itself. See O16 for what it has to settle.
-3. **Web UI and service interface:** the next phase, by the owner,
-   2026-11-24, provided the proof of concept in O22 works. It takes over
-   what notifications were mostly for: a status page that shows when a
-   phone has gone too long without a good backup. It is also where adding
-   phones and settings without copying files belongs (O21), and where
-   authentication comes in.
-4. **Later:** push or email notifications (O1); a native iOS app, which the
-   owner wants once the concept is proven; O8 to O15.
+3. **The app and its service interface:** the next phase, by the owner,
+   2026-11-24. One front end for the web and the iPhone (D23) over a JSON
+   API, in a workspace monorepo (D24). It takes over what notifications
+   were mostly for, with a status screen that shows when a phone has gone
+   too long without a good backup, and it replaces both the config file
+   (O24) and the Shortcuts of the proof of concept (O22). Planned as steps,
+   each usable by itself.
+
+   Reordered by the owner on 2026-11-25, after seeing step 3: the web app
+   first, to a complete state, and the iPhone app after it. My first order
+   put "back up now" with the iPhone build and left the history without a
+   screen, so the first thing on the test stack was a single read-only
+   card. The web app is still built so the iPhone app reuses it whole (D23).
+
+   1. Restructure the repository into workspaces, with no change in
+      behaviour. *Done.*
+   2. A design brief: theme, component kit and the screens (O23). *Done.*
+   3. The API contract and a status screen, in the web app the container
+      serves. *Done; on the test stack since 2026-11-25, where a deploy
+      takes about 100 seconds with the web app's build in it, up from 75.*
+   4. "Back up now" and each phone's history, in the web app. *Done.*
+   5. A phone's name and schedule changed in the app, kept in the database
+      (D26). *Done.* The config file is not gone yet: it still says which
+      phones there are and where things are kept, until step 7.
+   6. A schedule for each phone, set in the app (O26, D27). *Done,* except
+      "the owner opens the app" as a moment, which needs the iPhone app.
+   7. Adding and removing a phone from the app (O25); the config file goes
+      (O24). *Done (D28),* except pairing a phone from the browser, which
+      needs the owner and a cable.
+   8. The same app on the iPhone. *Prepared (D30): the code and
+      configuration are there; it has not been built or run.*
+   9. Sign-in (O27).
+4. **Later:** push or email notifications (O1); O8 to O15.
 
 ## Decided
 
@@ -122,8 +197,15 @@ make backing up phones in parallel (D13) a matter of running two processes.
 
 *By judgement.* Everything above it (policy, runner, daemon) is written
 against the interface and tested with a fake. Where a device lives is data
-(`usbmux` or `tcp` endpoint), not a different code path. Failures are typed
-(`device-locked`, `unreachable`, `not-paired`) so policy can react to cause.
+(an address and a pair record), not a different code path. Failures are
+typed (`device-locked`, `unreachable`, `not-paired`) so policy can react to
+cause.
+
+The interface is two calls: ask a phone about itself, and back it up. It
+began with a second way to reach a phone, through a USB daemon on the host,
+used during the first night's experiments on the Mac. Nothing the service
+does went that way, so it was removed on 2026-11-24. Pairing a new phone
+still needs USB once, and uses pymobiledevice3's own command for it (D5).
 
 This is what would let the sidecar be swapped for the Rust crate or a native
 implementation without touching the daemon.
@@ -141,8 +223,8 @@ stored on the server. See D19.
 *Decided by the owner, 2026-11-24: discovery is in scope for the first
 build.* This replaces "configured address only".
 
-What exists today: each phone has a `host` in the config, which is an IP
-address or a DNS name. Nothing else identifies where the phone is.
+What existed before: each phone had a `host` in the config, an IP address
+or a DNS name, and nothing else said where the phone was.
 
 How stable that is:
 
@@ -155,7 +237,7 @@ How stable that is:
 - So a fixed address is only as stable as two settings the owner has to get
   right, on the router and on the phone.
 
-What happens today when the address is wrong: the probe fails and the phone
+What happened then when the address was wrong: the probe fails and the phone
 is treated as away, indefinitely. It can never back up the wrong phone,
 because the connection is authenticated with that phone's pair record and
 the UDID it reports is checked (D4).
@@ -245,20 +327,27 @@ A cancel can be told apart (O17) and buys a pause of four hours
 nag the same evening, short enough that a cancel at breakfast does not cost
 the evening's backup.
 
-### D9. Heads-up before a backup: deferred with notifications
+### D9. No heads-up before a backup
 
-*Revised 2026-11-24.* The original rule was "no heads-up, no backup",
-because a locked phone showed a bare keypad with no explanation.
+*Settled by the owner, 2026-11-24, in two steps.*
 
-The evidence is now mixed. The owner has since seen a prompt with a message
-on an unlocked phone, and a keypad with a message on a locked one (attempt
-12). The bare keypad was seen once (attempt 8).
+The original rule was "no heads-up, no backup", because a locked phone
+showed a bare keypad with no explanation (attempt 8). It was first deferred
+along with notifications, and then dropped:
 
-- Notifications are their own later phase (O1), so the first build starts
-  backups without a heads-up reaching the phone.
-- The runner keeps its notification hook, which writes to the service log.
-- Prompting a locked phone is acceptable to the owner, now that a locked
-  prompt has been seen with a message (O2).
+- The prompt has since been seen with a message, on an unlocked phone and
+  on a locked one (attempt 12). Prompting a locked phone is acceptable to
+  the owner (O2).
+- A backup now starts when its owner plugs the phone in or taps a button
+  (D7, O22), so the prompt arrives while they are holding the phone. The
+  prompt is the notice (O1).
+
+**Built.** There is no heads-up and no pause: a backup starts as soon as it
+is decided. The notification hook, the `headsUpLeadSeconds` setting and the
+record of sent alerts were removed on 2026-11-24, with the owner's
+agreement, as left over. What notifications were still for is in O1; the
+one warning that matters, a phone gone too long without a good backup, is
+written to the log once a day until there is a status page to show it.
 
 ### D10. Encrypted backups only
 
@@ -379,30 +468,33 @@ and has not been tried on the real device.
   directory, a state directory, and the pair records.
 - The SQLite state must be on a local disk, not a network share.
 
-Not decided: which registry, and which CPU architectures to publish (only
-arm64 has been built).
-
-**Built** as far as the Compose example, the example config and an image
-that builds locally. Publishing waits on the registry choice and O13.
+**Built.** The image is published to GitHub's registry as
+`ghcr.io/mountmike/pommedonjon`, for amd64 only so far. There is one Compose
+file, `deploy/compose.yaml`: the same one the owner's stacks run is the one
+to copy. An earlier second example, with host folders and file-backed
+Compose secrets, was removed on 2026-11-24 so that there is one way to run
+it, the one that is actually run.
 
 ### D19. Pair records are handled as secrets
 
 *Decided by the owner, 2026-11-24: store them to best practice.* What that
 means here, by judgement:
 
-- Delivered as file-backed Compose secrets, mounted read-only, separate from
-  the config and from the backups directory.
+- *Changed by D28, 2026-11-25: they now live in the state volume, which
+  the service can write, because the app takes them in.* Originally:
+  kept in a volume of their own, mounted read-only at `/run/secrets`,
+  separate from the config and from the backups directory. (First built as
+  file-backed Compose secrets; changed to a volume with D20, so nothing has
+  to be laid out on the host.)
 - Never in the image, the config file, environment variables, logs, run
   history, or the build context.
 - Readable only by the user the container runs as; pommedonjon checks the
   file's permissions at start-up and says so if they are loose.
-- The Compose example and README show the layout and the host-side
-  permissions.
+- The README shows how to put one in with the right owner and mode.
 
 Already true: the config references pair records by path, the build context
 excludes them, and the container reads them from a read-only mount.
-**Built.** Compose mounts a file-backed secret exactly as it is on the host,
-so the host file's owner and mode are what protect it; the example says so.
+**Built.** The file's owner and mode inside the volume are what protect it.
 At start-up pommedonjon logs an error for a pair record that is missing or
 unreadable and a warning for one that anyone but its owner can read, and
 carries on, so one phone's mistake does not stop another's backups.
@@ -417,8 +509,7 @@ the project runs on Node 26.
 How that is built, by judgement:
 
 - **Every commit on `main` becomes an image** tagged `edge` and
-  `sha-<commit>`. The test stack follows `edge`, so merging is deploying to
-  test.
+  `sha-<commit>`.
 - **A release is the merge of the "Version Packages" pull request** that
   Changesets maintains. The pipeline then tags `v<version>` and pushes the
   image as `<version>`, `<major>.<minor>` and `latest`. Production follows a
@@ -433,11 +524,13 @@ How that is built, by judgement:
 - **The image carries its commit**, shown by `--version` and in the
   start-up log, since every build between two releases has the same version.
 
-Since then:
+Since then, all of it has run: the repository is on GitHub (D22), commits
+on `main` publish `edge`, and merging the "Version Packages" pull request
+released 0.1.0.
 
-- The repository is on GitHub (D22) and the workflow's test job has run and
-  passed on the first pull request. Its release and image jobs only run on
-  `main` and have not run yet.
+*From the owner, 2026-11-24:* while the only thing running pommedonjon is
+the test stack, work goes onto one branch, `dev`, with no pull requests.
+`main` keeps its protection and moves when the owner asks.
 
 **Test does not go through the pipeline at all.** The owner asked for the
 quickest path from a development session to a test environment managed by
@@ -446,7 +539,7 @@ Komodo. So:
 - The test stack follows a branch called `test` and **builds the image on
   the server** from that commit (`--build`). No CI run, no registry.
 - `pnpm deploy:test` moves `test` to the current commit, asks Komodo over
-  its API to deploy, waits, and prints the result and the log. The branch
+  its API to deploy, waits, and prints the result. The branch
   is only a pointer to "what is on test now", so it is force-moved.
 - Production still runs released images from the registry.
 - Komodo has no notion of one stack with several environments. Both
@@ -463,8 +556,10 @@ Komodo. So:
   repository, because the compose file has to travel with the code it
   builds. That is a departure from how the owner's other stacks are kept.
 
-Not verified: any of it against a real Komodo. The API calls follow the
-documentation; no key has been available to try them.
+Verified against the owner's Komodo (2.2.0): a deploy from a development
+session takes about 75 seconds. The deploy command once also fetched the
+stack's log through the API; the key was never given that permission and
+the log was being read on the server anyway, so that part was removed.
 
 One constraint the environments must respect: **a phone may be watched by
 only one daemon.** Two would each prompt it. So test and production cannot
@@ -502,7 +597,554 @@ Commits are published under the owner's GitHub no-reply address, not a
 personal one. The history was rewritten once, before the first push, to make
 that so; nothing else about the commits changed.
 
+### D23. One front end, in React and TypeScript, for the web and the iPhone
+
+*Decided by the owner, 2026-11-24:* React and TypeScript, one codebase for
+the web app and the iPhone app, built with Expo (React Native, with its web
+target). The owner wants a user interface that is both from the start, as
+much front-end code shared as possible, and a real iPhone app.
+
+The owner first chose Capacitor, a native shell around a web app, and
+changed to Expo the same evening. What decided it: nothing about starting
+a backup needs native code in either (O26), so the choice came down to
+whether the phone app should feel like an iPhone app or like a website in
+a wrapper.
+
+What follows from that, by judgement, to be confirmed as each is built:
+
+- **The container serves the web build beside the API.** Expo exports the
+  web app as static files, so there is still one container and the web app
+  needs no set-up.
+- **The iPhone app has to be told where the server is**, on a first-run
+  screen, and the API has to accept requests from it. The web app does
+  not: it is served from the same address as the API.
+- **Screens are built from React Native components**, so the component kit
+  has to be one made for that (O23). Web-only kits are out.
+- **Building the iPhone app needs Xcode**, and keeping it on a phone for
+  more than a week needs the paid Apple Developer Program.
+- The Shortcuts that call the service by address (O22) were a proof of
+  concept. The app replaces them, with a button and a schedule (O26).
+
+### D24. A workspace monorepo
+
+*Decided by the owner, 2026-11-24:* pnpm workspaces, to keep the modules
+apart and to share code between the web app and the iPhone app.
+
+Proposed layout, by judgement:
+
+| Workspace | Holds |
+|---|---|
+| `apps/server` | Today's daemon, the API, and the Python sidecar it drives |
+| `apps/app` | The Expo app: the iPhone app and the web app |
+| `packages/api-contract` | Zod schemas for every request and reply. The server validates with them and the app takes its types from them (D14) |
+| `packages/api-client` | The typed client the app calls the server with |
+
+One image is still published: the server with the web build inside it.
+
+**Built** (2026-11-24): the repository is a workspace with `apps/server`,
+`apps/app`, `packages/api-contract` and, for the deploy command,
+`tools/deploy`. The typed client has not needed a package of its own yet:
+it is one function inside the app, and moves out when a second user of it
+appears. The server, the app and the contract are versioned together, as
+one product, with the changelog kept with the server.
+
+### D25. No sign-in in the proof of concept
+
+*Decided by the owner, 2026-11-24:* the first version of the app has no
+sign-in. Proper sign-in comes later (O27), and will not be a user and
+password store of pommedonjon's own.
+
+What that means while it lasts, and should be kept in view: the API will
+grow from "make a phone show its prompt" to changing settings and taking
+in pair records, with nothing checking who is asking. It belongs on a
+trusted network only. Two rules hold regardless: the API never hands a
+pair record back out, and it never serves the contents of a backup.
+
+### D26. What the app changes is kept in the database, and wins over the file
+
+*By judgement, 2026-11-25.* The app can change a phone's name, how often it
+is backed up, when a backup may start, its quiet hours and when it counts
+as overdue. Those are saved in the state database as a layer over the
+config file: the built-in defaults, then the file, then what the app saved.
+
+- **The app saves everything it shows, changed or not.** So a phone keeps
+  what its owner saw on the screen, whatever the file says later.
+- **The daemon looks the phones up afresh on every pass,** so a change takes
+  effect within one poll, with no restart.
+- **Quiet hours are the policy's window seen from the other side.** The
+  policy allows backups from 07:00 to 22:00; the app says quiet from 10 pm
+  to 7 am. One setting, two ways of saying it. "Back up now" ignores it,
+  as it ignores the rest of the schedule.
+- **The app's rules are stricter than the file's.** It will not save an
+  overdue warning that comes before the backup is wanted. The file still
+  can, and the app reads that without complaint.
+- **Not in the app:** the pauses after a failed try, the poll interval, the
+  network ranges, the port. They stay in the file.
+
+Rejected: importing the file into the database once and ignoring it
+afterwards. The file would then be silently dead while still looking
+live. Layering keeps it honest until step 7 removes it (O24).
+
+This is on the unauthenticated API (D25): anyone who can reach the port can
+change a phone's schedule.
+
+### D27. Automatic mode: moments, not a trigger
+
+*Built 2026-11-25 to the rules the owner agreed (O26; DESIGN.md, "Automatic
+mode"). The points below were my calls, made while the owner was away.
+**For review.***
+
+The old `trigger` setting is gone. In its place a backup that is wanted
+starts at a *moment*: just after a plug-in, when the phone is found
+unlocked (once wanted for 4 hours), or any time on a charger (once wanted
+for a day). Each can be switched off, and automatic backups can be switched
+off altogether.
+
+1. **An unlock is seen by polling, not by listening.** The probe the daemon
+   already makes every two minutes now also reads whether the phone is
+   locked. Listening to the phone's notifications would catch a brief
+   unlock, but it means holding a connection open, and what that costs the
+   battery is not measured (FINDINGS.md). Polling costs nothing extra.
+   Revisit if unlocks are missed in practice.
+2. **A moment is used once.** After a prompt nobody answered, the same
+   plug-in, or the same stretch of being unlocked, does not prompt again;
+   the next one does. One missed probe does not end a stretch: only being
+   seen locked, or fifteen minutes without a word, does. This replaces "ask again every 10 minutes", which the
+   owner's rules ruled out. The 10 minutes stay as a floor between prompts.
+3. **Sitting on a charger asks again after four hours.** That rung has no
+   moment to wait for, so it needed a number. Four hours matches the pause
+   after a Cancel. It is a constant, not a setting.
+4. **Three unanswered prompts in 24 hours, then none until the oldest is a
+   day old.** The owner's rule, counted over a rolling day, not a calendar
+   one. Settable in the config file (`maxUnansweredPerDay`), not in the app.
+5. **Pauses do not cut each other short.** Each recent failure sets its
+   own pause and the one that ends last holds, so a Cancel's four hours
+   survive something else failing in the meantime.
+6. **What was seen of a phone is forgotten when watching stops.** Otherwise
+   a phone last seen on battery, and put on a charger unwatched, would
+   count as just plugged in when watching resumed.
+7. **A phone never backed up is on the first rung only.** There is nothing
+   to count "wanted for" from, and a phone just added should not be
+   prompted while it sits unattended on a charger. Its first backup comes at
+   a plug-in or from Back up now.
+8. **A phone that does not say whether it is locked counts as locked.**
+9. **`trigger` is removed, not kept alongside.** `"on-charger"` is now
+   `startOnChargerAfterHours: 0`. Settings saved from the app are converted
+   by the database upgrade, and an old config file that still says
+   `trigger` is translated as it is read.
+10. **Which moment started a backup is kept with the run** (D29).
+
+Not built: "the owner opens the app" as a moment, which needs the app to
+know which phone it is on.
+
+### D28. Phones are added in the app; the config file is gone
+
+*Built 2026-11-25 while the owner was away, to the direction already agreed
+(O24: no config file; O25: add a phone that was paired before). The points
+below were my calls. **For review.***
+
+A phone is added in the web app by uploading its pairing. Phones, their
+pairings and the server's few settings live in the state volume; where
+things are comes from environment variables with defaults.
+
+1. **Pairings now live in the state volume, writable by the service.**
+   This changes D19, which kept them in a volume of their own, mounted
+   read-only. The app has to be able to take one in, so read-only could not
+   stay. What is kept of D19: a directory only the service can enter
+   (0700), a file per phone (0600), never in the database, the logs, the
+   image or an API reply, checked at start-up. `POMMEDONJON_PAIRINGS_DIR`
+   puts them on a volume of their own for anyone who wants that back. Not
+   encrypted at rest: the key would have to sit beside them.
+2. **A pairing goes in and never comes out.** No reply carries one, and a
+   test holds that. Removing a phone destroys its pairing.
+3. **A pairing is checked before it is kept,** by the sidecar, which says
+   only whether it is one. A file that is not is deleted at once.
+4. **The pairing alone is enough when the phone is at home.** The server
+   looks through the network range for the device that accepts it and asks
+   that device its name and UDID. Measured on the owner's phone,
+   2026-11-25: a probe given no UDID reported the right one. Away from
+   home, the name and UDID have to be typed.
+5. **A phone's short id comes from its name** ("Mike's iPhone" is
+   `mikes-iphone`) and belongs to that handset for good. The same handset
+   added back, whatever it is then called, gets its id back, so its backups
+   carry on in the same directory. A different phone never does, even with
+   the same name: a replacement starts clean as `mikes-iphone-2`.
+6. **Removing a phone keeps its backups and its history.** Only the pairing
+   and the settings go. Refused while that phone is being backed up.
+7. **A phone needs a way to be found before it can be added:** a fixed
+   address, or a network range set under Server.
+8. **The web app's port is on by default now** (8377), where it was off
+   unless configured. There is nothing else to manage the service with.
+   It still has no sign-in (D25), which matters more than it did: the API
+   now takes pairings in and removes phones. Sign-in (O27) is the next
+   thing this needs before it leaves a trusted network.
+9. **An earlier config file is imported once, then ignored,** and that it
+   was done is written down, so a phone removed in the app stays removed
+   while the old file is still mounted. D26 rejected
+   exactly this, because a file that is read once looks live and is not.
+   It is acceptable here because it is the way off the file, the log says
+   so in as many words, and the only deployment is the test stack. The
+   compose file keeps the two old mounts for that one start.
+10. **The file's settings the app does not show are kept per phone** (the
+    pauses after a failed try): the import saves each phone's whole policy.
+    There is no longer a default policy to edit; the built-in one applies.
+11. **The check on a phone's page is a read-only probe.** It is refused
+    during a backup, when a second connection is one more thing to go
+    wrong.
+
+Not built: pairing a phone that has never been paired, from the browser
+(O25). It needs a cable, the phone and its owner. Until then the pairing is
+made on a computer with three commands (README, "Setting up a phone").
+
+### D29. A backup can be stopped from the app, and says what started it
+
+*Built 2026-11-25 while the owner was away. **For review.***
+
+- **Stop** shows in place of Back up now while a backup runs. The brief
+  called it Cancel; "Stop" is used so it is not confused with Cancel on the
+  phone's passcode prompt.
+- **A stopped backup is a "not now".** It is recorded as failed with the
+  reason "stopped", and the phone is then left alone for as long as after a
+  Cancel on the phone (four hours). The service shutting down mid-backup
+  stays "cancelled" and buys no such pause.
+- **Each run records what started it:** a moment (plugged in, unlocked, on
+  a charger), a request, or the command line. The history shows it. Runs
+  from before this have none. This closes point 8 of D27.
+
+### D30. The server works out which phone is asking, and opening the app is a moment
+
+*Built 2026-11-25 while the owner was away, to the owner's direction that
+this be worked out by the software and not by a fixed address (DESIGN.md,
+"Which phone is the app running on?"). **For review.***
+
+- **How.** When the app says it has been opened, the server takes the
+  address the request came from, checks that something is listening on the
+  lockdown port there, and tries each phone's pairing against it. The phone
+  that accepts its own pairing is the phone asking. The address is only
+  where to knock; the pairing is the proof, so one phone cannot pass for
+  another.
+- **No token.** The brief proposed giving the app a token after the first
+  proof. Left out: the proof is cheap, an answer is kept for five minutes
+  per address (one minute for "nobody"), and with no token there is nothing
+  to store on the phone, so the web app in Safari is recognised too.
+- **Opening the app starts a wanted backup.** This is the "its owner opens
+  the app" moment of the agreed rules. Everything else about the schedule
+  still applies: quiet hours, the pause after a Cancel, the daily limit on
+  unanswered prompts. It has its own switch per phone, on by default.
+- **Behind a reverse proxy the address is the proxy's,** so recognition
+  fails unless `POMMEDONJON_TRUST_PROXY` is set, which takes the address
+  from `X-Forwarded-For`. That header is the caller's say-so, so it is off
+  by default and only safe when the proxy is the only way in.
+- **Not yet tried on a real phone.** The pieces are: a probe with no UDID
+  (measured, D28), and the phone reaching the server with its own address
+  as the source. Whether the owner's network keeps the phone's address on
+  that path (it rewrites addresses the other way, O5) is unknown until it
+  is deployed.
+
+**The iPhone app** is the same code with three additions: a Connect screen
+for the server's address, kept on the phone; the bundle id
+`io.github.mountmike.pommedonjon`; and permission to talk plain HTTP to
+local addresses. It has not been built: this Mac has Xcode but no iOS
+simulator and no CocoaPods, and I did not install several gigabytes of
+simulator unasked. The native project generates cleanly from the
+configuration.
+
 ## Open
+
+Still needing a decision or a test. Items settled since the first review are
+under [Settled](#settled) below; they keep their numbers because commit
+messages cite them.
+
+| | Question | Waiting on |
+|---|---|---|
+| O8 | Remote backups | researched (REMOTE.md); a test needs the owner and the phone |
+| O9 | Proving a backup restores | later |
+| O10 | How the first full backup is taken | later |
+| O11 | Pair record lifetime | later |
+| O12 | Persistent misconfiguration is silent | later |
+| O14 | Onboarding the second phone | next, with the second phone |
+| O15 | Connections that fail or drop | partly settled |
+| O16 | Plugged in, or on a charger? | overtaken by D27: both, in turn. The trial now judges the waits |
+| O18 | Which phone goes to which environment | needs the owner |
+| O21 | Getting the config and pair records in without copying files | now O24 and O25 |
+| O23 | The design brief: theme, component kit, screens | agreed; nothing waiting |
+| O24 | Settings without a config file | built (D28); for review |
+| O25 | Adding a phone from the app | built for a phone paired before (D28); pairing from the browser still needs its test |
+| O26 | What starts a backup: a button or a schedule | built (D27, D30); for review |
+| O27 | Sign-in | later; direction proposed |
+
+### O8. Remote backups
+
+*Researched 2026-11-25; nothing built. See [REMOTE.md](REMOTE.md).*
+
+- **Over the tailnet it does not work.** Measured twice: at home the phone
+  accepted the connection and dropped the session; away from home it was
+  silent on the lockdown port and on the newer pairing port, while
+  answering a tailnet ping.
+- **A guess worth an hour:** the phone wants the other end on its own
+  subnet, which a tailnet address can never be, and which a plain
+  WireGuard VPN from the home router can. If so, backups away need no code
+  at all, only the VPN subnet added to the network range.
+- **The fallback** is the developer tunnel, reported to work over a tailnet
+  for app installs. Days of work, and unproven for backups.
+- **Managing the server from away already works** over the tailnet. It
+  must not go further than a private VPN until there is sign-in (O27).
+
+Waiting on: the owner, the phone, and the router, for the WireGuard test.
+
+### O9. Proving a backup restores
+
+*Later.* Decrypting needs the backup password. Either the service is given
+it (a second secret to protect), or decryption checks are run by hand.
+
+### O10. How the first full backup is taken
+
+*Later.* A first backup is about 22 GB. Over USB to the Mac it took 13
+minutes; over WiFi it has not been timed. Seeding the server's directory
+from a USB backup works, and is how the owner's NAS was started: every
+backup there since has been an incremental. A phone with no computer to
+seed from would have to do the full one over WiFi.
+
+### O11. Pair record lifetime
+
+*Later.* One report says pair records can expire after days without contact.
+Not verified. If true, the service needs a re-pairing procedure and an
+alert.
+
+### O12. Persistent misconfiguration is silent
+
+*Later.* A rejected pair record or a failing probe is logged once and then
+waited on. Nothing alerts until the backup goes stale.
+
+### O14. Onboarding the second phone
+
+*Later.* It needs pairing on a Mac and backup encryption with a password its
+owner knows.
+
+### O15. Connections that fail or drop
+
+*Partly settled on evidence, 2026-11-24; the rest later.*
+
+- Settled: one failed connection does not mean the phone is away. The
+  sidecar now keeps dialling for 12 seconds. On battery the phone took up
+  to 6.7 seconds to accept a connection.
+- Open: a backup whose connection drops after the prompt has appeared
+  (attempt 12: passcode typed, session lost anyway). It is recorded as
+  `unreachable` although the owner was prompted. How soon to retry, and
+  whether that counts as an unanswered prompt, is not decided.
+- Open: the later connections a backup opens still have a one-second limit.
+
+### O16. Plugged in, or on a charger? To be settled by the field trial
+
+*The owner's call, 2026-11-24: test it for a week or two and watch.*
+
+- *On a charger* (a state): start whenever the phone is on power and a
+  backup is due. A phone left charging overnight can become due while its
+  owner is asleep, and with retries after every timeout (D8) it would light
+  up repeatedly until morning.
+- *Plugged in* (an event): start only in the minutes after the phone goes
+  onto power, while the owner is still holding it.
+
+My recommendation is the event, but this is a question about habits, not
+about the protocol, so it gets measured. What the trial has to record for
+each day: when the phone went onto and off power, when a backup became due,
+when each prompt was shown and whether it was answered, timed out or
+cancelled, and how long the backup took. What it has to answer:
+
+- How often does a prompt arrive when nobody is there to answer it?
+- Does a backup happen every day the phone is charged at home?
+- How many prompts does a normal day produce?
+
+Settled already: due after 20 hours, not 24 (D7).
+
+**Built for the trial:** the daemon stores every change in a phone's power
+state and every change in why it is waiting, alongside the run history, and
+`pommedonjon report` lays them out day by day with totals that answer the
+three questions above, including the hour at which unanswered prompts
+arrived. `--json` gives the same for analysis. A record in the database was
+chosen over the log because a container restart loses the log.
+
+### O18. Which phone goes to which environment
+
+A phone can only be given to one running daemon (D20). With two phones and
+two server environments, the options:
+
+- **Test has the owner's phone, production has the second phone.** New
+  builds reach the owner first; the other person only ever gets a released
+  version. Recommended.
+- **One environment at a time.** Test has both phones during the trial;
+  production replaces it afterwards.
+- **Test has no phone of its own** and is only for one-off commands.
+
+### O21. Getting the config and pair records in without copying files
+
+The deploy stack keeps them in named volumes (D20), which start empty. The
+owner asked whether pommedonjon could create its config on demand, and
+expects a web UI to manage it eventually.
+
+Most of the config has a sensible default or is fixed by the image: where
+backups and state go, the schedule. Two things cannot be invented: which
+phones to back up, which comes down to having a pair record for each, and
+which network range to look for them in.
+
+*Decided by the owner, 2026-11-24:* for the proof of concept, copy the two
+files into the volumes by hand after the first deploy. Later versions get a
+UI that does it. The idea of the app building its own config from the pair
+records it finds, needing only a network range, is kept for then. No code
+has been changed for this.
+
+### O23. The design brief: theme, component kit, screens
+
+*Asked for by the owner, 2026-11-24*, before any screens are built: a plan
+for the look, the component library and the way it is used.
+
+**Written, reviewed and agreed, 2026-11-24:** [DESIGN.md](DESIGN.md). The
+owner's choices in it: the System theme, which looks like the iPhone's own
+apps; Expo's UI kit; an icon of a phone that is a keep with an apple's
+leaf; quiet hours from 10 pm to 7 am; the rules of the automatic mode
+(O26); and that the app works out which phone it is on from the pairing,
+not from an address.
+
+To be written for the owner's review: the principles (a phone's state at a
+glance, one main action, honest about the passcode), the list of screens
+and how one leads to the next, colour and type for light and dark, and the
+theme. The name gives it one, an apple and a castle keep, to be used with
+restraint.
+
+The component kit is open. It has to be one built for React Native that
+also renders well on the web (D23). Two or three to be compared against
+their current documentation, with a recommendation and a sample screen.
+
+### O24. Settings without a config file
+
+The owner asked whether the config file can go away entirely. *Proposed:*
+yes.
+
+- Where things are (the port, the backups and state directories) is fixed
+  by the image or set as environment variables.
+- Everything else lives in the database and is changed from the app: the
+  phones, each one's schedule, and the pair records.
+- **The network range may stop being a setting.** Once the app runs on the
+  phone, every request it makes tells the server the phone's current
+  address. Sweeping a range (D6) becomes the fallback for a phone without
+  the app.
+- No migration is needed: only the test stack exists, and its one phone
+  can be added again through the app.
+- A consequence: the app needs to write where pair records are stored.
+  Today that volume is mounted read-only (D19).
+
+### O25. Adding a phone from the app
+
+*What the owner wants, 2026-11-24:* add a phone that has been paired
+before, and also find a phone freshly plugged into the computer, from the
+browser, and copy its pairing.
+
+- **Paired before:** import its pair record. No obstacle.
+- **Freshly plugged in, from the browser:** possible in principle through
+  WebUSB, and unproven. Reported, not tested here: it works only in
+  Chrome-family browsers; the projects that do it are small and
+  experimental; only one program can hold the phone's USB connection at a
+  time, and on Linux the system's own service has to be disabled first. On
+  a Mac, Apple's service holds that connection, and nothing found says it
+  can be shared.
+- **To do first:** a short, time-boxed test of pairing from Chrome on the
+  owner's Mac.
+- **The fallback, known to work:** a one-line helper run on the computer,
+  which creates the pairing or reads the existing one and sends it to the
+  server. The Mac's pair record can be read without root (FINDINGS.md,
+  "Pair record portability").
+
+Pairing is not the whole of it: WiFi connections have to be switched on
+for the phone and backup encryption set, with a password its owner
+chooses. Both are done over the same USB session today.
+
+### O26. What starts a backup: a button or a schedule
+
+*Decided by the owner, 2026-11-24.* The app has its own API. A backup
+starts because someone pressed a button in the app, or because a schedule
+set in the app says so. Nothing else is involved: no Shortcuts, and no
+automation set up by hand on the phone.
+
+I had kept planning around a Shortcuts automation that tells the service
+when the charger is connected, carried over from the proof of concept
+(O22). That was my mistake about what was being asked for, and it is
+dropped from the plan.
+
+How it works, which needs nothing from iOS:
+
+- **The schedule lives on the server**, which is always running. The app
+  is where it is set; the server is what acts on it and starts the backup.
+  The phone only has to be at home.
+- **The button** is the app calling the API, as the proof of concept's
+  request already does.
+- **"When it goes on charge" stays available as a kind of schedule**,
+  without anything on the phone: the server sees it by asking the phone,
+  which is how the first automatic backups were started (attempts 15 and
+  16).
+
+**The schedule is loose, and the service picks the moment.** *The owner's
+idea, 2026-11-24:* an automatic mode. The schedule says roughly how often
+and when; an algorithm then chooses the actual moment from what is known
+about the phone, and keeps waiting past the scheduled time until its owner
+is actually at it.
+
+What it could use:
+
+| Signal | Where it comes from | Known to work? |
+|---|---|---|
+| At home | The phone answers on the network | Yes |
+| On power, and just plugged in | The server asks the phone | Yes (attempts 15 and 16) |
+| Unlocked, or just unlocked | The server asks the phone, or listens to it | **Yes, measured 2026-11-24.** A value the phone reports follows the lock, and the phone also announces locking, waking and unlocking as they happen (FINDINGS.md, "Lock state, seen from the server") |
+| The app is open | The app tells the server | Certain, once there is an app. The strongest sign of all that the owner is there |
+| When prompts were answered before | The run history (O16) | Recorded since the trial began |
+| A cancel | The transport (O17) | Yes; already buys a long pause (D8) |
+
+**The rules, agreed by the owner on 2026-11-24** (DESIGN.md, "Automatic
+mode"): once a backup is wanted, start when the phone is plugged in at
+home or its owner opens the app; after four hours, also at the next unlock
+at home; after a day, also any time it is on a charger. Never in quiet
+hours, four hours' peace after a cancel, and no more than three unanswered
+prompts a day. Plug-in comes before unlock because someone plugging in has
+finished with the phone and someone unlocking is about to use it.
+
+So the automatic mode can time a prompt to the moment its owner unlocks
+the phone. What that costs is not known yet: hearing it as it happens means
+holding a connection to the phone open, and whether that survives the
+phone sleeping, and what it does to the battery, are unmeasured. A sensible
+first rule: only listen once a backup is due.
+
+This brings back O2 (prompt just after an unlock), which was closed when
+prompting a locked phone turned out to be acceptable. Acceptable is not
+the same as best: a prompt that arrives as the owner unlocks is the one
+least likely to be missed.
+
+Today's settings are "when a backup is due and the phone goes on charge",
+with optional hours to stay inside (D7). That is one fixed rule; the
+automatic mode would replace it as the default.
+
+The one constraint that no schedule removes: every backup asks for the
+passcode on the phone (FINDINGS.md), so a schedule is only useful at times
+its owner is likely to be holding it.
+
+### O27. Sign-in
+
+*Later, by the owner (D25).* The owner's direction: not a password store
+of our own; sign in with an existing account.
+
+*Proposed:*
+
+- **Standard OIDC as the base**, one implementation that covers Google and
+  self-hosted identity providers. GitHub does not follow the standard and
+  would need its own adapter.
+- **Sign in with Apple as an extra inside the iPhone app.** On the web,
+  Apple requires each domain and return address to be registered against a
+  developer account, which someone hosting pommedonjon on their own domain
+  cannot do under the app's identity.
+- Each installation keeps a list of who may sign in.
+
+## Settled
+
+Were open; now decided, built or ruled out of scope.
 
 ### O1. Notification channel
 
@@ -567,7 +1209,7 @@ phones.
 - Nothing in the image or the Compose example changes. The alternative,
   giving the container an address on the phones' network, was not needed.
 
-Worth carrying into the README: a server on another subnet needs both an
+Carried into the README: a server on another subnet needs both an
 allow rule and source NAT towards the phones, on TCP 49152 to 65535. Without
 the NAT the symptom is a connection that opens and is then closed by the
 phone; with only 62078 allowed it is a probe that works and a backup that
@@ -614,90 +1256,13 @@ Considered:
   evidence: tested 2026-11-24 from the Mac, the lockdown port accepts a
   connection on the Tailscale address and the phone then drops the session,
   while the same probe to the WiFi address succeeds.
-- **The phone announces itself**, from an app or a Shortcut. Exact and
-  cheap, and the owner is interested. It belongs with the notifications
-  phase (O1).
-
-### O8. Remote backups over the tailnet
-
-*Later.* First evidence, 2026-11-24: the direct path does not work over the
-tailnet. The phone accepts a connection to port 62078 on its Tailscale
-address and then drops the lockdown session. Remote backups would need the
-RemotePairing tunnel or a relay on the home network.
-
-### O9. Proving a backup restores
-
-*Later.* Decrypting needs the backup password. Either the service is given
-it (a second secret to protect), or decryption checks are run by hand.
-
-### O10. How the first full backup is taken
-
-*Later.* A first backup is about 22 GB. Over USB to the Mac it took 13
-minutes; over WiFi it has not been timed. Seeding the server's directory
-from a USB backup works (attempt 9 ran on a seeded copy).
-
-### O11. Pair record lifetime
-
-*Later.* One report says pair records can expire after days without contact.
-Not verified. If true, the service needs a re-pairing procedure and an
-alert.
-
-### O12. Persistent misconfiguration is silent
-
-*Later.* A rejected pair record or a failing probe is logged once and then
-waited on. Nothing alerts until the backup goes stale.
+- **The phone announces itself**, from an app or a Shortcut. Since built,
+  as a way to start a backup and not as discovery (O22): the phone says it
+  was plugged in, and the service still finds it by address.
 
 ### O13. Licence
 
 *Closed by the owner, 2026-11-24.* See D22.
-
-### O14. Onboarding the second phone
-
-*Later.* It needs pairing on a Mac and backup encryption with a password its
-owner knows.
-
-### O15. Connections that fail or drop
-
-*Partly settled on evidence, 2026-11-24; the rest later.*
-
-- Settled: one failed connection does not mean the phone is away. The
-  sidecar now keeps dialling for 12 seconds. On battery the phone took up
-  to 6.7 seconds to accept a connection.
-- Open: a backup whose connection drops after the prompt has appeared
-  (attempt 12: passcode typed, session lost anyway). It is recorded as
-  `unreachable` although the owner was prompted. How soon to retry, and
-  whether that counts as an unanswered prompt, is not decided.
-- Open: the later connections a backup opens still have a one-second limit.
-
-### O16. Plugged in, or on a charger? To be settled by the field trial
-
-*The owner's call, 2026-11-24: test it for a week or two and watch.*
-
-- *On a charger* (a state): start whenever the phone is on power and a
-  backup is due. A phone left charging overnight can become due while its
-  owner is asleep, and with retries after every timeout (D8) it would light
-  up repeatedly until morning.
-- *Plugged in* (an event): start only in the minutes after the phone goes
-  onto power, while the owner is still holding it.
-
-My recommendation is the event, but this is a question about habits, not
-about the protocol, so it gets measured. What the trial has to record for
-each day: when the phone went onto and off power, when a backup became due,
-when each prompt was shown and whether it was answered, timed out or
-cancelled, and how long the backup took. What it has to answer:
-
-- How often does a prompt arrive when nobody is there to answer it?
-- Does a backup happen every day the phone is charged at home?
-- How many prompts does a normal day produce?
-
-Settled already: due after 20 hours, not 24 (D7).
-
-**Built for the trial:** the daemon stores every change in a phone's power
-state and every change in why it is waiting, alongside the run history, and
-`pommedonjon report` lays them out day by day with totals that answer the
-three questions above, including the hour at which unanswered prompts
-arrived. `--json` gives the same for analysis. A record in the database was
-chosen over the log because a container restart loses the log.
 
 ### O17. Telling a cancel from a timeout
 
@@ -714,18 +1279,6 @@ that error, as cancelled.
 
 Limits: one observation, on an unlocked phone. Not seen yet: a prompt
 cancelled from the lock screen, or a wrong passcode, which may look the same.
-
-### O18. Which phone goes to which environment
-
-A phone can only be given to one running daemon (D20). With two phones and
-two server environments, the options:
-
-- **Test has the owner's phone, production has the second phone.** New
-  builds reach the owner first; the other person only ever gets a released
-  version. Recommended.
-- **One environment at a time.** Test has both phones during the trial;
-  production replaces it afterwards.
-- **Test has no phone of its own** and is only for one-off commands.
 
 ### O19. The name
 
@@ -749,23 +1302,6 @@ files on the mounted share. The unprivileged container of D15 stands.
 Worth carrying into the README when storage gets its own section: a share
 that maps all writes to one account is the simplest way to give the
 container somewhere to write on a NAS.
-
-### O21. Getting the config and pair records in without copying files
-
-The deploy stack keeps them in named volumes (D20), which start empty. The
-owner asked whether pommedonjon could create its config on demand, and
-expects a web UI to manage it eventually.
-
-Most of the config has a sensible default or is fixed by the image: where
-backups and state go, the schedule. Two things cannot be invented: which
-phones to back up, which comes down to having a pair record for each, and
-which network range to look for them in.
-
-*Decided by the owner, 2026-11-24:* for the proof of concept, copy the two
-files into the volumes by hand after the first deploy. Later versions get a
-UI that does it. The idea of the app building its own config from the pair
-records it finds, needing only a network range, is kept for then. No code
-has been changed for this.
 
 ### O22. "Back up now", sent from the phone
 

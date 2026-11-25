@@ -1,24 +1,29 @@
-# pommedonjon as a server runs it. One file for every environment: each
-# environment is a separate stack that sets the variables below.
+# pommedonjon as a server runs it, and the file to copy into a stack of your
+# own. One file for every environment: each environment is a separate stack
+# that sets the variables below.
 #
 #   POMMEDONJON_IMAGE         which build to run
 #   POMMEDONJON_BACKUPS_DIR   host directory where backups live
 #   POMMEDONJON_USER          uid:gid to run as; must be able to write to the
 #                             backups directory (1000:1000)
+#   POMMEDONJON_PORT          host port for the web app (8377)
 #   TZ                        where the phones live, e.g. Europe/London
 #
-# Everything else lives in volumes Docker creates on the first deploy, so
-# nothing has to be prepared on the server:
+# Everything else is set in the web app and kept in one volume Docker
+# creates on the first deploy, so nothing has to be prepared on the server:
 #
-#   config    pommedonjon.json
-#   secrets   one pair record per phone
-#   state     the run history
+#   state     the phones, their pair records, the settings and the history
 #
-# New volumes are empty: the config and the pair records have to be put into
-# theirs once.
+# That volume holds each phone's pair record, which grants full access to
+# the phone. Back it up like a secret, and keep it off network shares.
 #
-# A phone must appear in only one environment's config: two daemons watching
-# the same phone would each prompt it.
+# A phone must be added to only one environment: two services watching the
+# same phone would each prompt it.
+
+# Names the volume pommedonjon_state when run with plain
+# `docker compose`. A stack manager that sets its own project name overrides it.
+name: pommedonjon
+
 services:
   pommedonjon:
     image: ${POMMEDONJON_IMAGE:-ghcr.io/mountmike/pommedonjon:latest}
@@ -27,13 +32,21 @@ services:
     environment:
       TZ: ${TZ:-Etc/UTC}
     volumes:
-      - config:/config:ro
-      # A pair record grants full access to a phone. Read-only to the app.
-      - secrets:/run/secrets:ro
-      # The run history (SQLite). On the server's own disk, never a network
-      # share.
+      # The database and the pair records. On the server's own disk, never a
+      # network share.
       - state:/state
       - ${POMMEDONJON_BACKUPS_DIR:?set POMMEDONJON_BACKUPS_DIR}:/backups
+      # Only for a stack set up before phones were managed in the web app:
+      # its config file and pair records are brought into the state volume
+      # the first time this version starts. Once the phones show in the web
+      # app, delete these two lines and the two volumes.
+      - config:/config:ro
+      - secrets:/run/secrets:ro
+    # The web app, where phones are added and managed. It has no sign-in
+    # yet: anyone who can reach it can manage the phones and start backups.
+    # Publish it only on a network you trust.
+    ports:
+      - "${POMMEDONJON_PORT:-8377}:8377"
     read_only: true
     tmpfs:
       - /tmp
@@ -44,6 +57,7 @@ services:
 
 # Named per stack, so each environment has its own set.
 volumes:
+  state:
+  # Only for the one-time import described above.
   config:
   secrets:
-  state:
