@@ -31,6 +31,7 @@ deployed, and each entry lists the individual calls inside it.
 | D28 | Phones are added in the app; the config file is gone | **Pairings now live in the state volume, which the service can write.** That reverses part of D19. The web app's port is on by default |
 | D29 | A backup can be stopped from the app | Called "Stop", not "Cancel"; a stop buys the same four-hour pause as Cancel on the phone |
 | D30 | The server works out which phone is asking | By the request's address and the pairing, with no token; opening the app on a phone starts a wanted backup |
+| D30 | The iPhone app, run in the simulator | **Native navigation bar on iOS only; Expo UI's controls kept, with three fixes;** opening counts only from the background; "Connect to another server" added |
 | O8 | Backups away from home | Research only ([REMOTE.md](REMOTE.md)). A one-hour WireGuard test is proposed |
 
 **Reviewed before you saw it.** The day's changes were read through for
@@ -135,8 +136,8 @@ time comes; it is not part of the design or the build plan.
    7. Adding and removing a phone from the app (O25); the config file goes
       (O24). *Done (D28),* except pairing a phone from the browser, which
       needs the owner and a cable.
-   8. The same app on the iPhone. *Prepared (D30): the code and
-      configuration are there; it has not been built or run.*
+   8. The same app on the iPhone. *Runs in the simulator (D30); not yet
+      installed on a real phone.*
    9. Sign-in (O27).
 4. **Later:** push or email notifications (O1); O8 to O15.
 
@@ -844,10 +845,65 @@ this be worked out by the software and not by a fixed address (DESIGN.md,
 **The iPhone app** is the same code with three additions: a Connect screen
 for the server's address, kept on the phone; the bundle id
 `io.github.mountmike.pommedonjon`; and permission to talk plain HTTP to
-local addresses. It has not been built: this Mac has Xcode but no iOS
-simulator and no CocoaPods, and I did not install several gigabytes of
-simulator unasked. The native project generates cleanly from the
-configuration.
+local addresses.
+
+**Run in the simulator, 2026-11-25, while the owner was away.** A Release
+build on an iPhone 17 Pro simulator (iOS 26.5), against the local preview,
+every screen in light and dark. It connects over plain HTTP to `localhost`
+(App Transport Security's local-networking exception is enough), remembers
+the server across launches, and Back up now, Check this phone, Save,
+Cancel and Remove's confirmation all work. What was wrong, and what was
+decided:
+
+- **Expo UI's controls are kept** (DESIGN.md, "Component kit"). They render
+  as real SwiftUI controls at the system's sizes: buttons in the iOS 26
+  style, switches, and pickers as the system's menu. The fallback, plain
+  React Native controls styled from the tokens, was not needed. Three
+  things had to be fixed for it:
+  - *Controls drifted out of their rows.* A host left to its default pads
+    its contents by the safe area, so a control that scrolled under the
+    status bar was pushed down by the bar's height and overlapped the row
+    below. Every host now ignores safe areas (`ui/Native.tsx`); the screen
+    keeps content clear of the edges instead.
+  - *Switches hugged their labels* instead of sitting at the end of the
+    row. A switch's host now takes the row's width. The web gets the same
+    layout, which suits it.
+  - *Cancel looked like a label:* Expo UI's "text" button is SwiftUI's
+    plain style, drawn in the text colour. On the iPhone it is now the
+    system's borderless button, in blue, and Remove is in the system's
+    red (`ui/buttonLook.ios.ts`). The web is unchanged.
+- **Native navigation on the iPhone** (DESIGN.md, "iPhone and web" asked
+  for it). The stack's own navigation bar is switched on for iOS only: a
+  large title that shrinks on scroll, the system's back button with the
+  previous screen's name, and the swipe back. The "‹ Back" links and the
+  page headings are drawn only on the web. One switch, `NATIVE_HEADER` in
+  `ui/Screen.tsx`, and every screen now uses that one frame. The bar is
+  left as the system draws it: setting its tint also coloured the large
+  title, which then did not show at all.
+- **Edges and the keyboard.** Content now scrolls under the navigation bar
+  and the home indicator instead of being cut off above them, and a
+  focused field is moved clear of the keyboard. The address on Connect
+  offers the URL keyboard, and its return key connects.
+- **`dismissTo`** works with native navigation: Save and Cancel return to
+  the screen already there (its back button still reads "Phones").
+- **The theme's system colours** (`PlatformColor`) follow light and dark
+  live, with nothing else to do.
+- **Opening the app** now counts only on coming back from the background,
+  not on every return to the front: pulling down Control Centre or a
+  notification also makes an app inactive for a moment. Nor is it reported
+  before the app knows its server. Not observable against the preview,
+  which does not log it.
+- **Connecting to another server.** The app could be told its server once
+  and never again, so a server that moved left it stuck. Server now has
+  "Connect to another server" on the iPhone, also shown when the server
+  cannot be reached.
+
+Still needs a real phone: whether the owner's network keeps the phone's
+own address on the way to the server (so "This iPhone" and the opening
+moment work, above); the local-network permission prompt, which the
+simulator does not show; the on-screen keyboard over a field, since the
+simulator typed from the Mac's keyboard; and installing at all, which
+needs a signing team.
 
 ## Open
 
