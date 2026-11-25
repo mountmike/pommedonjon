@@ -1,6 +1,6 @@
 {
   "name": "@pommedonjon/api-contract",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "private": true,
   "description": "The shape of every request and reply between the pommedonjon server and its app.",
   "license": "GPL-3.0-only",
